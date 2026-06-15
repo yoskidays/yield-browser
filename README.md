@@ -125,3 +125,29 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Method reference diganti ke lambda `() -> hideGoogleTranslateToolbar()`.
 - Jika method hide toolbar tidak ada, ditambahkan ulang implementasi aman.
 - Fitur v0.6.0 gesture maju-mundur tetap dipertahankan.
+
+
+## v0.6.2
+- Fix translate aktif tetapi menu/link website tidak bisa diklik.
+- Hide Google Translate bar diperkuat:
+  - overlay Google Translate dibuat `pointer-events:none`
+  - elemen website dipaksa `pointer-events:auto`
+  - MutationObserver dipakai untuk membersihkan layer translate yang muncul terlambat
+- Menu Translate ditambah opsi manual: `Aktifkan klik menu website`.
+
+
+## v0.6.3
+- Fix Mode Malam OFF masih menyisakan background gelap.
+- Saat OFF:
+  - CSS `yield-night-style` dihapus
+  - `color-scheme` dikembalikan ke light
+  - WebView background dikembalikan putih
+  - `ForceDark` dimatikan
+  - halaman aktif direload ringan agar style situs kembali normal
+
+
+## v0.6.4
+- Item lama `Night mode` di Setelan diganti menjadi `Mode Malam: OFF/ON/AUTO`.
+- Mengubah Mode Malam dari Setelan tidak menutup panel Setelan lagi.
+- Mode Malam OFF tidak langsung reload/pindah Home; hanya membersihkan CSS gelap di halaman aktif.
+- Ditambahkan opsi `Bersihkan style gelap halaman ini` untuk membersihkan sisa style gelap tanpa keluar dari menu.

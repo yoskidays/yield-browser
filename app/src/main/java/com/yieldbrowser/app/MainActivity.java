@@ -1155,11 +1155,9 @@ public class MainActivity extends Activity {
             }));
         }
         if (shortcutNightMode) {
-            menu.addView(menuRow(R.drawable.ic_night, "Night Mode " + (nightMode ? "ON" : "OFF"), v -> {
-                nightMode = !nightMode;
-                saveSettings();
+            menu.addView(menuRow(R.drawable.ic_night, "Mode Malam: " + nightModeLabel(), v -> {
                 dialog.dismiss();
-                Toast.makeText(this, nightMode ? "Night mode aktif" : "Night mode nonaktif", Toast.LENGTH_SHORT).show();
+                showNightModeSettingsDialog();
             }));
         }
         if (shortcutQrScan) {
@@ -1326,7 +1324,9 @@ public class MainActivity extends Activity {
         panel.addView(sectionTitle("Fitur browsing"));
         panel.addView(settingRow(R.drawable.ic_speed, "Mode cepat", "Optimasi cache, gambar, dan resource.", speedMode, v -> { speedMode = !speedMode; applyBrowserSettings(); saveSettings(); dialog.dismiss(); showSettingsPanel(); }));
         panel.addView(settingRow(R.drawable.ic_safe, "Safe browsing", "Blokir URL berisiko sederhana.", safeMode, v -> { safeMode = !safeMode; saveSettings(); dialog.dismiss(); showSettingsPanel(); }));
-        panel.addView(settingRow(R.drawable.ic_night, "Night mode", "Tampilan gelap untuk home dan menu.", nightMode, v -> { nightMode = !nightMode; saveSettings(); dialog.dismiss(); showSettingsPanel(); }));
+        panel.addView(actionRow(R.drawable.ic_night, "Mode Malam: " + nightModeLabel(), "OFF, ON, Auto ikut sistem, dan pengecualian situs. Tidak menutup menu setelan.", v -> {
+            showNightModeSettingsDialog();
+        }));
         panel.addView(settingRow(R.drawable.ic_reader, "Reader / novel mode", "Mode baca ringan untuk artikel.", readerMode, v -> { readerMode = !readerMode; saveSettings(); dialog.dismiss(); showSettingsPanel(); }));
         panel.addView(settingRow(R.drawable.ic_shield, "Ad block", "Filter iklan sederhana berbasis URL.", adBlock, v -> { adBlock = !adBlock; saveSettings(); dialog.dismiss(); showSettingsPanel(); }));
         panel.addView(settingRow(R.drawable.ic_data_saver, "Hemat data", "Matikan gambar otomatis saat browsing.", dataSaver, v -> { dataSaver = !dataSaver; applyBrowserSettings(); saveSettings(); dialog.dismiss(); showSettingsPanel(); }));
@@ -4589,6 +4589,7 @@ public class MainActivity extends Activity {
         options.add(hideGoogleTranslateBar ? "Tampilkan bar Google Translate" : "Sembunyikan bar Google Translate");
         options.add("Terjemahkan teks halaman saja");
         options.add("Reload website");
+        options.add("Aktifkan klik menu website");
         if (translateEnabled || isGoogleTranslatedUrl(webView != null ? webView.getUrl() : "")) {
             options.add("Matikan translate / buka halaman asli");
         }
@@ -4614,12 +4615,15 @@ public class MainActivity extends Activity {
                     } else if (selected.startsWith("Sembunyikan bar")) {
                         hideGoogleTranslateBar = true;
                         saveSettings();
-                        hideGoogleTranslateToolbar();
-                        Toast.makeText(this, "Bar Google Translate disembunyikan", Toast.LENGTH_SHORT).show();
+                        unblockTranslatedPageClicks();
+                        Toast.makeText(this, "Bar Google Translate disembunyikan dan klik website diaktifkan", Toast.LENGTH_SHORT).show();
                     } else if (selected.startsWith("Terjemahkan teks")) {
                         translatePageTextOnly();
                     } else if (selected.startsWith("Reload")) {
                         reloadCurrentWebsite();
+                    } else if (selected.startsWith("Aktifkan klik")) {
+                        unblockTranslatedPageClicks();
+                        Toast.makeText(this, "Klik menu website diaktifkan", Toast.LENGTH_SHORT).show();
                     } else if (selected.startsWith("Matikan")) {
                         translateEnabled = false;
                         updateTopActionStates();
@@ -4678,23 +4682,57 @@ public class MainActivity extends Activity {
                         + "var old=document.getElementById(id);if(old)old.remove();"
                         + "var s=document.createElement('style');s.id=id;"
                         + "s.innerHTML="
-                        + "'iframe.skiptranslate,.skiptranslate,body>.skiptranslate,#goog-gt-tt,.goog-te-banner-frame,.goog-te-balloon-frame,.VIpgJd-ZVi9od-ORHb-OEVmcd,.VIpgJd-ZVi9od-aZ2wEe-wOHMyf{display:none!important;visibility:hidden!important;height:0!important;max-height:0!important;overflow:hidden!important;pointer-events:none!important;z-index:-1!important;}' + "
-                        + "'#gt-appbar,#gt-src-wrap,#gt-res-wrap,#gt-text-top,.gb_aa,.gb_ab,.gb_ac,.gb_ad,.gb_ae,.gb_af,.gb_ag,.gb_ah,.gb_ai,.gb_aj{display:none!important;visibility:hidden!important;height:0!important;max-height:0!important;pointer-events:none!important;z-index:-1!important;}' + "
-                        + "'body{top:0!important;margin-top:0!important;padding-top:0!important;pointer-events:auto!important;}' + "
-                        + "'html{margin-top:0!important;padding-top:0!important;pointer-events:auto!important;}' + "
-                        + "'#google_translate_element{display:none!important;pointer-events:none!important;}' + "
-                        + "'a,button,input,select,textarea,[onclick],[role=button]{pointer-events:auto!important;}';"
+                        // Sembunyikan semua layer/bar Google Translate yang sering menutup klik halaman.
+                        + "'iframe.skiptranslate,.skiptranslate,body>.skiptranslate,#goog-gt-tt,.goog-te-banner-frame,.goog-te-balloon-frame,.VIpgJd-ZVi9od-ORHb-OEVmcd,.VIpgJd-ZVi9od-aZ2wEe-wOHMyf,.VIpgJd-yAWNEb-L7lbkb,.goog-tooltip,.goog-tooltip:hover{display:none!important;visibility:hidden!important;height:0!important;max-height:0!important;overflow:hidden!important;pointer-events:none!important;z-index:-2147483648!important;opacity:0!important;}' + "
+                        + "'#gt-appbar,#gt-src-wrap,#gt-res-wrap,#gt-text-top,#google_translate_element{display:none!important;visibility:hidden!important;height:0!important;max-height:0!important;pointer-events:none!important;z-index:-2147483648!important;opacity:0!important;}' + "
+                        // Hapus highlight translate yang kadang membuat elemen terasa tidak bisa disentuh.
+                        + "'.goog-text-highlight{background:transparent!important;box-shadow:none!important;border:none!important;}' + "
+                        // Kembalikan halaman ke posisi normal dan pastikan website bisa menerima klik/touch.
+                        + "'body,html{top:0!important;margin-top:0!important;padding-top:0!important;pointer-events:auto!important;touch-action:auto!important;}' + "
+                        + "'body *:not(iframe.skiptranslate):not(.skiptranslate):not(#goog-gt-tt){pointer-events:auto!important;touch-action:auto!important;}' + "
+                        + "'a,button,input,select,textarea,label,summary,[onclick],[role=button],[tabindex],li,nav,menu{pointer-events:auto!important;touch-action:auto!important;}' + "
+                        + "'*[style*=\\\\\"z-index: 2147483647\\\\\"],*[style*=\\\\\"z-index:2147483647\\\\\"]{pointer-events:none!important;}';"
                         + "document.head.appendChild(s);"
+
+                        + "function unblock(){try{"
                         + "document.documentElement.style.marginTop='0px';"
                         + "document.documentElement.style.paddingTop='0px';"
                         + "document.documentElement.style.pointerEvents='auto';"
-                        + "if(document.body){document.body.style.top='0px';document.body.style.marginTop='0px';document.body.style.paddingTop='0px';document.body.style.pointerEvents='auto';}"
-                        + "var sel=['iframe.skiptranslate','.skiptranslate','body>.skiptranslate','#goog-gt-tt','.goog-te-banner-frame','.goog-te-balloon-frame','.VIpgJd-ZVi9od-ORHb-OEVmcd','.VIpgJd-ZVi9od-aZ2wEe-wOHMyf','#gt-appbar','#google_translate_element'];"
-                        + "for(var si=0;si<sel.length;si++){var els=document.querySelectorAll(sel[si]);for(var i=0;i<els.length;i++){try{els[i].style.display='none';els[i].style.visibility='hidden';els[i].style.height='0';els[i].style.pointerEvents='none';els[i].style.zIndex='-1';}catch(e){}}}"
-                        + "var frames=document.querySelectorAll('iframe');for(var f=0;f<frames.length;f++){try{var src=frames[f].src||'';var cls=frames[f].className||'';if(src.indexOf('translate')>-1||String(cls).indexOf('skiptranslate')>-1){frames[f].style.display='none';frames[f].style.height='0';frames[f].style.pointerEvents='none';frames[f].style.zIndex='-1';}}catch(e){}}"
+                        + "if(document.body){document.body.style.top='0px';document.body.style.marginTop='0px';document.body.style.paddingTop='0px';document.body.style.pointerEvents='auto';document.body.style.touchAction='auto';}"
+                        + "var bad=['iframe.skiptranslate','.skiptranslate','body>.skiptranslate','#goog-gt-tt','.goog-te-banner-frame','.goog-te-balloon-frame','.VIpgJd-ZVi9od-ORHb-OEVmcd','.VIpgJd-ZVi9od-aZ2wEe-wOHMyf','.VIpgJd-yAWNEb-L7lbkb','.goog-tooltip','#gt-appbar','#google_translate_element'];"
+                        + "for(var b=0;b<bad.length;b++){var els=document.querySelectorAll(bad[b]);for(var i=0;i<els.length;i++){try{els[i].style.display='none';els[i].style.visibility='hidden';els[i].style.height='0';els[i].style.maxHeight='0';els[i].style.pointerEvents='none';els[i].style.zIndex='-2147483648';els[i].style.opacity='0';}catch(e){}}}"
+                        + "var frames=document.querySelectorAll('iframe');for(var f=0;f<frames.length;f++){try{var src=frames[f].src||'';var cls=frames[f].className||'';var idf=frames[f].id||'';if(src.indexOf('translate')>-1||String(cls).indexOf('skiptranslate')>-1||String(idf).indexOf('translate')>-1){frames[f].style.display='none';frames[f].style.visibility='hidden';frames[f].style.height='0';frames[f].style.pointerEvents='none';frames[f].style.zIndex='-2147483648';}}catch(e){}}"
+                        + "var clickable=document.querySelectorAll('a,button,input,select,textarea,label,summary,[onclick],[role=button],[tabindex],li,nav,menu');"
+                        + "for(var c=0;c<clickable.length;c++){try{clickable[c].style.pointerEvents='auto';clickable[c].style.touchAction='auto';}catch(e){}}"
+                        + "}catch(e){}}"
+                        + "unblock();setTimeout(unblock,300);setTimeout(unblock,1000);setTimeout(unblock,2500);"
+
+                        // Kalau Google Translate menaruh overlay click-catcher, jangan biarkan overlay itu menangkap event.
+                        + "if(!window.__yieldTranslateClickFix){window.__yieldTranslateClickFix=true;"
+                        + "document.addEventListener('touchstart',function(e){try{var t=e.target;if(t&&t.closest){var bad=t.closest('.skiptranslate,#goog-gt-tt,.goog-tooltip,.VIpgJd-yAWNEb-L7lbkb');if(bad){bad.style.pointerEvents='none';bad.style.display='none';}}}catch(x){}},true);"
+                        + "document.addEventListener('click',function(e){try{var t=e.target;if(t&&t.closest){var bad=t.closest('.skiptranslate,#goog-gt-tt,.goog-tooltip,.VIpgJd-yAWNEb-L7lbkb');if(bad){bad.style.pointerEvents='none';bad.style.display='none';}}}catch(x){}},true);"
+                        + "try{new MutationObserver(unblock).observe(document.documentElement,{childList:true,subtree:true,attributes:true});}catch(x){}"
+                        + "}"
                         + "}catch(e){}"
                         + "})()";
         try {
+            webView.loadUrl(js);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void unblockTranslatedPageClicks() {
+        if (webView == null) return;
+        try {
+            hideGoogleTranslateToolbar();
+            String js =
+                    "javascript:(function(){"
+                            + "try{"
+                            + "var all=document.querySelectorAll('a,button,input,select,textarea,label,summary,[onclick],[role=button],[tabindex],li,nav,menu');"
+                            + "for(var i=0;i<all.length;i++){all[i].style.pointerEvents='auto';all[i].style.touchAction='auto';}"
+                            + "if(document.body){document.body.style.pointerEvents='auto';document.body.style.touchAction='auto';}"
+                            + "}catch(e){}"
+                            + "})()";
             webView.loadUrl(js);
         } catch (Exception ignored) {
         }
@@ -4804,10 +4842,11 @@ public class MainActivity extends Activity {
                 injectVideoPlaybackWatcher();
                 applyNightModeToWebPage();
                 if (hideGoogleTranslateBar && isGoogleTranslatedUrl(url)) {
-                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 250);
-                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 800);
-                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 1800);
-                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 3500);
+                    mainHandler.postDelayed(() -> unblockTranslatedPageClicks(), 250);
+                    mainHandler.postDelayed(() -> unblockTranslatedPageClicks(), 800);
+                    mainHandler.postDelayed(() -> unblockTranslatedPageClicks(), 1800);
+                    mainHandler.postDelayed(() -> unblockTranslatedPageClicks(), 3500);
+                    mainHandler.postDelayed(() -> unblockTranslatedPageClicks(), 6000);
                 }
                 updateTopActionStates();
             }
@@ -4895,37 +4934,90 @@ public class MainActivity extends Activity {
                             + "}catch(e){}"
                             + "})()";
         } else {
+            // OFF harus benar-benar membersihkan efek gelap tanpa menutup panel setelan.
             js =
                     "javascript:(function(){"
-                            + "try{var s=document.getElementById('yield-night-style');if(s)s.remove();}"
-                            + "catch(e){}"
+                            + "try{"
+                            + "var ids=['yield-night-style','yield-dark-style','yield-force-dark'];"
+                            + "for(var i=0;i<ids.length;i++){var x=document.getElementById(ids[i]);if(x)x.remove();}"
+                            + "document.documentElement.style.colorScheme='light';"
+                            + "document.documentElement.style.background='';"
+                            + "document.documentElement.style.backgroundColor='';"
+                            + "document.documentElement.classList.remove('dark','night','night-mode','dark-mode');"
+                            + "if(document.body){"
+                            + "document.body.style.colorScheme='light';"
+                            + "document.body.style.background='';"
+                            + "document.body.style.backgroundColor='';"
+                            + "document.body.style.color='';"
+                            + "document.body.classList.remove('dark','night','night-mode','dark-mode');"
+                            + "}"
+                            + "var metas=document.querySelectorAll('meta[name=color-scheme]');"
+                            + "for(var m=0;m<metas.length;m++){metas[m].setAttribute('content','light');}"
+                            + "}catch(e){}"
                             + "})()";
         }
 
         try {
             webView.loadUrl(js);
+            webView.setBackgroundColor(active ? COLOR_BG : Color.WHITE);
         } catch (Exception ignored) {
         }
     }
 
+    private void disableNightModeCompletely(boolean reloadPage) {
+        nightModeOption = "OFF";
+        nightMode = false;
+        saveSettings();
+
+        try {
+            if (webView != null) {
+                webView.setBackgroundColor(Color.WHITE);
+                WebSettings settings = webView.getSettings();
+                if (Build.VERSION.SDK_INT >= 29) {
+                    settings.setForceDark(WebSettings.FORCE_DARK_OFF);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        applyBrowserSettings();
+        applyNightModeToWebPage();
+
+        if (reloadPage && webView != null && webView.getVisibility() == View.VISIBLE) {
+            mainHandler.postDelayed(() -> {
+                try {
+                    String url = webView.getUrl();
+                    if (url != null && url.length() > 0) webView.reload();
+                } catch (Exception ignored) {
+                }
+            }, 250);
+        }
+    }
+
     private void showNightModeSettingsDialog() {
-        String[] options = new String[]{"OFF", "ON", "Auto ikut sistem"};
+        String[] options = new String[]{"OFF", "ON", "Auto ikut sistem", "Bersihkan style gelap halaman ini"};
         int checked = "OFF".equals(nightModeOption) ? 0 : ("AUTO".equals(nightModeOption) ? 2 : 1);
 
         new AlertDialog.Builder(this)
                 .setTitle("Mode Malam")
                 .setSingleChoiceItems(options, checked, (dialog, which) -> {
                     if (which == 0) {
-                        nightModeOption = "OFF";
+                        disableNightModeCompletely(false);
                     } else if (which == 1) {
                         nightModeOption = "ON";
-                    } else {
+                        nightMode = isNightModeActiveForCurrentSite();
+                        saveSettings();
+                        applyBrowserSettings();
+                        applyNightModeToWebPage();
+                    } else if (which == 2) {
                         nightModeOption = "AUTO";
+                        nightMode = isNightModeActiveForCurrentSite();
+                        saveSettings();
+                        applyBrowserSettings();
+                        applyNightModeToWebPage();
+                    } else {
+                        disableNightModeCompletely(false);
                     }
-                    nightMode = isNightModeActiveForCurrentSite();
-                    saveSettings();
-                    applyBrowserSettings();
-                    applyNightModeToWebPage();
                     updateTopActionStates();
                     Toast.makeText(this, "Mode Malam: " + nightModeLabel(), Toast.LENGTH_SHORT).show();
                     dialog.dismiss();
