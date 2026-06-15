@@ -239,27 +239,27 @@ public class MainActivity extends Activity {
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(dp(92), -2);
-        itemParams.setMargins(0, 0, dp(12), 0);
+        LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(dp(84), -2);
+        itemParams.setMargins(0, 0, dp(10), 0);
         item.setLayoutParams(itemParams);
 
         TextView circle = new TextView(this);
         circle.setText(badgeText);
         circle.setTextColor(Color.WHITE);
         circle.setTypeface(Typeface.DEFAULT_BOLD);
-        circle.setTextSize(18);
+        circle.setTextSize(16);
         circle.setGravity(Gravity.CENTER);
-        circle.setBackground(roundRect(badgeColor, dp(26), dp(1), Color.parseColor("#31353C")));
-        LinearLayout.LayoutParams circleParams = new LinearLayout.LayoutParams(dp(72), dp(72));
+        circle.setBackground(roundRect(badgeColor, dp(22), dp(1), Color.parseColor("#31353C")));
+        LinearLayout.LayoutParams circleParams = new LinearLayout.LayoutParams(dp(60), dp(60));
         item.addView(circle, circleParams);
 
         TextView text = new TextView(this);
         text.setText(label);
         text.setTextColor(COLOR_TEXT);
-        text.setTextSize(14);
+        text.setTextSize(13);
         text.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-1, -2);
-        textParams.setMargins(0, dp(10), 0, 0);
+        textParams.setMargins(0, dp(8), 0, 0);
         item.addView(text, textParams);
 
         item.setOnClickListener(v -> {
@@ -287,7 +287,7 @@ public class MainActivity extends Activity {
         nav.addView(bottomNavButton(R.drawable.ic_home, "Home", v -> showHome()));
         nav.addView(bottomNavButton(R.drawable.ic_bookmark, "Bookmark", v -> Toast.makeText(this, "Bookmark akan disiapkan di update berikutnya", Toast.LENGTH_SHORT).show()));
         nav.addView(bottomNavButton(R.drawable.ic_search, "Search", v -> addressBar.requestFocus()));
-        nav.addView(bottomNavButton(R.drawable.ic_tabs, "Tabs", v -> Toast.makeText(this, "Jumlah tab: " + tabCount, Toast.LENGTH_SHORT).show()));
+        nav.addView(tabsNavButton(v -> Toast.makeText(this, "Jumlah tab: " + tabCount, Toast.LENGTH_SHORT).show()));
         nav.addView(bottomNavButton(R.drawable.ic_menu_more, "Menu", v -> showQuickMenu()));
         return nav;
     }
@@ -305,17 +305,35 @@ public class MainActivity extends Activity {
         icon.setImageResource(iconRes);
         icon.setColorFilter(Color.parseColor("#F6F7FA"));
         item.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
+        return item;
+    }
 
-        if ("Tabs".equals(description)) {
-            TextView count = new TextView(this);
-            count.setText(String.valueOf(tabCount));
-            count.setTextColor(Color.parseColor("#D7DBE3"));
-            count.setTextSize(10);
-            count.setGravity(Gravity.CENTER);
-            LinearLayout.LayoutParams countParams = new LinearLayout.LayoutParams(-2, -2);
-            countParams.setMargins(0, dp(2), 0, 0);
-            item.addView(count, countParams);
-        }
+    private LinearLayout tabsNavButton(View.OnClickListener listener) {
+        LinearLayout item = new LinearLayout(this);
+        item.setOrientation(LinearLayout.VERTICAL);
+        item.setGravity(Gravity.CENTER);
+        item.setOnClickListener(listener);
+        item.setContentDescription("Tabs");
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1);
+        item.setLayoutParams(params);
+
+        FrameLayout box = new FrameLayout(this);
+        LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(dp(24), dp(24));
+        item.addView(box, boxParams);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_tabs);
+        icon.setColorFilter(Color.parseColor("#F6F7FA"));
+        box.addView(icon, new FrameLayout.LayoutParams(-1, -1));
+
+        TextView count = new TextView(this);
+        count.setText(String.valueOf(tabCount));
+        count.setTextColor(Color.parseColor("#F6F7FA"));
+        count.setTextSize(10);
+        count.setTypeface(Typeface.DEFAULT_BOLD);
+        count.setGravity(Gravity.CENTER);
+        box.addView(count, new FrameLayout.LayoutParams(-1, -1));
+
         return item;
     }
 

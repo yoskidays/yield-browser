@@ -1,24 +1,14 @@
-# Yield Browser v0.1.6 Home UI + Menu Layout
+# Yield Browser v0.1.7 UI Polish
 
-Update ini fokus pada tampilan home awal dan susunan menu.
+Perbaikan kecil dari tampilan home dan bottom navigation.
 
-## Perubahan v0.1.6
+## Perubahan v0.1.7
 
-- Home awal dibuat bergaya browser modern gelap.
-- Search bar atas dibuat mirip tampilan browser mobile modern.
-- Home screen berisi judul, tombol cari cepat, dan pintasan.
-- Bottom navigation dibuat seperti contoh: Home, Bookmark, Search, Tabs, Menu.
-- Menu popup disusun seperti contoh kanan:
-  - Unduhan
-  - Bookmark
-  - Privat
-  - Ad Block
-  - Setelan
-  - Sesuaikan menu
-  - Keluar
-- Semua tombol menu memakai drawable/vector icon, bukan text glyph.
-- WebView tetap aktif untuk membuka hasil pencarian atau URL.
+- Ukuran logo pintasan diperkecil agar tampilan lebih rapi.
+- Jarak antar shortcut diperhalus.
+- Angka jumlah tab sekarang masuk ke dalam kotak ikon tab.
+- Struktur home dan menu tetap mengikuti versi v0.1.6.
 
 ## Catatan
 
-Fitur download manager 2 koneksi belum diaktifkan pada versi ini. Versi ini khusus UI/UX home dan menu terlebih dahulu.
+Versi ini masih fokus ke perapian UI. Fitur download manager 2 koneksi belum diaktifkan.
