@@ -138,11 +138,6 @@ public class MainActivity extends Activity {
         translateParams.setMargins(dp(2), 0, 0, 0);
         bar.addView(translateButton, translateParams);
 
-        ImageButton download = smallTopIcon(R.drawable.ic_download, "Unduhan", v -> Toast.makeText(this, "Menu unduhan akan ditambahkan di fitur berikutnya", Toast.LENGTH_SHORT).show());
-        LinearLayout.LayoutParams downloadParams = new LinearLayout.LayoutParams(dp(30), dp(30));
-        downloadParams.setMargins(dp(2), 0, 0, 0);
-        bar.addView(download, downloadParams);
-
         ImageButton menu = smallTopIcon(R.drawable.ic_menu_more, "Menu", v -> showQuickMenu());
         LinearLayout.LayoutParams menuParams = new LinearLayout.LayoutParams(dp(30), dp(30));
         menuParams.setMargins(dp(2), 0, 0, 0);

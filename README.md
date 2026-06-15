@@ -1,16 +1,13 @@
-# Yield Browser v0.1.8 Bookmark + Translate Top Action
+# Yield Browser v0.1.9 Top Bar Simplify
 
-Update ini menambahkan aksi baru di sebelah kolom pencarian atas.
+Update ini merapikan bagian top bar.
 
-## Perubahan v0.1.8
+## Perubahan v0.1.9
 
-- Menambahkan tombol **bookmark** dengan icon bintang di top bar.
-- Saat situs sudah dibookmark, icon bookmark berubah warna aksen.
-- Menambahkan tombol **translate** di sebelah bookmark.
-- Saat translate aktif, icon translate berubah warna aksen.
-- Bookmark disimpan dengan SharedPreferences agar tetap tersimpan.
-- Jika translate aktif dan halaman dibuka, halaman dimuat lewat Google Translate ke Bahasa Indonesia.
-- UI v0.1.7 tetap dipertahankan.
+- Menghapus icon panah/download dari top bar atas.
+- Menyisakan search, bookmark, translate, dan menu.
+- Fitur bookmark dan translate dari v0.1.8 tetap dipertahankan.
+- UI home dan bottom navigation tetap sama.
 
 ## Catatan
 
