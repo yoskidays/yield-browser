@@ -1,18 +1,19 @@
-# Yield Browser v0.4.2 Compile Fix
+# Yield Browser v0.4.3 Download Speed Indicator
 
-Update ini memperbaiki error build dari v0.4.1.
+Update ini menambahkan indikator kecepatan download pada item unduhan.
 
-## Perbaikan v0.4.2
+## Perubahan v0.4.3
 
-- Fix error compile:
-  `method beginDownloadFromWeb cannot be applied to given types`
-- Memperbaiki pemanggilan lama:
-  `beginDownloadFromWeb(url, contentDisposition, mimeType)`
-- Menambahkan overload kompatibilitas agar pemanggilan 3 argumen tetap aman.
-- Fitur v0.4.1 tetap dipertahankan:
-  - download auto open menu
-  - anti-hotlink safe headers
-  - Referer / Origin / Cookie / User-Agent
-  - fallback split 2 koneksi ke 1 koneksi
-  - detail gagal download
-  - reload dari awal
+- Di bawah progress bar, teks persen sekarang menampilkan speed:
+  - `57% • 2.40 MB/s`
+  - `30% • 850 KB/s`
+- Speed dihitung dari perubahan byte per interval waktu.
+- Speed tampil saat download berjalan.
+- Saat download dijeda/gagal/selesai, speed otomatis direset.
+- Notifikasi progress juga menampilkan speed download.
+
+## Contoh tampilan
+`57% • 2.40 MB/s`
+
+## Catatan
+Fitur Premium Fast Engine tetap memakai 2 koneksi paralel jika server mendukung HTTP Range, dan fallback ke 1 koneksi jika server menolak split.

@@ -182,6 +182,9 @@ public class MainActivity extends Activity {
         String userAgent = "";
         String referer = "";
         String failReason = "";
+        double speedBytesPerSecond = 0;
+        long lastSpeedTimeMs = 0;
+        long lastSpeedBytes = 0;
         DownloadItem(int id, String url, String fileName, String path, String status, int progress) {
             this.id = id;
             this.url = url;
@@ -2393,7 +2396,7 @@ public class MainActivity extends Activity {
             textWrap.addView(bar, barParams);
 
             TextView percent = new TextView(this);
-            percent.setText(item.progress + "%");
+            percent.setText(item.progress + "% • " + readableSpeed(item.speedBytesPerSecond));
             percent.setTextColor(Color.parseColor("#C9CDD4"));
             percent.setTextSize(11);
             percent.setPadding(0, dp(4), 0, 0);
@@ -2510,6 +2513,39 @@ public class MainActivity extends Activity {
         return text == null ? "" : text;
     }
 
+    private void updateDownloadSpeed(DownloadItem item, long currentBytes) {
+        if (item == null) return;
+        long now = System.currentTimeMillis();
+
+        if (item.lastSpeedTimeMs <= 0) {
+            item.lastSpeedTimeMs = now;
+            item.lastSpeedBytes = currentBytes;
+            item.speedBytesPerSecond = 0;
+            return;
+        }
+
+        long elapsed = now - item.lastSpeedTimeMs;
+        if (elapsed < 800) return;
+
+        long delta = currentBytes - item.lastSpeedBytes;
+        if (delta < 0) delta = 0;
+
+        item.speedBytesPerSecond = (delta * 1000.0) / Math.max(1, elapsed);
+        item.lastSpeedTimeMs = now;
+        item.lastSpeedBytes = currentBytes;
+    }
+
+    private String readableSpeed(double bytesPerSecond) {
+        if (bytesPerSecond <= 0) return "0 KB/s";
+        if (bytesPerSecond >= 1024 * 1024) {
+            return String.format(java.util.Locale.US, "%.2f MB/s", bytesPerSecond / (1024.0 * 1024.0)).replace(".00", "");
+        }
+        if (bytesPerSecond >= 1024) {
+            return String.format(java.util.Locale.US, "%.1f KB/s", bytesPerSecond / 1024.0).replace(".0", "");
+        }
+        return String.format(java.util.Locale.US, "%.0f B/s", bytesPerSecond);
+    }
+
     private String readableFileSize(long size) {
         if (size <= 0) return "0 B";
         String[] units = new String[]{"B", "KB", "MB", "GB", "TB"};
@@ -2596,6 +2632,7 @@ public class MainActivity extends Activity {
         if (item == null || !"running".equals(item.status)) return;
         item.pauseRequested = true;
         item.status = "paused";
+        item.speedBytesPerSecond = 0;
         item.engineInfo = getConnectionLabel(item) + " • dijeda";
         saveDownloadHistory();
         refreshDownloadPanel();
@@ -2612,6 +2649,9 @@ public class MainActivity extends Activity {
             item.downloadedBytes = 0;
             item.totalBytes = 0;
             item.connectionCount = 0;
+            item.speedBytesPerSecond = 0;
+            item.lastSpeedTimeMs = 0;
+            item.lastSpeedBytes = 0;
             item.status = "running";
             item.pauseRequested = false;
             item.engineInfo = "Premium Fast Engine • lanjut ulang";
@@ -2634,6 +2674,9 @@ public class MainActivity extends Activity {
             item.downloadedBytes = 0;
             item.totalBytes = 0;
             item.connectionCount = 0;
+            item.speedBytesPerSecond = 0;
+            item.lastSpeedTimeMs = 0;
+            item.lastSpeedBytes = 0;
             item.engineInfo = "Premium Fast Engine • reload dari awal";
 
             File out = new File(item.path);
@@ -2846,6 +2889,9 @@ public class MainActivity extends Activity {
             File out = uniqueFile(new File(dir, fileName));
             DownloadItem item = new DownloadItem(nextDownloadId++, fileUrl, out.getName(), out.getAbsolutePath(), "running", 0);
             item.connectionCount = 0;
+            item.speedBytesPerSecond = 0;
+            item.lastSpeedTimeMs = 0;
+            item.lastSpeedBytes = 0;
             item.engineInfo = "Premium Fast Engine • menyiapkan 2 koneksi";
             item.userAgent = userAgent == null ? "" : userAgent;
             item.referer = referer == null ? "" : referer;
@@ -3170,12 +3216,13 @@ public class MainActivity extends Activity {
                 synchronized (done) {
                     done[0] += len;
                     item.downloadedBytes = done[0];
+                    updateDownloadSpeed(item, done[0]);
                     int percent = (int) Math.min(99, (done[0] * 100) / total);
                     if (percent != item.progress) {
                         item.progress = percent;
                         if (percent % 2 == 0 || percent >= 99) {
                             refreshDownloadPanel();
-                            showDownloadNotification(item, "Premium Fast • 2 koneksi • " + percent + "%", true);
+                            showDownloadNotification(item, "Premium Fast • 2 koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
                         }
                     }
                 }
@@ -3217,13 +3264,14 @@ public class MainActivity extends Activity {
                 fos.write(buffer, 0, len);
                 done += len;
                 item.downloadedBytes = done;
+                updateDownloadSpeed(item, done);
                 if (total > 0) {
                     int percent = (int) Math.min(99, (done * 100) / total);
                     if (percent != item.progress) {
                         item.progress = percent;
                         if (percent % 2 == 0 || percent >= 99) {
                             refreshDownloadPanel();
-                            showDownloadNotification(item, "Premium Fast • 1 koneksi • " + percent + "%", true);
+                            showDownloadNotification(item, "Premium Fast • 1 koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
                         }
                     }
                 }
@@ -3248,6 +3296,7 @@ public class MainActivity extends Activity {
     private void completeDownload(DownloadItem item) {
         item.progress = 100;
         item.status = "completed";
+        item.speedBytesPerSecond = 0;
         saveDownloadHistory();
         refreshDownloadPanel();
         showDownloadNotification(item, "Unduhan selesai", false);
@@ -3257,6 +3306,7 @@ public class MainActivity extends Activity {
     private void failDownload(DownloadItem item, String reason) {
         item.status = "failed";
         item.pauseRequested = false;
+        item.speedBytesPerSecond = 0;
         item.failReason = reason == null ? "Koneksi/server menolak unduhan" : reason;
         if (item.engineInfo == null || item.engineInfo.length() == 0) {
             item.engineInfo = getConnectionLabel(item) + " • terputus/gagal";
