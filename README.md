@@ -71,3 +71,10 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Fix compile error `';' expected` pada `configureWebView()` dan `isSystemDarkMode()`.
 - Penyebabnya: method `loadTranslatedPage()` belum ditutup dengan `}`.
 - Struktur `MainActivity.java` dicek ulang: `VideoBridge` tetap 1 dan JavaScript interface tetap 1.
+
+
+## v0.5.6
+- Mode Malam web dibuat lebih aman agar teks tidak nyatu/ketumpuk di atas gambar.
+- CSS mode malam tidak lagi memaksa semua `div`, `article`, dan card menjadi gelap/transparan.
+- Bookmark dan Histori dibuat true fullscreen agar area atas tidak putih/abu-abu.
+- Status bar panel Bookmark/Histori disembunyikan/digelapkan penuh.

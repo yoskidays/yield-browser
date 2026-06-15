@@ -1945,8 +1945,8 @@ public class MainActivity extends Activity {
 
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         dialog.setContentView(root);
-        applyDarkFullscreenDialog(dialog);
         dialog.show();
+        applyDarkFullscreenDialog(dialog);
     }
 
     private View historyRow(HistoryItemData item, Dialog dialog) {
@@ -2012,18 +2012,34 @@ public class MainActivity extends Activity {
     private void applyDarkFullscreenDialog(Dialog dialog) {
         Window window = dialog.getWindow();
         if (window == null) return;
+
         window.setBackgroundDrawable(new ColorDrawable(COLOR_BG));
+        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
+
         WindowManager.LayoutParams lp = window.getAttributes();
         lp.width = WindowManager.LayoutParams.MATCH_PARENT;
         lp.height = WindowManager.LayoutParams.MATCH_PARENT;
         lp.gravity = Gravity.TOP;
         window.setAttributes(lp);
+
+        // Hilangkan area status bar abu/putih di panel full-screen.
+        window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
-            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
             window.setStatusBarColor(COLOR_BG);
-            window.setNavigationBarColor(COLOR_BG);
+            window.setNavigationBarColor(Color.BLACK);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            int flags = window.getDecorView().getSystemUiVisibility();
+            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            }
+            window.getDecorView().setSystemUiVisibility(flags);
         }
     }
 
@@ -2077,8 +2093,8 @@ public class MainActivity extends Activity {
         }
 
         dialog.setContentView(root);
-        applyDarkFullscreenDialog(dialog);
         dialog.show();
+        applyDarkFullscreenDialog(dialog);
     }
 
     private void showBookmarkFolderPanel(String folder) {
@@ -2154,8 +2170,8 @@ public class MainActivity extends Activity {
         render.run();
 
         dialog.setContentView(root);
-        applyDarkFullscreenDialog(dialog);
         dialog.show();
+        applyDarkFullscreenDialog(dialog);
     }
 
     private View bookmarkFolderRow(String folder, int count, Dialog parent) {
@@ -4635,6 +4651,8 @@ public class MainActivity extends Activity {
         boolean active = isNightModeActiveForCurrentSite();
         String js;
         if (active) {
+            // CSS dibuat lebih aman: tidak memaksa semua div/card menjadi transparan.
+            // Ini mencegah teks situs jadi bertumpuk/nyatu di atas gambar.
             js =
                     "javascript:(function(){"
                             + "try{"
@@ -4642,18 +4660,17 @@ public class MainActivity extends Activity {
                             + "var old=document.getElementById(id);if(old)old.remove();"
                             + "var s=document.createElement('style');s.id=id;"
                             + "s.innerHTML="
-                            + "'html,body{background:#0b0d10!important;color:#e8edf5!important;}' + "
-                            + "'body *:not(img):not(video):not(canvas):not(svg):not(path){background-color:transparent!important;color:#e8edf5!important;border-color:#3a404a!important;}' + "
-                            + "'article,section,main,div,header,footer,nav,aside,table,tr,td,th,ul,ol,li{background-color:#0b0d10!important;}' + "
-                            + "'p,span,b,strong,i,em,h1,h2,h3,h4,h5,h6,label,small{color:#e8edf5!important;}' + "
-                            + "'a,a *{color:#8ab4ff!important;}' + "
-                            + "'input,textarea,select,button{background:#1b1f27!important;color:#f5f7fa!important;border-color:#4b5563!important;}' + "
-                            + "'img,video,canvas,svg{filter:none!important;background:transparent!important;}' + "
-                            + "'iframe{background:#0b0d10!important;}' + "
-                            + "'::placeholder{color:#9ca3af!important;}';"
+                            + "'html{background:#0b0d10!important;}' + "
+                            + "'body{background:#0b0d10!important;color:#e8edf5!important;}' + "
+                            + "'p,span,b,strong,i,em,h1,h2,h3,h4,h5,h6,label,small,li,td,th{color:#e8edf5!important;}' + "
+                            + "'a,a span,a strong{color:#8ab4ff!important;}' + "
+                            + "'input,textarea,select{background:#1b1f27!important;color:#f5f7fa!important;border-color:#4b5563!important;}' + "
+                            + "'button{color:#f5f7fa!important;border-color:#4b5563!important;}' + "
+                            + "'::placeholder{color:#9ca3af!important;}' + "
+                            + "'img,video,canvas,svg,picture{filter:none!important;}' + "
+                            + "'[style*=\\\\\"background:#fff\\\\\"],[style*=\\\\\"background: #fff\\\\\"],[style*=\\\\\"background-color:#fff\\\\\"],[style*=\\\\\"background-color: #fff\\\\\"]{background:#151922!important;}' + "
+                            + "'pre,code{background:#151922!important;color:#e8edf5!important;}';"
                             + "document.head.appendChild(s);"
-                            + "document.documentElement.style.background='#0b0d10';"
-                            + "document.body.style.background='#0b0d10';"
                             + "}catch(e){}"
                             + "})()";
         } else {
@@ -4748,6 +4765,11 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= 29) {
                 settings.setForceDark(isNightModeActiveForCurrentSite() ? WebSettings.FORCE_DARK_ON : WebSettings.FORCE_DARK_OFF);
             }
+        } catch (Exception ignored) {
+        }
+
+        try {
+            webView.setBackgroundColor(isNightModeActiveForCurrentSite() ? COLOR_BG : Color.WHITE);
         } catch (Exception ignored) {
         }
     }
