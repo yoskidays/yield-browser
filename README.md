@@ -221,3 +221,35 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - Video.js quality levels
   - tombol kualitas di player web jika ditemukan
 - Jika player tidak menyediakan pilihan kualitas yang bisa diakses WebView, akan muncul notifikasi bahwa kualitas tidak tersedia.
+
+
+## v0.7.2
+- Menambahkan menu `Tentang Yield` di bagian paling bawah Setelan.
+- Isi `Tentang Yield`:
+  - Yield Browser
+  - Versi aplikasi
+  - Develop by Yield Yoski Days
+- Menambahkan ikon info untuk menu Tentang Yield.
+
+
+## v0.7.3
+- Menghapus tulisan `Video` di samping tombol `-10s` agar bar kontrol lebih lega.
+- Tombol X kontrol video sekarang hanya hide sementara:
+  - bisa muncul lagi saat video diketuk
+  - otomatis mencoba muncul lagi setelah beberapa detik jika video masih berjalan
+- Menambahkan tombol `Full` di kontrol video.
+- Menambahkan dukungan fullscreen video:
+  - request fullscreen HTML5
+  - klik tombol fullscreen player jika ditemukan
+  - fallback fullscreen aplikasi dengan orientasi landscape
+  - tombol Back keluar dari fullscreen.
+
+
+## v0.7.4
+- Kontrol video dipusatkan.
+- Tombol `-10s`, `Play`, `Pause`, dan `+10s` dibuat fixed width agar posisinya berada di center.
+- Tombol `Video` tetap dihapus agar bar kontrol lebih lega.
+- Fitur v0.7.3 tetap ada:
+  - kontrol video bisa muncul lagi setelah X
+  - tombol Full
+  - fullscreen video fallback.

@@ -16,6 +16,8 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.ActivityInfo;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
@@ -136,6 +138,10 @@ public class MainActivity extends Activity {
     private TextView videoQualityLabel;
     private String selectedVideoQuality = "Auto";
     private boolean videoControlsManualHidden = false;
+    private View fullscreenVideoView;
+    private WebChromeClient.CustomViewCallback fullscreenVideoCallback;
+    private int originalSystemUiVisibility = 0;
+    private int originalRequestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     private TextView tabsCountText;
     private float swipeStartX = 0f;
     private float swipeStartY = 0f;
@@ -307,11 +313,14 @@ public class MainActivity extends Activity {
     private class VideoBridge {
         @JavascriptInterface
         public void onVideoPlaying() {
+            runOnUiThread(() -> showVideoControlsIfAllowed());
+        }
+
+        @JavascriptInterface
+        public void onVideoTapped() {
             runOnUiThread(() -> {
-                if (videoControlsEnabled && !videoControlsManualHidden && webView != null && webView.getVisibility() == View.VISIBLE) {
-                    if (videoControlsBar != null) videoControlsBar.setVisibility(View.VISIBLE);
-                    if (videoSpeedLabel != null) videoSpeedLabel.setText(formatVideoSpeed(videoSpeed));
-                }
+                videoControlsManualHidden = false;
+                showVideoControlsIfAllowed();
             });
         }
 
@@ -418,7 +427,7 @@ public class MainActivity extends Activity {
 
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setGravity(Gravity.CENTER);
         bar.setPadding(dp(12), dp(8), dp(8), dp(8));
         bar.setBackground(roundRect(COLOR_SURFACE_2, dp(18), dp(1), COLOR_BORDER));
 
@@ -1266,6 +1275,78 @@ content.addView(space(dp(36)));
         dialog.show();
     }
 
+    private String getAppVersionName() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            if (info != null && info.versionName != null && info.versionName.length() > 0) {
+                return info.versionName;
+            }
+        } catch (Exception ignored) {
+        }
+        return "0.7.2";
+    }
+
+    private void showAboutYieldDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(22), dp(22), dp(22), dp(18));
+        box.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(22), dp(1), COLOR_BORDER));
+
+        TextView title = new TextView(this);
+        title.setText("Tentang Yield");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(24);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView appName = new TextView(this);
+        appName.setText("Yield Browser");
+        appName.setTextColor(Color.WHITE);
+        appName.setTextSize(18);
+        appName.setTypeface(Typeface.DEFAULT_BOLD);
+        appName.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout.LayoutParams appParams = new LinearLayout.LayoutParams(-1, -2);
+        appParams.setMargins(0, dp(18), 0, dp(4));
+        box.addView(appName, appParams);
+
+        TextView version = new TextView(this);
+        version.setText("Versi aplikasi: " + getAppVersionName());
+        version.setTextColor(COLOR_SUBTEXT);
+        version.setTextSize(15);
+        version.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.addView(version, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView dev = new TextView(this);
+        dev.setText("Develop by Yield Yoski Days");
+        dev.setTextColor(COLOR_ACCENT);
+        dev.setTextSize(15);
+        dev.setTypeface(Typeface.DEFAULT_BOLD);
+        dev.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout.LayoutParams devParams = new LinearLayout.LayoutParams(-1, -2);
+        devParams.setMargins(0, dp(16), 0, dp(18));
+        box.addView(dev, devParams);
+
+        TextView close = dialogTextButton("TUTUP");
+        close.setGravity(Gravity.CENTER);
+        close.setOnClickListener(v -> dialog.dismiss());
+        box.addView(close, new LinearLayout.LayoutParams(-1, dp(44)));
+
+        dialog.setContentView(box);
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            Window window = dialog.getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.84f);
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            window.setAttributes(lp);
+        }
+    }
+
     private void showSettingsPanel() {
         Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -1367,6 +1448,11 @@ content.addView(space(dp(36)));
         }));
         panel.addView(actionRow(R.drawable.ic_clear, "Bersihkan cache", "Hapus cache WebView.", v -> { if (webView != null) webView.clearCache(true); Toast.makeText(this, "Cache dibersihkan", Toast.LENGTH_SHORT).show(); }));
 
+
+        panel.addView(sectionTitle("Informasi"));
+        panel.addView(actionRow(R.drawable.ic_info, "Tentang Yield", "Versi aplikasi dan informasi developer.", v -> {
+            showAboutYieldDialog();
+        }));
         dialog.setContentView(scroll);
         if (dialog.getWindow() != null) {
             Window window = dialog.getWindow();
@@ -1777,20 +1863,21 @@ content.addView(space(dp(36)));
         dialog.show();
     }
 
+    private void showVideoControlsIfAllowed() {
+        if (!videoControlsEnabled || videoControlsManualHidden || webView == null || webView.getVisibility() != View.VISIBLE) {
+            return;
+        }
+        if (videoControlsBar != null) videoControlsBar.setVisibility(View.VISIBLE);
+        if (videoSpeedLabel != null) videoSpeedLabel.setText(formatVideoSpeed(videoSpeed));
+        if (videoQualityLabel != null) videoQualityLabel.setText(selectedVideoQuality == null ? "Auto" : selectedVideoQuality);
+    }
+
     private LinearLayout createVideoControlsBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(8), dp(6), dp(8), dp(6));
         bar.setBackgroundColor(Color.parseColor("#101217"));
-
-        TextView title = new TextView(this);
-        title.setText("Video");
-        title.setTextColor(COLOR_SUBTEXT);
-        title.setTextSize(12);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setGravity(Gravity.CENTER_VERTICAL);
-        bar.addView(title, new LinearLayout.LayoutParams(dp(40), -1));
 
         bar.addView(videoTextButton("−10s", "Mundur 10 detik", v -> seekVideoBySeconds(-10)));
         bar.addView(videoButton(R.drawable.ic_video_play, "Play", v -> controlVideo("play")));
@@ -1805,7 +1892,7 @@ content.addView(space(dp(36)));
         videoSpeedLabel.setGravity(Gravity.CENTER);
         videoSpeedLabel.setBackground(roundRect(COLOR_ACCENT, dp(18), 0, Color.TRANSPARENT));
         videoSpeedLabel.setOnClickListener(v -> showVideoSpeedDialog());
-        LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(dp(56), dp(42));
+        LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(dp(52), dp(42));
         speedParams.setMargins(dp(4), 0, 0, 0);
         bar.addView(videoSpeedLabel, speedParams);
 
@@ -1817,9 +1904,21 @@ content.addView(space(dp(36)));
         videoQualityLabel.setGravity(Gravity.CENTER);
         videoQualityLabel.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
         videoQualityLabel.setOnClickListener(v -> showVideoQualityDialog());
-        LinearLayout.LayoutParams qualityParams = new LinearLayout.LayoutParams(dp(58), dp(42));
+        LinearLayout.LayoutParams qualityParams = new LinearLayout.LayoutParams(dp(56), dp(42));
         qualityParams.setMargins(dp(4), 0, 0, 0);
         bar.addView(videoQualityLabel, qualityParams);
+
+        TextView full = new TextView(this);
+        full.setText("Full");
+        full.setTextColor(Color.WHITE);
+        full.setTextSize(12);
+        full.setTypeface(Typeface.DEFAULT_BOLD);
+        full.setGravity(Gravity.CENTER);
+        full.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
+        full.setOnClickListener(v -> enterVideoFullscreen());
+        LinearLayout.LayoutParams fullParams = new LinearLayout.LayoutParams(dp(48), dp(42));
+        fullParams.setMargins(dp(4), 0, 0, 0);
+        bar.addView(full, fullParams);
 
         TextView close = new TextView(this);
         close.setText("×");
@@ -1829,7 +1928,11 @@ content.addView(space(dp(36)));
         close.setOnClickListener(v -> {
             videoControlsManualHidden = true;
             if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
-            Toast.makeText(this, "Kontrol video disembunyikan", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Kontrol video disembunyikan. Ketuk video untuk munculkan lagi.", Toast.LENGTH_SHORT).show();
+            mainHandler.postDelayed(() -> {
+                videoControlsManualHidden = false;
+                checkAndShowVideoControls();
+            }, 2500);
         });
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(34), dp(42));
         closeParams.setMargins(dp(4), 0, 0, 0);
@@ -1849,7 +1952,7 @@ content.addView(space(dp(36)));
         button.setOnClickListener(listener);
         button.setContentDescription(label);
 
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(42), 1);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(42));
         params.setMargins(dp(3), 0, dp(3), 0);
         button.setLayoutParams(params);
         return button;
@@ -1867,7 +1970,7 @@ content.addView(space(dp(36)));
         icon.setColorFilter(Color.WHITE);
         wrap.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
 
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(42), 1);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(46), dp(42));
         params.setMargins(dp(4), 0, dp(4), 0);
         wrap.setLayoutParams(params);
         return wrap;
@@ -1890,6 +1993,98 @@ content.addView(space(dp(36)));
         String js = "javascript:(function(){var v=document.querySelector('video');if(v){try{v.currentTime=Math.max(0,Math.min((v.duration||999999),v.currentTime+" + seconds + "));}catch(e){} }})()";
         webView.loadUrl(js);
         Toast.makeText(this, (seconds > 0 ? "Maju " : "Mundur ") + Math.abs(seconds) + " detik", Toast.LENGTH_SHORT).show();
+    }
+
+    private void checkAndShowVideoControls() {
+        if (webView == null || videoControlsBar == null || !videoControlsEnabled) return;
+        try {
+            webView.evaluateJavascript("(function(){var v=document.querySelector('video');return !!(v&&!v.paused&&!v.ended);})()", value -> {
+                if ("true".equals(value)) {
+                    showVideoControlsIfAllowed();
+                }
+            });
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void enterVideoFullscreen() {
+        if (webView == null || webView.getVisibility() != View.VISIBLE) {
+            Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String js =
+                "(function(){"
+                        + "try{"
+                        + "var v=null;"
+                        + "var videos=document.querySelectorAll('video');"
+                        + "for(var i=0;i<videos.length;i++){var r=videos[i].getBoundingClientRect();if(r.width>80&&r.height>60){v=videos[i];break;}}"
+                        + "if(!v&&videos.length>0)v=videos[0];"
+                        + "if(v){"
+                        + " if(v.requestFullscreen){v.requestFullscreen();return 'video_requestFullscreen';}"
+                        + " if(v.webkitRequestFullscreen){v.webkitRequestFullscreen();return 'video_webkitRequestFullscreen';}"
+                        + " if(v.webkitEnterFullscreen){v.webkitEnterFullscreen();return 'video_webkitEnterFullscreen';}"
+                        + "}"
+                        + "var btns=document.querySelectorAll('button,[role=button],div,span');"
+                        + "for(var b=0;b<btns.length&&b<900;b++){"
+                        + " var t=((btns[b].innerText||btns[b].textContent||btns[b].getAttribute('aria-label')||btns[b].title||'')+'').toLowerCase();"
+                        + " var c=((btns[b].className||'')+'').toLowerCase();"
+                        + " if(t.indexOf('fullscreen')>-1||t.indexOf('layar penuh')>-1||t.indexOf('full screen')>-1||c.indexOf('fullscreen')>-1){try{btns[b].click();return 'clicked_fullscreen';}catch(e){}}"
+                        + "}"
+                        + "var el=document.documentElement;"
+                        + "if(el.requestFullscreen){el.requestFullscreen();return 'page_fullscreen';}"
+                        + "if(el.webkitRequestFullscreen){el.webkitRequestFullscreen();return 'page_webkit_fullscreen';}"
+                        + "return 'not_supported';"
+                        + "}catch(e){return 'error';}"
+                        + "})()";
+
+        try {
+            webView.evaluateJavascript(js, value -> {
+                String result = value == null ? "" : value.replace("\"", "");
+                if (result.contains("not_supported") || result.contains("error")) {
+                    openAppVideoFullscreenFallback();
+                } else {
+                    Toast.makeText(this, "Mode layar penuh video", Toast.LENGTH_SHORT).show();
+                }
+            });
+        } catch (Exception e) {
+            openAppVideoFullscreenFallback();
+        }
+    }
+
+    private void openAppVideoFullscreenFallback() {
+        try {
+            originalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
+            originalRequestedOrientation = getRequestedOrientation();
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            );
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            if (topBarView != null) topBarView.setVisibility(View.GONE);
+            if (bottomNavView != null) bottomNavView.setVisibility(View.GONE);
+            if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
+            Toast.makeText(this, "Mode layar penuh aktif. Tekan Back untuk keluar.", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Mode fullscreen tidak didukung di halaman ini", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void exitAppVideoFullscreenFallback() {
+        try {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            getWindow().getDecorView().setSystemUiVisibility(originalSystemUiVisibility);
+            setRequestedOrientation(originalRequestedOrientation);
+            if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
+            if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
+            checkAndShowVideoControls();
+        } catch (Exception ignored) {
+        }
     }
 
     private void showVideoQualityDialog() {
@@ -2013,9 +2208,12 @@ content.addView(space(dp(36)));
                 + " if(!v||v.__yieldHooked)return;"
                 + " v.__yieldHooked=true;"
                 + " var show=function(){try{if(window.YieldVideoBridge)YieldVideoBridge.onVideoPlaying();}catch(e){}};"
+                + " var tap=function(){try{if(window.YieldVideoBridge)YieldVideoBridge.onVideoTapped();}catch(e){}};"
                 + " var hide=function(){try{if(window.YieldVideoBridge)YieldVideoBridge.onVideoStopped();}catch(e){}};"
                 + " v.addEventListener('play',show,true);"
                 + " v.addEventListener('playing',show,true);"
+                + " v.addEventListener('click',tap,true);"
+                + " v.addEventListener('touchend',tap,true);"
                 + " v.addEventListener('pause',hide,true);"
                 + " v.addEventListener('ended',hide,true);"
                 + " if(!v.paused&&!v.ended&&v.readyState>2)show();"
@@ -5225,6 +5423,62 @@ content.addView(space(dp(36)));
                 progressBar.setProgress(newProgress);
                 progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
             }
+
+            @Override
+            public void onShowCustomView(View view, CustomViewCallback callback) {
+                if (fullscreenVideoView != null) {
+                    callback.onCustomViewHidden();
+                    return;
+                }
+
+                fullscreenVideoView = view;
+                fullscreenVideoCallback = callback;
+                originalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
+                originalRequestedOrientation = getRequestedOrientation();
+
+                FrameLayout decor = (FrameLayout) getWindow().getDecorView();
+                decor.addView(fullscreenVideoView, new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                ));
+
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+                getWindow().getDecorView().setSystemUiVisibility(
+                        View.SYSTEM_UI_FLAG_FULLSCREEN
+                                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                );
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+
+                if (topBarView != null) topBarView.setVisibility(View.GONE);
+                if (bottomNavView != null) bottomNavView.setVisibility(View.GONE);
+                if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
+            }
+
+            @Override
+            public void onHideCustomView() {
+                if (fullscreenVideoView == null) return;
+
+                FrameLayout decor = (FrameLayout) getWindow().getDecorView();
+                decor.removeView(fullscreenVideoView);
+                fullscreenVideoView = null;
+
+                if (fullscreenVideoCallback != null) {
+                    fullscreenVideoCallback.onCustomViewHidden();
+                    fullscreenVideoCallback = null;
+                }
+
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+                getWindow().getDecorView().setSystemUiVisibility(originalSystemUiVisibility);
+                setRequestedOrientation(originalRequestedOrientation);
+
+                if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
+                if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
+                checkAndShowVideoControls();
+            }
         });
     }
 
@@ -6130,6 +6384,29 @@ content.addView(space(dp(36)));
 
     @Override
     public void onBackPressed() {
+        if (fullscreenVideoView != null) {
+            try {
+                FrameLayout decor = (FrameLayout) getWindow().getDecorView();
+                decor.removeView(fullscreenVideoView);
+            } catch (Exception ignored) {}
+            fullscreenVideoView = null;
+            if (fullscreenVideoCallback != null) {
+                fullscreenVideoCallback.onCustomViewHidden();
+                fullscreenVideoCallback = null;
+            }
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            getWindow().getDecorView().setSystemUiVisibility(originalSystemUiVisibility);
+            setRequestedOrientation(originalRequestedOrientation);
+            if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
+            if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
+            checkAndShowVideoControls();
+            return;
+        }
+        if (topBarView != null && topBarView.getVisibility() == View.GONE && webView != null && webView.getVisibility() == View.VISIBLE) {
+            exitAppVideoFullscreenFallback();
+            return;
+        }
+
         if (topBarView != null && topBarView.getVisibility() == View.GONE) {
             exitFullscreenMode();
             return;
