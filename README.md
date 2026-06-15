@@ -1,26 +1,21 @@
-# Yield Browser v0.3.5 Download Reload Button
+# Yield Browser v0.3.6 Build Fix + Download Manager Stabilization
 
-Update ini menambahkan tombol **Reload / download dari awal** untuk unduhan yang gagal, terputus, atau dijeda.
+Update ini memperbaiki kemungkinan gagal build dari versi sebelumnya dan menstabilkan download manager.
 
-## Perubahan v0.3.5
+## Perbaikan v0.3.6
 
-### Tombol reload
-- Jika download **gagal/terputus**, item unduhan menampilkan tombol **↻**.
-- Tombol **↻** berarti download ulang dari awal.
-- Di menu titik tiga juga ada pilihan **Reload dari awal**.
-
-### Pause / lanjutkan / reload
-Status tombol:
-- Saat berjalan: **Ⅱ** = Jeda / Pause
-- Saat dijeda: **▶** = Lanjutkan
-- Saat gagal/terputus: **↻** = Reload dari awal
-
-### Cara kerja reload
-- File partial/lama akan dihapus.
-- Progress kembali ke 0%.
-- Engine mengecek ulang apakah server support split download.
-- Jika support, download kembali memakai **2 koneksi paralel**.
-- Jika tidak support, fallback ke **1 koneksi**.
+- Mengganti icon notifikasi dari `android.R.drawable.stat_sys_download` ke icon drawable aplikasi agar aman saat compile.
+- Mengganti beberapa icon item file dari `android.R.drawable` ke drawable internal Yield.
+- Memperbaiki refresh progress download agar aman dipanggil dari background thread.
+- Menghapus pemanggilan dialog unduhan ganda saat klik notifikasi.
+- Fitur v0.3.5 tetap ada:
+  - notifikasi klik langsung buka menu unduhan
+  - pause/jeda
+  - lanjutkan
+  - reload dari awal
+  - 1 koneksi / 2 koneksi paralel
+  - menu Open, Bagikan, Ganti nama, Hapus riwayat, Hapus file + riwayat
 
 ## Catatan
-Pause masih aman dengan cara menghentikan proses aktif. Reload dipakai ketika koneksi terputus atau file tidak bisa dilanjutkan.
+
+Gunakan versi ini untuk menggantikan v0.3.5 kalau GitHub Actions gagal build.
