@@ -1,14 +1,17 @@
-# Yield Browser v0.1.7 UI Polish
+# Yield Browser v0.1.8 Bookmark + Translate Top Action
 
-Perbaikan kecil dari tampilan home dan bottom navigation.
+Update ini menambahkan aksi baru di sebelah kolom pencarian atas.
 
-## Perubahan v0.1.7
+## Perubahan v0.1.8
 
-- Ukuran logo pintasan diperkecil agar tampilan lebih rapi.
-- Jarak antar shortcut diperhalus.
-- Angka jumlah tab sekarang masuk ke dalam kotak ikon tab.
-- Struktur home dan menu tetap mengikuti versi v0.1.6.
+- Menambahkan tombol **bookmark** dengan icon bintang di top bar.
+- Saat situs sudah dibookmark, icon bookmark berubah warna aksen.
+- Menambahkan tombol **translate** di sebelah bookmark.
+- Saat translate aktif, icon translate berubah warna aksen.
+- Bookmark disimpan dengan SharedPreferences agar tetap tersimpan.
+- Jika translate aktif dan halaman dibuka, halaman dimuat lewat Google Translate ke Bahasa Indonesia.
+- UI v0.1.7 tetap dipertahankan.
 
 ## Catatan
 
-Versi ini masih fokus ke perapian UI. Fitur download manager 2 koneksi belum diaktifkan.
+Fitur download manager 2 koneksi masih belum diaktifkan pada versi ini.

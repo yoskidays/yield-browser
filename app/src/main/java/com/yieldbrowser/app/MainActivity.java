@@ -3,6 +3,7 @@ package com.yieldbrowser.app;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Dialog;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -30,20 +31,29 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.net.URLEncoder;
+import java.util.HashSet;
+import java.util.Set;
+
 public class MainActivity extends Activity {
     private static final int COLOR_BG = Color.parseColor("#0C0D10");
-    private static final int COLOR_SURFACE = Color.parseColor("#17191D");
     private static final int COLOR_SURFACE_2 = Color.parseColor("#20232A");
     private static final int COLOR_BORDER = Color.parseColor("#2A2E36");
     private static final int COLOR_TEXT = Color.parseColor("#F5F7FA");
     private static final int COLOR_SUBTEXT = Color.parseColor("#B7BDC8");
     private static final int COLOR_ACCENT = Color.parseColor("#F39A22");
+    private static final String PREFS = "yield_browser_prefs";
+    private static final String KEY_BOOKMARKS = "bookmarks";
 
     private EditText addressBar;
     private ProgressBar progressBar;
     private WebView webView;
     private ScrollView homeScroll;
+    private ImageButton bookmarkButton;
+    private ImageButton translateButton;
     private int tabCount = 1;
+    private boolean translateEnabled = false;
+    private String currentOriginalUrl = null;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -79,6 +89,7 @@ public class MainActivity extends Activity {
         root.addView(createBottomNav(), new LinearLayout.LayoutParams(-1, dp(64)));
 
         setContentView(root);
+        updateTopActionStates();
     }
 
     private View createTopBar() {
@@ -107,7 +118,7 @@ public class MainActivity extends Activity {
         addressBar.setSingleLine(true);
         addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
         addressBar.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
-        addressBar.setPadding(dp(10), 0, dp(10), 0);
+        addressBar.setPadding(dp(10), 0, dp(8), 0);
         addressBar.setOnEditorActionListener((v, actionId, event) -> {
             boolean isEnter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_UP;
             if (actionId == EditorInfo.IME_ACTION_GO || isEnter) {
@@ -119,15 +130,25 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(0, -2, 1);
         bar.addView(addressBar, addressParams);
 
+        bookmarkButton = smallTopIcon(R.drawable.ic_star, "Bookmark", v -> toggleBookmark());
+        bar.addView(bookmarkButton, new LinearLayout.LayoutParams(dp(30), dp(30)));
+
+        translateButton = smallTopIcon(R.drawable.ic_translate, "Translate", v -> toggleTranslate());
+        LinearLayout.LayoutParams translateParams = new LinearLayout.LayoutParams(dp(30), dp(30));
+        translateParams.setMargins(dp(2), 0, 0, 0);
+        bar.addView(translateButton, translateParams);
+
         ImageButton download = smallTopIcon(R.drawable.ic_download, "Unduhan", v -> Toast.makeText(this, "Menu unduhan akan ditambahkan di fitur berikutnya", Toast.LENGTH_SHORT).show());
-        bar.addView(download, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        LinearLayout.LayoutParams downloadParams = new LinearLayout.LayoutParams(dp(30), dp(30));
+        downloadParams.setMargins(dp(2), 0, 0, 0);
+        bar.addView(download, downloadParams);
 
         ImageButton menu = smallTopIcon(R.drawable.ic_menu_more, "Menu", v -> showQuickMenu());
-        LinearLayout.LayoutParams menuParams = new LinearLayout.LayoutParams(dp(34), dp(34));
-        menuParams.setMargins(dp(4), 0, 0, 0);
+        LinearLayout.LayoutParams menuParams = new LinearLayout.LayoutParams(dp(30), dp(30));
+        menuParams.setMargins(dp(2), 0, 0, 0);
         bar.addView(menu, menuParams);
 
-        wrap.addView(bar, new LinearLayout.LayoutParams(-1, dp(52)));
+        wrap.addView(bar, new LinearLayout.LayoutParams(-1, dp(54)));
         return wrap;
     }
 
@@ -337,6 +358,123 @@ public class MainActivity extends Activity {
         return item;
     }
 
+    private void toggleBookmark() {
+        String url = getEffectiveCurrentUrl();
+        if (url == null || url.length() == 0) {
+            Toast.makeText(this, "Belum ada situs untuk dibookmark", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Set<String> bookmarks = getBookmarks();
+        if (bookmarks.contains(url)) {
+            bookmarks.remove(url);
+            saveBookmarks(bookmarks);
+            Toast.makeText(this, "Bookmark dihapus", Toast.LENGTH_SHORT).show();
+        } else {
+            bookmarks.add(url);
+            saveBookmarks(bookmarks);
+            Toast.makeText(this, "Situs ditambahkan ke bookmark", Toast.LENGTH_SHORT).show();
+        }
+        updateTopActionStates();
+    }
+
+    private void toggleTranslate() {
+        translateEnabled = !translateEnabled;
+        updateTopActionStates();
+
+        if (webView.getVisibility() != View.VISIBLE) {
+            Toast.makeText(this, translateEnabled ? "Mode translate aktif" : "Mode translate nonaktif", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (translateEnabled) {
+            currentOriginalUrl = extractOriginalUrl(webView.getUrl());
+            loadTranslatedPage(currentOriginalUrl);
+            Toast.makeText(this, "Translate aktif", Toast.LENGTH_SHORT).show();
+        } else {
+            String raw = extractOriginalUrl(webView.getUrl());
+            if (raw != null && raw.length() > 0) {
+                webView.loadUrl(raw);
+            }
+            Toast.makeText(this, "Translate nonaktif", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void loadTranslatedPage(String originalUrl) {
+        if (originalUrl == null || originalUrl.length() == 0) return;
+        try {
+            String encoded = URLEncoder.encode(originalUrl, "UTF-8");
+            String translateUrl = "https://translate.google.com/translate?sl=auto&tl=id&u=" + encoded;
+            webView.loadUrl(translateUrl);
+        } catch (Exception e) {
+            webView.loadUrl(originalUrl);
+        }
+    }
+
+    private void updateTopActionStates() {
+        if (bookmarkButton != null) {
+            boolean bookmarked = false;
+            String effectiveUrl = getEffectiveCurrentUrl();
+            if (effectiveUrl != null) {
+                bookmarked = getBookmarks().contains(effectiveUrl);
+            }
+            bookmarkButton.setColorFilter(bookmarked ? COLOR_ACCENT : Color.parseColor("#E9EDF5"));
+        }
+        if (translateButton != null) {
+            translateButton.setColorFilter(translateEnabled ? COLOR_ACCENT : Color.parseColor("#E9EDF5"));
+        }
+    }
+
+    private String getEffectiveCurrentUrl() {
+        if (webView != null && webView.getVisibility() == View.VISIBLE) {
+            String raw = extractOriginalUrl(webView.getUrl());
+            if (raw != null && raw.length() > 0) return raw;
+        }
+        String text = addressBar != null ? addressBar.getText().toString().trim() : "";
+        if (text.length() == 0) return null;
+        return normalizeInputToUrl(text);
+    }
+
+    private String normalizeInputToUrl(String text) {
+        if (text == null) return null;
+        text = text.trim();
+        if (text.length() == 0) return null;
+        if (text.startsWith("https://translate.google.com/translate")) {
+            return extractOriginalUrl(text);
+        }
+        if (text.startsWith("http://") || text.startsWith("https://")) {
+            return text;
+        }
+        if (text.contains(".") && !text.contains(" ")) {
+            return "https://" + text;
+        }
+        return null;
+    }
+
+    private String extractOriginalUrl(String url) {
+        if (url == null) return null;
+        if (url.startsWith("https://translate.google.com/translate") || url.startsWith("http://translate.google.com/translate")) {
+            int idx = url.indexOf("&u=");
+            if (idx != -1) {
+                String original = url.substring(idx + 3);
+                return original.replace("%3A", ":").replace("%2F", "/").replace("%3F", "?").replace("%3D", "=").replace("%26", "&");
+            }
+        }
+        return url;
+    }
+
+    private Set<String> getBookmarks() {
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        Set<String> saved = prefs.getStringSet(KEY_BOOKMARKS, new HashSet<>());
+        return new HashSet<>(saved);
+    }
+
+    private void saveBookmarks(Set<String> bookmarks) {
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+                .edit()
+                .putStringSet(KEY_BOOKMARKS, new HashSet<>(bookmarks))
+                .apply();
+    }
+
     private void showQuickMenu() {
         Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -352,7 +490,7 @@ public class MainActivity extends Activity {
         }));
         menu.addView(menuRow(R.drawable.ic_bookmark, "Bookmark", v -> {
             dialog.dismiss();
-            Toast.makeText(this, "Bookmark akan dibuat di update berikutnya", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Daftar bookmark akan dibuat di update berikutnya", Toast.LENGTH_SHORT).show();
         }));
         menu.addView(menuRow(R.drawable.ic_private, "Privat", v -> {
             dialog.dismiss();
@@ -419,7 +557,7 @@ public class MainActivity extends Activity {
         button.setImageResource(iconRes);
         button.setColorFilter(Color.parseColor("#E9EDF5"));
         button.setBackgroundColor(Color.TRANSPARENT);
-        button.setPadding(dp(6), dp(6), dp(6), dp(6));
+        button.setPadding(dp(4), dp(4), dp(4), dp(4));
         button.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         button.setContentDescription(desc);
         button.setOnClickListener(listener);
@@ -441,8 +579,10 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                addressBar.setText(url);
+                String shownUrl = extractOriginalUrl(url);
+                addressBar.setText(shownUrl != null ? shownUrl : url);
                 progressBar.setVisibility(View.GONE);
+                updateTopActionStates();
             }
         });
 
@@ -469,14 +609,21 @@ public class MainActivity extends Activity {
         } else {
             url = "https://www.google.com/search?q=" + text.replace(" ", "+");
         }
+        currentOriginalUrl = url;
         webView.setVisibility(View.VISIBLE);
         homeScroll.setVisibility(View.GONE);
-        webView.loadUrl(url);
+        if (translateEnabled) {
+            loadTranslatedPage(url);
+        } else {
+            webView.loadUrl(url);
+        }
+        updateTopActionStates();
     }
 
     private void showHome() {
         homeScroll.setVisibility(View.VISIBLE);
         webView.setVisibility(View.GONE);
+        updateTopActionStates();
     }
 
     @Override
@@ -508,5 +655,4 @@ public class MainActivity extends Activity {
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
-
 }
