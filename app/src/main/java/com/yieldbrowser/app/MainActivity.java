@@ -155,6 +155,8 @@ public class MainActivity extends Activity {
     private boolean hideGoogleTranslateBar = true;
     private String lastTranslateOriginalUrl = "";
     private boolean compatibleTranslateActive = false;
+    private String translateTargetLang = "id";
+    private String translateTargetLabel = "Indonesia";
     private boolean speedMode = false;
     private boolean safeMode = true;
     private boolean nightMode = true;
@@ -4648,13 +4650,65 @@ content.addView(space(dp(36)));
         showTranslateOptionsDialog();
     }
 
+    private String translateLanguageLabel(String code) {
+        if ("id".equals(code)) return "Indonesia";
+        if ("en".equals(code)) return "Inggris";
+        if ("ja".equals(code)) return "Jepang";
+        if ("ko".equals(code)) return "Korea";
+        if ("zh-CN".equals(code)) return "Mandarin";
+        if ("ar".equals(code)) return "Arab";
+        if ("de".equals(code)) return "Jerman";
+        if ("fr".equals(code)) return "Prancis";
+        if ("es".equals(code)) return "Spanyol";
+        if ("ru".equals(code)) return "Rusia";
+        if ("ms".equals(code)) return "Melayu";
+        return "Indonesia";
+    }
+
+    private void showTranslateLanguageDialog() {
+        String[] labels = new String[]{"Indonesia", "Inggris", "Jepang", "Korea", "Mandarin", "Arab", "Jerman", "Prancis", "Spanyol", "Rusia", "Melayu"};
+        String[] codes = new String[]{"id", "en", "ja", "ko", "zh-CN", "ar", "de", "fr", "es", "ru", "ms"};
+
+        int checked = 0;
+        for (int i = 0; i < codes.length; i++) {
+            if (codes[i].equals(translateTargetLang)) {
+                checked = i;
+                break;
+            }
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Pilih bahasa target")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    translateTargetLang = codes[which];
+                    translateTargetLabel = labels[which];
+                    saveSettings();
+                    Toast.makeText(this, "Bahasa translate: " + translateTargetLabel, Toast.LENGTH_SHORT).show();
+
+                    if (translateEnabled && compatibleTranslateActive) {
+                        clearCompatibleTranslationMarks();
+                        mainHandler.postDelayed(() -> translatePageCompatible(), 250);
+                    } else if (translateEnabled && isGoogleTranslatedUrl(webView != null ? webView.getUrl() : "")) {
+                        String raw = lastTranslateOriginalUrl != null && lastTranslateOriginalUrl.length() > 0 ? lastTranslateOriginalUrl : getOriginalForTranslate(webView.getUrl());
+                        if (raw != null && raw.length() > 0) loadTranslatedPage(raw);
+                    }
+
+                    updateTopActionStates();
+                    dialog.dismiss();
+                })
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
     private void showTranslateOptionsDialog() {
         String current = getEffectiveCurrentUrl();
         String original = getOriginalForTranslate(current);
 
         ArrayList<String> options = new ArrayList<>();
-        options.add("Terjemahkan halaman ke Indonesia (kompatibel)");
-        options.add("Google Translate proxy (lama)");
+        options.add("Pilih bahasa target: " + translateTargetLabel);
+        options.add("Terjemahkan halaman ke " + translateTargetLabel + " (kompatibel)");
+        options.add("Lanjutkan translate bagian belum diterjemahkan");
+        options.add("Google Translate proxy (ada bar bahasa)");
         options.add(hideGoogleTranslateBar ? "Tampilkan bar Google Translate" : "Sembunyikan bar Google Translate");
         options.add("Terjemahkan teks halaman saja");
         options.add("Reload website");
@@ -4668,7 +4722,9 @@ content.addView(space(dp(36)));
                 .setTitle("Translate")
                 .setItems(items, (dialog, which) -> {
                     String selected = items[which];
-                    if (selected.startsWith("Terjemahkan halaman")) {
+                    if (selected.startsWith("Pilih bahasa")) {
+                        showTranslateLanguageDialog();
+                    } else if (selected.startsWith("Terjemahkan halaman")) {
                         if (original == null || original.length() == 0) {
                             Toast.makeText(this, "Buka website dulu untuk translate", Toast.LENGTH_SHORT).show();
                             return;
@@ -4676,7 +4732,13 @@ content.addView(space(dp(36)));
                         translateEnabled = true;
                         compatibleTranslateActive = true;
                         lastTranslateOriginalUrl = original;
+                        updateTopActionStates();
                         translatePageCompatible();
+                    } else if (selected.startsWith("Lanjutkan translate")) {
+                        translateEnabled = true;
+                        compatibleTranslateActive = true;
+                        updateTopActionStates();
+                        continueCompatibleTranslation();
                     } else if (selected.startsWith("Google Translate proxy")) {
                         if (original == null || original.length() == 0) {
                             Toast.makeText(this, "Buka website dulu untuk translate", Toast.LENGTH_SHORT).show();
@@ -4685,6 +4747,7 @@ content.addView(space(dp(36)));
                         translateEnabled = true;
                         compatibleTranslateActive = false;
                         lastTranslateOriginalUrl = original;
+                        updateTopActionStates();
                         loadTranslatedPage(original);
                     } else if (selected.startsWith("Tampilkan bar")) {
                         hideGoogleTranslateBar = false;
@@ -4710,7 +4773,9 @@ content.addView(space(dp(36)));
                         updateTopActionStates();
                         String raw = getOriginalForTranslate(current);
                         if ((raw == null || raw.length() == 0) && lastTranslateOriginalUrl.length() > 0) raw = lastTranslateOriginalUrl;
-                        if (raw != null && raw.length() > 0) webView.loadUrl(raw);
+                        if (raw != null && raw.length() > 0 && isGoogleTranslatedUrl(webView != null ? webView.getUrl() : "")) {
+                            webView.loadUrl(raw);
+                        }
                         Toast.makeText(this, "Translate dimatikan", Toast.LENGTH_SHORT).show();
                     }
                 })
@@ -4769,11 +4834,11 @@ content.addView(space(dp(36)));
         String js =
                 "javascript:(function(){"
                         + "try{"
-                        + "if(window.__yieldCompatibleTranslateRunning)return;"
                         + "window.__yieldCompatibleTranslateRunning=true;"
-                        + "window.__yieldTextNodes=[];"
+                        + "if(!window.__yieldTextNodes)window.__yieldTextNodes=[];"
                         + "function skip(n){"
                         + " var p=n.parentNode;if(!p)return true;"
+                        + " if(n.__yieldTranslated)return true;"
                         + " var tag=(p.nodeName||'').toLowerCase();"
                         + " if(['script','style','noscript','textarea','input','select','option','code','pre'].indexOf(tag)>=0)return true;"
                         + " if(p.closest&&p.closest('[contenteditable=true],.notranslate,#yield-hide-translate-bar'))return true;"
@@ -4782,27 +4847,43 @@ content.addView(space(dp(36)));
                         + "var walker=document.createTreeWalker(document.body||document.documentElement,NodeFilter.SHOW_TEXT,{acceptNode:function(n){"
                         + " if(skip(n))return NodeFilter.FILTER_REJECT;"
                         + " var t=(n.nodeValue||'').replace(/\\s+/g,' ').trim();"
-                        + " if(t.length<3||t.length>420)return NodeFilter.FILTER_REJECT;"
+                        + " if(t.length<2||t.length>900)return NodeFilter.FILTER_REJECT;"
                         + " if(/^[-–—→\\s\\d.,:;!?'\"()\\[\\]{}]+$/.test(t))return NodeFilter.FILTER_REJECT;"
                         + " return NodeFilter.FILTER_ACCEPT;"
                         + "}},false);"
-                        + "var node;var max=90;var i=0;"
-                        + "window.__yieldApplyTranslation=function(idx,text){try{var n=window.__yieldTextNodes[idx];if(n&&text){if(!n.__yieldOriginal)n.__yieldOriginal=n.nodeValue;n.nodeValue=text;}}catch(e){}};"
-                        + "while((node=walker.nextNode())&&i<max){"
+                        + "var node;var max=260;var sent=0;"
+                        + "window.__yieldApplyTranslation=function(idx,text){try{var n=window.__yieldTextNodes[idx];if(n&&text){if(!n.__yieldOriginal)n.__yieldOriginal=n.nodeValue;n.nodeValue=text;n.__yieldTranslated=true;}}catch(e){}};"
+                        + "while((node=walker.nextNode())&&sent<max){"
                         + " var text=(node.nodeValue||'').replace(/\\s+/g,' ').trim();"
+                        + " var idx=window.__yieldTextNodes.length;"
                         + " window.__yieldTextNodes.push(node);"
-                        + " try{YieldTranslateBridge.translateText(i,text);}catch(e){}"
-                        + " i++;"
+                        + " try{YieldTranslateBridge.translateText(idx,text);}catch(e){}"
+                        + " sent++;"
                         + "}"
-                        + "try{YieldTranslateBridge.onCollected(i);}catch(e){}"
-                        + "}catch(e){alert('Translate kompatibel gagal: '+e.message);}"
+                        + "window.__yieldCompatibleTranslateRunning=false;"
+                        + "try{YieldTranslateBridge.onCollected(sent);}catch(e){}"
+                        + "}catch(e){try{YieldTranslateBridge.onCollected(0);}catch(x){}}"
                         + "})()";
         try {
             webView.loadUrl(js);
-            Toast.makeText(this, "Translate kompatibel aktif", Toast.LENGTH_SHORT).show();
+            translateEnabled = true;
+            compatibleTranslateActive = true;
+            updateTopActionStates();
+            Toast.makeText(this, "Translate kompatibel aktif ke " + translateTargetLabel, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Translate kompatibel gagal", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void continueCompatibleTranslation() {
+        if (webView == null || webView.getVisibility() != View.VISIBLE) {
+            Toast.makeText(this, "Buka website dulu", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        compatibleTranslateActive = true;
+        translateEnabled = true;
+        updateTopActionStates();
+        translatePageCompatible();
     }
 
     private void clearCompatibleTranslationMarks() {
@@ -4810,7 +4891,8 @@ content.addView(space(dp(36)));
         String js =
                 "javascript:(function(){"
                         + "try{"
-                        + "if(window.__yieldTextNodes){for(var i=0;i<window.__yieldTextNodes.length;i++){var n=window.__yieldTextNodes[i];if(n&&n.__yieldOriginal){n.nodeValue=n.__yieldOriginal;}}}"
+                        + "if(window.__yieldTextNodes){for(var i=0;i<window.__yieldTextNodes.length;i++){var n=window.__yieldTextNodes[i];if(n&&n.__yieldOriginal){n.nodeValue=n.__yieldOriginal;n.__yieldTranslated=false;}}}"
+                        + "window.__yieldTextNodes=[];"
                         + "window.__yieldCompatibleTranslateRunning=false;"
                         + "}catch(e){}"
                         + "})()";
@@ -4834,7 +4916,7 @@ content.addView(space(dp(36)));
         HttpURLConnection conn = null;
         try {
             String q = URLEncoder.encode(text, "UTF-8");
-            URL url = new URL("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=id&dt=t&q=" + q);
+            URL url = new URL("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=" + translateTargetLang + "&dt=t&q=" + q);
             conn = (HttpURLConnection) url.openConnection();
             conn.setConnectTimeout(8000);
             conn.setReadTimeout(10000);
@@ -4872,8 +4954,9 @@ content.addView(space(dp(36)));
             compatibleTranslateActive = false;
             lastTranslateOriginalUrl = originalUrl;
             String encoded = URLEncoder.encode(originalUrl, "UTF-8");
-            webView.loadUrl("https://translate.google.com/translate?sl=auto&tl=id&u=" + encoded);
-            Toast.makeText(this, "Membuka Google Translate", Toast.LENGTH_SHORT).show();
+            webView.loadUrl("https://translate.google.com/translate?sl=auto&tl=" + translateTargetLang + "&u=" + encoded);
+            updateTopActionStates();
+            Toast.makeText(this, "Membuka Google Translate ke " + translateTargetLabel, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             webView.loadUrl(originalUrl);
         }
@@ -4948,9 +5031,12 @@ content.addView(space(dp(36)));
                         Toast.makeText(this, "Teks halaman tidak terbaca", Toast.LENGTH_SHORT).show();
                         return;
                     }
+                    translateEnabled = true;
+                    compatibleTranslateActive = false;
+                    updateTopActionStates();
                     String encoded = URLEncoder.encode(text, "UTF-8");
-                    webView.loadUrl("https://translate.google.com/?sl=auto&tl=id&op=translate&text=" + encoded);
-                    Toast.makeText(this, "Menerjemahkan teks halaman", Toast.LENGTH_SHORT).show();
+                    webView.loadUrl("https://translate.google.com/?sl=auto&tl=" + translateTargetLang + "&op=translate&text=" + encoded);
+                    Toast.makeText(this, "Menerjemahkan teks halaman ke " + translateTargetLabel, Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
                     Toast.makeText(this, "Gagal ambil teks halaman", Toast.LENGTH_SHORT).show();
                 }
@@ -5035,6 +5121,7 @@ content.addView(space(dp(36)));
                 }
                 if (compatibleTranslateActive && !isGoogleTranslatedUrl(url)) {
                     mainHandler.postDelayed(() -> translatePageCompatible(), 600);
+                    mainHandler.postDelayed(() -> translatePageCompatible(), 2200);
                 }
                 updateTopActionStates();
             }
@@ -5836,6 +5923,8 @@ content.addView(space(dp(36)));
         nightMode = p.getBoolean("nightMode", true);
         nightModeOption = p.getString("nightModeOption", nightMode ? "ON" : "OFF");
         hideGoogleTranslateBar = p.getBoolean("hideGoogleTranslateBar", true);
+        translateTargetLang = p.getString("translateTargetLang", "id");
+        translateTargetLabel = p.getString("translateTargetLabel", translateLanguageLabel(translateTargetLang));
         nightModeExceptions.clear();
         nightModeExceptions.addAll(p.getStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>()));
         readerMode = p.getBoolean("readerMode", false);
@@ -5900,6 +5989,8 @@ content.addView(space(dp(36)));
                 .putBoolean("speedMode", speedMode)
                 .putBoolean("safeMode", safeMode)
                 .putBoolean("hideGoogleTranslateBar", hideGoogleTranslateBar)
+                .putString("translateTargetLang", translateTargetLang)
+                .putString("translateTargetLabel", translateTargetLabel)
                 .putBoolean("nightMode", isNightModeActiveForCurrentSite())
                 .putString("nightModeOption", nightModeOption)
                 .putStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>(nightModeExceptions))

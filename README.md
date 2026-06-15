@@ -193,3 +193,15 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Menambahkan import `BufferedReader` dan `InputStreamReader` untuk Mode Translate Kompatibel.
 - Mengganti method reference `this::translatePageCompatible` menjadi lambda `() -> translatePageCompatible()`.
 - Memastikan JavaScript interface `VideoBridge` dan `TranslateBridge` berada di `configureWebView()`.
+
+
+## v0.7.0
+- Icon Translate langsung berubah warna saat translate aktif, tanpa perlu reload.
+- Target bahasa translate tidak dikunci Indonesia lagi.
+- Menu Translate ditambah `Pilih bahasa target`.
+- Bahasa target disimpan di pengaturan.
+- Mode Translate Kompatibel memakai bahasa target internal Yield, bukan bar Google Translate.
+- Translate Kompatibel diperluas:
+  - node teks maksimum dinaikkan
+  - teks yang belum diterjemahkan bisa dilanjutkan dengan opsi `Lanjutkan translate bagian belum diterjemahkan`
+  - halaman dinamis dicoba translate ulang otomatis.
