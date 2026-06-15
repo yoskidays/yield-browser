@@ -38,3 +38,17 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Mode malam sekarang juga menginjeksi CSS ke halaman web agar background gelap dan teks tetap terang/terbaca.
 - Gambar, video, canvas, dan SVG tidak ikut dibuat aneh/terbalik.
 - Pengaturan pengecualian situs memakai host/domain halaman aktif.
+
+
+## v0.5.2
+- Fix compile error: duplicate inner class `VideoBridge`.
+- `VideoBridge` sekarang hanya ada 1 kali di `MainActivity.java`.
+- Pemanggilan `webView.addJavascriptInterface(...)` dibersihkan agar tidak dobel.
+- Fitur v0.5.1 tetap dipertahankan:
+  - Mode Malam OFF / ON / Auto ikut sistem
+  - pengecualian per situs
+  - kontrol video hanya muncul saat video benar-benar diputar
+
+
+## v0.5.3
+- Ikon mode privat diganti menjadi ikon topi + kacamata (incognito style).

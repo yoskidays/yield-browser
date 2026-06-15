@@ -266,6 +266,8 @@ public class MainActivity extends Activity {
             this.privateTab = privateTab;
         }
     }
+    }
+
 
     private class VideoBridge {
         @JavascriptInterface
@@ -4521,24 +4523,6 @@ public class MainActivity extends Activity {
             webView.loadUrl(originalUrl);
         }
     }
-
-    private class VideoBridge {
-        @JavascriptInterface
-        public void onVideoPlaying() {
-            runOnUiThread(() -> {
-                if (videoControlsEnabled && !videoControlsManualHidden && webView != null && webView.getVisibility() == View.VISIBLE) {
-                    if (videoControlsBar != null) videoControlsBar.setVisibility(View.VISIBLE);
-                    if (videoSpeedLabel != null) videoSpeedLabel.setText(formatVideoSpeed(videoSpeed));
-                }
-            });
-        }
-
-        @JavascriptInterface
-        public void onVideoStopped() {
-            runOnUiThread(() -> {
-                if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
-            });
-        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -4597,24 +4581,6 @@ public class MainActivity extends Activity {
             }
         });
     }
-
-    private class VideoBridge {
-        @JavascriptInterface
-        public void onVideoPlaying() {
-            runOnUiThread(() -> {
-                if (videoControlsEnabled && !videoControlsManualHidden && webView != null && webView.getVisibility() == View.VISIBLE) {
-                    if (videoControlsBar != null) videoControlsBar.setVisibility(View.VISIBLE);
-                    if (videoSpeedLabel != null) videoSpeedLabel.setText(formatVideoSpeed(videoSpeed));
-                }
-            });
-        }
-
-        @JavascriptInterface
-        public void onVideoStopped() {
-            runOnUiThread(() -> {
-                if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
-            });
-        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
