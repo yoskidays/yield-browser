@@ -205,3 +205,19 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - node teks maksimum dinaikkan
   - teks yang belum diterjemahkan bisa dilanjutkan dengan opsi `Lanjutkan translate bagian belum diterjemahkan`
   - halaman dinamis dicoba translate ulang otomatis.
+
+
+## v0.7.1
+- Kontrol video ditambah tombol kualitas.
+- Pilihan kualitas video:
+  - Auto
+  - 240p
+  - 360p
+  - 480p
+  - 720p
+- Browser mencoba mengganti kualitas melalui:
+  - `<source>` HTML5 video
+  - JWPlayer quality levels
+  - Video.js quality levels
+  - tombol kualitas di player web jika ditemukan
+- Jika player tidak menyediakan pilihan kualitas yang bisa diakses WebView, akan muncul notifikasi bahwa kualitas tidak tersedia.

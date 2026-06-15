@@ -133,6 +133,8 @@ public class MainActivity extends Activity {
     private View bottomNavView;
     private LinearLayout videoControlsBar;
     private TextView videoSpeedLabel;
+    private TextView videoQualityLabel;
+    private String selectedVideoQuality = "Auto";
     private boolean videoControlsManualHidden = false;
     private TextView tabsCountText;
     private float swipeStartX = 0f;
@@ -1788,7 +1790,7 @@ content.addView(space(dp(36)));
         title.setTextSize(12);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setGravity(Gravity.CENTER_VERTICAL);
-        bar.addView(title, new LinearLayout.LayoutParams(dp(46), -1));
+        bar.addView(title, new LinearLayout.LayoutParams(dp(40), -1));
 
         bar.addView(videoTextButton("−10s", "Mundur 10 detik", v -> seekVideoBySeconds(-10)));
         bar.addView(videoButton(R.drawable.ic_video_play, "Play", v -> controlVideo("play")));
@@ -1803,9 +1805,21 @@ content.addView(space(dp(36)));
         videoSpeedLabel.setGravity(Gravity.CENTER);
         videoSpeedLabel.setBackground(roundRect(COLOR_ACCENT, dp(18), 0, Color.TRANSPARENT));
         videoSpeedLabel.setOnClickListener(v -> showVideoSpeedDialog());
-        LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(dp(62), dp(42));
+        LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(dp(56), dp(42));
         speedParams.setMargins(dp(4), 0, 0, 0);
         bar.addView(videoSpeedLabel, speedParams);
+
+        videoQualityLabel = new TextView(this);
+        videoQualityLabel.setText(selectedVideoQuality == null ? "Auto" : selectedVideoQuality);
+        videoQualityLabel.setTextColor(Color.WHITE);
+        videoQualityLabel.setTextSize(12);
+        videoQualityLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        videoQualityLabel.setGravity(Gravity.CENTER);
+        videoQualityLabel.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
+        videoQualityLabel.setOnClickListener(v -> showVideoQualityDialog());
+        LinearLayout.LayoutParams qualityParams = new LinearLayout.LayoutParams(dp(58), dp(42));
+        qualityParams.setMargins(dp(4), 0, 0, 0);
+        bar.addView(videoQualityLabel, qualityParams);
 
         TextView close = new TextView(this);
         close.setText("×");
@@ -1828,7 +1842,7 @@ content.addView(space(dp(36)));
         TextView button = new TextView(this);
         button.setText(text);
         button.setTextColor(Color.WHITE);
-        button.setTextSize(12);
+        button.setTextSize(11);
         button.setTypeface(Typeface.DEFAULT_BOLD);
         button.setGravity(Gravity.CENTER);
         button.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
@@ -1876,6 +1890,84 @@ content.addView(space(dp(36)));
         String js = "javascript:(function(){var v=document.querySelector('video');if(v){try{v.currentTime=Math.max(0,Math.min((v.duration||999999),v.currentTime+" + seconds + "));}catch(e){} }})()";
         webView.loadUrl(js);
         Toast.makeText(this, (seconds > 0 ? "Maju " : "Mundur ") + Math.abs(seconds) + " detik", Toast.LENGTH_SHORT).show();
+    }
+
+    private void showVideoQualityDialog() {
+        if (webView == null || webView.getVisibility() != View.VISIBLE) {
+            Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String[] labels = new String[]{"Auto", "240p", "360p", "480p", "720p"};
+        int checked = 0;
+        for (int i = 0; i < labels.length; i++) {
+            if (labels[i].equals(selectedVideoQuality)) {
+                checked = i;
+                break;
+            }
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Kualitas video")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    setVideoQuality(labels[which]);
+                    dialog.dismiss();
+                })
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
+    private void setVideoQuality(String quality) {
+        if (quality == null) quality = "Auto";
+        selectedVideoQuality = quality;
+        if (videoQualityLabel != null) videoQualityLabel.setText(selectedVideoQuality);
+        saveSettings();
+
+        if ("Auto".equals(quality)) {
+            Toast.makeText(this, "Kualitas video: Auto", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String target = quality.replace("p", "");
+        String js =
+                "(function(){"
+                        + "try{"
+                        + "var target='" + target + "';"
+                        + "var video=null;"
+                        + "var videos=document.querySelectorAll('video');"
+                        + "for(var i=0;i<videos.length;i++){var r=videos[i].getBoundingClientRect();if(r.width>60&&r.height>40){video=videos[i];break;}}"
+                        + "if(!video&&videos.length>0)video=videos[0];"
+                        + "if(!video)return 'no_video';"
+                        + "var current=0;try{current=video.currentTime||0;}catch(e){}"
+                        + "var paused=true;try{paused=video.paused;}catch(e){}"
+                        + "function hasQ(s){s=(s||'').toLowerCase();return s.indexOf(target+'p')>-1||s.indexOf(target+'_')>-1||s.indexOf(target+'-')>-1||s.indexOf(target+'.')>-1||s.indexOf('height='+target)>-1||s.indexOf('res='+target)>-1||s.indexOf('quality='+target)>-1;}"
+                        + "function switchSrc(src,type){try{if(!src)return false;video.pause();video.src=src;if(type)video.type=type;video.load();video.addEventListener('loadedmetadata',function(){try{video.currentTime=current;if(!paused)video.play();}catch(e){}},{once:true});return true;}catch(e){return false;}}"
+                        + "var sources=video.querySelectorAll('source[src]');"
+                        + "for(var s=0;s<sources.length;s++){var src=sources[s].src||sources[s].getAttribute('src')||'';var label=(sources[s].getAttribute('label')||sources[s].getAttribute('res')||sources[s].getAttribute('data-quality')||'');if(hasQ(src)||hasQ(label)){if(switchSrc(src,sources[s].type||''))return 'changed_source';}}"
+                        + "var vsrc=video.currentSrc||video.src||'';"
+                        + "if(hasQ(vsrc))return 'already';"
+                        + "try{if(window.jwplayer){var j=window.jwplayer();var levels=j.getQualityLevels?j.getQualityLevels():[];for(var jx=0;jx<levels.length;jx++){var q=(levels[jx].label||levels[jx].height||'')+'';if(hasQ(q)){j.setCurrentQuality(jx);return 'changed_jwplayer';}}}}catch(e){}"
+                        + "try{if(window.videojs){var players=window.videojs.getPlayers?window.videojs.getPlayers():{};for(var k in players){var p=players[k];if(p&&p.qualityLevels){var ql=p.qualityLevels();for(var qi=0;qi<ql.length;qi++){var h=(ql[qi].height||'')+'';if(hasQ(h)){for(var qj=0;qj<ql.length;qj++)ql[qj].enabled=false;ql[qi].enabled=true;return 'changed_videojs';}}}}}}catch(e){}"
+                        + "var clickables=document.querySelectorAll('button,[role=button],li,a,span,div');"
+                        + "for(var c=0;c<clickables.length&&c<800;c++){var t=(clickables[c].innerText||clickables[c].textContent||clickables[c].getAttribute('aria-label')||'').trim();if(hasQ(t)&&t.length<40){try{clickables[c].click();return 'clicked_quality';}catch(e){}}}"
+                        + "return 'not_found';"
+                        + "}catch(e){return 'error';}"
+                        + "})()";
+
+        try {
+            webView.evaluateJavascript(js, value -> {
+                String result = value == null ? "" : value.replace("\"", "");
+                if (result.contains("changed") || result.contains("clicked") || result.contains("already")) {
+                    Toast.makeText(this, "Kualitas video: " + selectedVideoQuality, Toast.LENGTH_SHORT).show();
+                } else if (result.contains("no_video")) {
+                    Toast.makeText(this, "Video belum ditemukan", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, "Kualitas " + selectedVideoQuality + " tidak tersedia di player ini", Toast.LENGTH_LONG).show();
+                }
+            });
+        } catch (Exception e) {
+            Toast.makeText(this, "Gagal mengubah kualitas video", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void showVideoSpeedDialog() {
@@ -5946,6 +6038,7 @@ content.addView(space(dp(36)));
         videoControlsEnabled = p.getBoolean("videoControlsEnabled", true);
         shortcutVideoControls = p.getBoolean("shortcutVideoControls", false);
         videoSpeed = p.getFloat("videoSpeed", 1.0f);
+        selectedVideoQuality = p.getString("selectedVideoQuality", "Auto");
         downloadSubfolder = p.getString("downloadSubfolder", "Download");
         topIconReload = p.getBoolean("topIconReload", true);
         topIconBookmark = p.getBoolean("topIconBookmark", true);
@@ -6013,6 +6106,7 @@ content.addView(space(dp(36)));
                 .putBoolean("videoControlsEnabled", videoControlsEnabled)
                 .putBoolean("shortcutVideoControls", shortcutVideoControls)
                 .putFloat("videoSpeed", videoSpeed)
+                .putString("selectedVideoQuality", selectedVideoQuality)
                 .putString("downloadSubfolder", downloadSubfolder)
                 .putBoolean("topIconReload", topIconReload)
                 .putBoolean("topIconBookmark", topIconBookmark)
