@@ -4804,10 +4804,10 @@ public class MainActivity extends Activity {
                 injectVideoPlaybackWatcher();
                 applyNightModeToWebPage();
                 if (hideGoogleTranslateBar && isGoogleTranslatedUrl(url)) {
-                    mainHandler.postDelayed(this::hideGoogleTranslateToolbar, 250);
-                    mainHandler.postDelayed(this::hideGoogleTranslateToolbar, 800);
-                    mainHandler.postDelayed(this::hideGoogleTranslateToolbar, 1800);
-                    mainHandler.postDelayed(this::hideGoogleTranslateToolbar, 3500);
+                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 250);
+                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 800);
+                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 1800);
+                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 3500);
                 }
                 updateTopActionStates();
             }

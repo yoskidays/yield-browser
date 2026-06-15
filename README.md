@@ -118,3 +118,10 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Swipe kiri: kembali ke aktivitas/halaman sebelumnya.
 - Swipe kanan: maju ke aktivitas/halaman berikutnya jika tersedia.
 - Saat berada di Home, gesture bisa mengembalikan halaman web terakhir yang masih tersimpan di WebView/tab.
+
+
+## v0.6.1
+- Fix compile error: invalid method reference `this::hideGoogleTranslateToolbar`.
+- Method reference diganti ke lambda `() -> hideGoogleTranslateToolbar()`.
+- Jika method hide toolbar tidak ada, ditambahkan ulang implementasi aman.
+- Fitur v0.6.0 gesture maju-mundur tetap dipertahankan.
