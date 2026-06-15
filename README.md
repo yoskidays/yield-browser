@@ -1,22 +1,26 @@
-# Yield Browser v0.1.4 UI Source
+# Yield Browser v0.1.5 UI Fix
 
-Target test: Android 11 / Realme 5 Pro.
+Yield Browser adalah browser Android ringan berbasis WebView.
 
-Important fix:
-- Real APK must be built with Android Studio/Gradle, not manually assembled DEX.
-- applicationId: com.yieldbrowser.install
-- MainActivity class: com.yieldbrowser.app.MainActivity
-- minSdk 23, targetSdk 30.
+## Perubahan v0.1.5
 
-UI features:
-- Lightweight WebView browser shell
-- Top toolbar
-- Address/search bar
-- Drawable/vector icon buttons: back, forward, refresh, go, download, home
-- Download button is placeholder; multi-connection downloader will be next feature stage.
+- Address/search bar dibuat lebih panjang dan nyaman dipakai.
+- Menu icon dipisah ke navigation toolbar agar tidak sempit.
+- Semua tombol menu tetap memakai drawable/vector icon, bukan text glyph.
+- Tambahan progress bar tipis saat halaman loading.
+- Keyboard action GO/Search aktif dari address bar.
+- Target test: Android 11 Realme 5 Pro.
 
-Build in Android Studio:
-1. Open the `YieldBrowser` folder.
-2. Let Gradle sync.
-3. Build > Build Bundle(s) / APK(s) > Build APK(s).
-4. Install generated app-debug.apk.
+## Build APK via GitHub Actions
+
+1. Upload isi folder project ini ke repository GitHub.
+2. Buka tab Actions.
+3. Jalankan workflow `Build Yield Browser APK`.
+4. Download artifact `YieldBrowser-debug-apk`.
+5. Extract ZIP artifact dan install APK di Android.
+
+## Status fitur
+
+- Browser dasar: aktif.
+- UI icon drawable: aktif.
+- Download manager multi-connection: tahap berikutnya.
