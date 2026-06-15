@@ -1,33 +1,34 @@
-# Yield Browser v0.3.9 Premium Fast Download Engine
+# Yield Browser v0.4.1 Gofile / Anti-Hotlink Download Fix
 
-Update ini mempertahankan default **2 koneksi paralel** agar stabil, lalu mengoptimalkan engine download agar terasa lebih cepat dan premium.
+Update ini memperkuat download engine untuk website file host seperti **gofile.io**, SFile, Pixeldrain, dan host lain yang sering memakai anti-hotlink.
 
-## Perubahan v0.3.9
+## Perubahan v0.4.1
 
-### Premium Fast Engine
-- Default tetap **2 koneksi paralel**.
-- Jika server support HTTP Range:
-  - file dipecah menjadi 2 bagian
-  - dua bagian diunduh bersamaan
-  - progress digabung menjadi satu
-- Jika server tidak support Range:
-  - otomatis fallback ke **1 koneksi**
+### Anti-hotlink safe headers
+Downloader sekarang membawa header lebih mirip browser:
+- User-Agent dari WebView/DownloadListener
+- Cookie dari file URL
+- Cookie dari halaman referer
+- Cookie dari domain utama
+- Cookie `gofile.io`
+- Referer halaman asal
+- Origin halaman asal
+- Sec-Fetch headers
+- Accept-Encoding identity
+- Keep-alive
 
-### Optimasi kecepatan
-- Buffer download dinaikkan dari 8KB menjadi **64KB**.
-- Header download diperkuat:
-  - User-Agent WebView
-  - Cookie session WebView
-  - Accept-Encoding identity
-  - Keep-alive
-  - No-cache
-- Timeout koneksi/read dibuat lebih aman untuk file besar.
-- Update UI/notifikasi dibuat lebih ringan agar proses download tidak terlalu terbebani.
+### Redirect aman
+- Redirect 301/302/303/307/308 diikuti manual.
+- Header anti-hotlink tetap dikirim ulang di setiap redirect.
 
-### Tampilan
-- Info engine ditampilkan sebagai:
-  - `Premium Fast Engine: 2 koneksi paralel`
-  - `Premium Fast Engine: fallback 1 koneksi`
+### Split download lebih aman
+- Tetap coba **2 koneksi paralel**.
+- Jika server/file host menolak split range, otomatis fallback ke **1 koneksi browser-like**.
+- Ini penting karena beberapa host mengizinkan download normal tapi menolak multi-range.
 
-## Catatan
-2 koneksi dipilih sebagai default karena lebih stabil dibanding 3 koneksi pada banyak server, tapi tetap memberi efek percepatan seperti download manager.
+### Deteksi gagal lebih jelas
+- Jika server memberi HTTP 403/404/500, alasan gagal ditampilkan di item download.
+- Jika link mengarah ke halaman HTML bukan file, aplikasi memberi pesan agar klik tombol download asli dari halaman.
+
+## Catatan penting
+Gofile kadang memakai token/captcha/session yang dibuat dari JavaScript. Jika tombol download asli belum menghasilkan direct file URL, WebView tidak selalu bisa mengambil file langsung. Update ini membuat request lebih aman dari hotlink, tetapi captcha/token tetap harus dilewati oleh user di halaman web.

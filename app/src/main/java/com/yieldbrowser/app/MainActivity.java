@@ -70,6 +70,7 @@ import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.util.ArrayList;
@@ -77,8 +78,10 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import com.google.zxing.BinaryBitmap;
 import com.google.zxing.MultiFormatReader;
 import com.google.zxing.NotFoundException;
@@ -100,6 +103,10 @@ public class MainActivity extends Activity {
     private static final String KEY_BROWSER_HISTORY = "browser_history";
     private static final String CHANNEL_DOWNLOADS = "yield_downloads";
     private static final String ACTION_OPEN_DOWNLOADS = "com.yieldbrowser.app.OPEN_DOWNLOADS";
+    private static final int DOWNLOAD_CONNECTIONS_PREMIUM = 2;
+    private static final int DOWNLOAD_BUFFER_SIZE = 64 * 1024;
+    private static final int DOWNLOAD_CONNECT_TIMEOUT = 15000;
+    private static final int DOWNLOAD_READ_TIMEOUT = 30000;
     private static final int REQ_CAMERA_QR = 2401;
 
     private EditText addressBar;
@@ -172,6 +179,9 @@ public class MainActivity extends Activity {
         boolean pauseRequested = false;
         String engineInfo = "Menunggu koneksi";
 
+        String userAgent = "";
+        String referer = "";
+        String failReason = "";
         DownloadItem(int id, String url, String fileName, String path, String status, int progress) {
             this.id = id;
             this.url = url;
@@ -270,26 +280,23 @@ public class MainActivity extends Activity {
 
     private void handleOpenDownloadsIntent(Intent intent) {
         if (intent == null) return;
-
-        boolean shouldOpen = ACTION_OPEN_DOWNLOADS.equals(intent.getAction())
-                || intent.getBooleanExtra("open_downloads", false)
-                || (intent.getData() != null
-                && "yieldbrowser".equals(intent.getData().getScheme())
-                && "downloads".equals(intent.getData().getHost()));
-
+        boolean shouldOpen = ACTION_OPEN_DOWNLOADS.equals(intent.getAction()) || intent.getBooleanExtra("open_downloads", false);
         if (!shouldOpen) return;
 
-        pendingOpenDownloads = true;
         intent.setAction(null);
         intent.removeExtra("open_downloads");
 
-        mainHandler.postDelayed(() -> {
-            if (pendingOpenDownloads) {
-                pendingOpenDownloads = false;
-                showDownloadManager();
-            }
-        }, 250);
+        if (activeDownloadDialog != null && activeDownloadDialog.isShowing()) {
+            return;
+        }
+
+        if (mainHandler != null) {
+            mainHandler.post(() -> showDownloadManager());
+        } else {
+            showDownloadManager();
+        }
     }
+
 
     private View createTopBar() {
         LinearLayout wrap = new LinearLayout(this);
@@ -1286,8 +1293,8 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             showDownloadSettingsPanel();
         }));
-        panel.addView(actionRow(R.drawable.ic_settings, "Engine download", "2 koneksi paralel, fallback ke 1 koneksi jika server tidak support range.", v -> {
-            Toast.makeText(this, "Engine Yield: 2 koneksi paralel aktif", Toast.LENGTH_LONG).show();
+        panel.addView(actionRow(R.drawable.ic_settings, "Engine download", "Premium Fast Engine: default 2 koneksi paralel, buffer 64KB, fallback 1 koneksi jika server tidak support Range.", v -> {
+            Toast.makeText(this, "Premium Fast Engine aktif: 2 koneksi paralel + buffer 64KB", Toast.LENGTH_LONG).show();
         }));
 
         dialog.setContentView(panel);
@@ -2320,22 +2327,31 @@ public class MainActivity extends Activity {
             check.setTypeface(Typeface.DEFAULT_BOLD);
             check.setGravity(Gravity.CENTER);
             check.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20232A"), dp(16), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
-            LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(dp(34), dp(34));
+            LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(dp(32), dp(32));
             checkParams.setMargins(0, 0, dp(10), 0);
             row.addView(check, checkParams);
         }
 
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(getDownloadIcon(item));
-        icon.setColorFilter(Color.parseColor("#E8EAED"));
-        icon.setPadding(dp(13), dp(13), dp(13), dp(13));
-        icon.setBackground(roundRect(Color.parseColor("#1E222A"), dp(18), 0, Color.TRANSPARENT));
-        row.addView(icon, new LinearLayout.LayoutParams(dp(56), dp(56)));
-
         LinearLayout textWrap = new LinearLayout(this);
         textWrap.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1);
-        textParams.setMargins(dp(12), 0, dp(8), 0);
+        textParams.setMargins(0, 0, dp(8), 0);
+
+        LinearLayout titleLine = new LinearLayout(this);
+        titleLine.setOrientation(LinearLayout.HORIZONTAL);
+        titleLine.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView categoryBadge = new TextView(this);
+        categoryBadge.setText(getDownloadCategory(item));
+        categoryBadge.setTextColor(Color.parseColor("#111111"));
+        categoryBadge.setTextSize(10);
+        categoryBadge.setTypeface(Typeface.DEFAULT_BOLD);
+        categoryBadge.setGravity(Gravity.CENTER);
+        categoryBadge.setPadding(dp(8), 0, dp(8), 0);
+        categoryBadge.setBackground(roundRect(COLOR_ACCENT, dp(10), 0, Color.TRANSPARENT));
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(-2, dp(22));
+        badgeParams.setMargins(0, 0, dp(8), 0);
+        titleLine.addView(categoryBadge, badgeParams);
 
         TextView name = new TextView(this);
         name.setText(item.fileName);
@@ -2343,15 +2359,29 @@ public class MainActivity extends Activity {
         name.setTextSize(15);
         name.setSingleLine(true);
         name.setEllipsize(TextUtils.TruncateAt.END);
-        textWrap.addView(name);
+        titleLine.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+        textWrap.addView(titleLine);
 
         TextView sub = new TextView(this);
         sub.setText(getDownloadSubtitle(item));
         sub.setTextColor(COLOR_SUBTEXT);
-        sub.setTextSize(13);
+        sub.setTextSize(12);
         sub.setSingleLine(true);
         sub.setEllipsize(TextUtils.TruncateAt.END);
-        textWrap.addView(sub);
+        LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(-1, -2);
+        subParams.setMargins(0, dp(3), 0, 0);
+        textWrap.addView(sub, subParams);
+
+        TextView engine = new TextView(this);
+        engine.setText(getDownloadEngineVisibleText(item));
+        engine.setTextColor(item.connectionCount >= 2 ? COLOR_ON : COLOR_ACCENT);
+        engine.setTextSize(12);
+        engine.setTypeface(Typeface.DEFAULT_BOLD);
+        engine.setSingleLine(true);
+        engine.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams engineParams = new LinearLayout.LayoutParams(-1, -2);
+        engineParams.setMargins(0, dp(3), 0, 0);
+        textWrap.addView(engine, engineParams);
 
         if ("running".equals(item.status) || "paused".equals(item.status)) {
             ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -2382,7 +2412,7 @@ public class MainActivity extends Activity {
                 action.setText("↻");
             }
             action.setTextColor(Color.WHITE);
-            action.setTextSize(18);
+            action.setTextSize(17);
             action.setTypeface(Typeface.DEFAULT_BOLD);
             action.setGravity(Gravity.CENTER);
             action.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
@@ -2391,7 +2421,7 @@ public class MainActivity extends Activity {
                 else if ("paused".equals(item.status)) resumeDownloadItem(item);
                 else reloadDownloadItem(item);
             });
-            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(dp(40), dp(40));
+            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(dp(38), dp(38));
             actionParams.setMargins(0, 0, dp(4), 0);
             row.addView(action, actionParams);
         }
@@ -2399,10 +2429,10 @@ public class MainActivity extends Activity {
         TextView more = new TextView(this);
         more.setText("⋮");
         more.setTextColor(Color.parseColor("#D6D9DE"));
-        more.setTextSize(30);
+        more.setTextSize(28);
         more.setGravity(Gravity.CENTER);
         more.setOnClickListener(v -> showDownloadItemMenu(v, item));
-        row.addView(more, new LinearLayout.LayoutParams(dp(42), dp(56)));
+        row.addView(more, new LinearLayout.LayoutParams(dp(34), dp(52)));
 
         row.setOnClickListener(v -> {
             if (downloadSelectMode) {
@@ -2425,35 +2455,31 @@ public class MainActivity extends Activity {
         return row;
     }
 
-    private int getDownloadIcon(DownloadItem item) {
-        String cat = getDownloadCategory(item);
-        if ("Video".equals(cat)) return R.drawable.ic_video_control;
-        if ("APK".equals(cat)) return R.drawable.ic_file;
-        if ("Musik".equals(cat)) return android.R.drawable.ic_media_play;
-        if ("Dokumen".equals(cat)) return android.R.drawable.ic_menu_edit;
-        if ("running".equals(item.status) || "paused".equals(item.status)) return R.drawable.ic_download_modern;
-        return R.drawable.ic_file;
+    private String getDownloadEngineVisibleText(DownloadItem item) {
+        if (item == null) return "Premium Fast Engine: anti-hotlink safe";
+        if (item.connectionCount >= 2) return "Premium Fast Engine: 2 koneksi paralel • anti-hotlink safe";
+        if (item.connectionCount == 1) return "Premium Fast Engine: 1 koneksi • anti-hotlink safe";
+        if ("paused".equals(item.status)) return "Premium Fast Engine: dijeda";
+        if ("failed".equals(item.status)) return "Premium Fast Engine: gagal • klik ↻";
+        return "Premium Fast Engine: cek split + anti-hotlink";
     }
 
     private String getDownloadSubtitle(DownloadItem item) {
         String size = readableFileSize(getDownloadSize(item));
         String host = getDownloadHost(item);
-        String engine = getConnectionLabel(item);
         String status;
 
         if ("running".equals(item.status)) {
-            status = "download • " + item.progress + "% • " + engine;
+            status = "download • " + item.progress + "%";
         } else if ("paused".equals(item.status)) {
-            status = "dijeda • " + item.progress + "% • " + engine;
+            status = "dijeda • " + item.progress + "%";
         } else if ("failed".equals(item.status)) {
-            status = "terputus/gagal • reload tersedia • " + engine;
+            status = item.failReason != null && item.failReason.length() > 0 ? "gagal • " + item.failReason : "terputus/gagal";
         } else {
-            status = host.length() > 0 ? host + " • " + engine : "selesai • " + engine;
+            status = "selesai";
         }
 
-        if (host.length() > 0 && ("running".equals(item.status) || "paused".equals(item.status) || "failed".equals(item.status))) {
-            return size + " • " + status + " • " + host;
-        }
+        if (host.length() > 0) return size + " • " + status + " • " + host;
         return size + " • " + status;
     }
 
@@ -2560,10 +2586,10 @@ public class MainActivity extends Activity {
     }
 
     private String getConnectionLabel(DownloadItem item) {
-        if (item == null) return "Menunggu koneksi";
-        if (item.connectionCount >= 2) return item.connectionCount + " koneksi paralel";
-        if (item.connectionCount == 1) return "1 koneksi";
-        return "Mengecek koneksi";
+        if (item == null) return "Premium Fast";
+        if (item.connectionCount >= 2) return "Premium Fast • 2 koneksi";
+        if (item.connectionCount == 1) return "Premium Fast • 1 koneksi";
+        return "Premium Fast • anti-hotlink safe";
     }
 
     private void pauseDownloadItem(DownloadItem item) {
@@ -2588,10 +2614,10 @@ public class MainActivity extends Activity {
             item.connectionCount = 0;
             item.status = "running";
             item.pauseRequested = false;
-            item.engineInfo = "Melanjutkan ulang split download";
+            item.engineInfo = "Premium Fast Engine • lanjut ulang";
             saveDownloadHistory();
             refreshDownloadPanel();
-            showDownloadNotification(item, "Melanjutkan unduhan", true);
+            showDownloadNotification(item, "Premium Fast • lanjutkan", true);
             startTwoConnectionDownload(item, out);
         } catch (Exception e) {
             failDownload(item, e.getMessage());
@@ -2608,7 +2634,7 @@ public class MainActivity extends Activity {
             item.downloadedBytes = 0;
             item.totalBytes = 0;
             item.connectionCount = 0;
-            item.engineInfo = "Reload dari awal • mengecek split download";
+            item.engineInfo = "Premium Fast Engine • reload dari awal";
 
             File out = new File(item.path);
             if (out.exists()) {
@@ -2617,7 +2643,7 @@ public class MainActivity extends Activity {
 
             saveDownloadHistory();
             refreshDownloadPanel();
-            showDownloadNotification(item, "Reload dari awal", true);
+            showDownloadNotification(item, "Premium Fast • reload", true);
             Toast.makeText(this, "Download dimulai ulang dari awal", Toast.LENGTH_SHORT).show();
 
             startTwoConnectionDownload(item, out);
@@ -2633,9 +2659,9 @@ public class MainActivity extends Activity {
             popup.getMenu().add(0, 10, 0, "Jeda / Pause");
         } else if ("paused".equals(item.status)) {
             popup.getMenu().add(0, 11, 0, "Lanjutkan");
-            popup.getMenu().add(0, 12, 1, "Reload dari awal");
+            popup.getMenu().add(0, 12, 1, "Premium Fast • reload");
         } else if ("failed".equals(item.status)) {
-            popup.getMenu().add(0, 12, 0, "Reload dari awal");
+            popup.getMenu().add(0, 12, 0, "Premium Fast • reload");
         }
 
         if ("completed".equals(item.status)) {
@@ -2783,12 +2809,23 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> renderDownloadList());
     }
 
-    private void beginDownloadFromWeb(String url, String contentDisposition, String mimeType) {
-        String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
-        beginDownload(url, fileName);
+    private String getCurrentPageForReferer() {
+        try {
+            if (webView != null && webView.getUrl() != null) return webView.getUrl();
+        } catch (Exception ignored) {}
+        try {
+            String current = getEffectiveCurrentUrl();
+            if (current != null) return current;
+        } catch (Exception ignored) {}
+        return "";
     }
 
-    private void beginDownload(String fileUrl, String guessedFileName) {
+    private void beginDownloadFromWeb(String url, String contentDisposition, String mimeType, String userAgent) {
+        String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
+        beginDownload(url, fileName, userAgent, getCurrentPageForReferer());
+    }
+
+    private void beginDownload(String fileUrl, String guessedFileName, String userAgent, String referer) {
         try {
             String fileName = guessedFileName;
             if (fileName == null || fileName.trim().length() == 0) {
@@ -2804,13 +2841,26 @@ public class MainActivity extends Activity {
             File out = uniqueFile(new File(dir, fileName));
             DownloadItem item = new DownloadItem(nextDownloadId++, fileUrl, out.getName(), out.getAbsolutePath(), "running", 0);
             item.connectionCount = 0;
-            item.engineInfo = "Menyiapkan split download";
+            item.engineInfo = "Premium Fast Engine • menyiapkan 2 koneksi";
+            item.userAgent = userAgent == null ? "" : userAgent;
+            item.referer = referer == null ? "" : referer;
+            item.failReason = "";
+
             synchronized (downloadItems) {
                 downloadItems.add(0, item);
             }
+            saveDownloadHistory();
             refreshDownloadPanel();
-            showDownloadNotification(item, "Mulai mengunduh", true);
-            Toast.makeText(this, "Unduhan dimulai. Ketuk notifikasi untuk detail.", Toast.LENGTH_LONG).show();
+            showDownloadNotification(item, "Premium Fast • mulai mengunduh", true);
+
+            Toast.makeText(this, "Unduhan dimulai. Membuka menu Download.", Toast.LENGTH_SHORT).show();
+            mainHandler.postDelayed(() -> {
+                if (activeDownloadDialog == null || !activeDownloadDialog.isShowing()) {
+                    showDownloadManager();
+                } else {
+                    renderDownloadList();
+                }
+            }, 250);
 
             startTwoConnectionDownload(item, out);
         } catch (Exception e) {
@@ -2851,16 +2901,145 @@ public class MainActivity extends Activity {
         return candidate;
     }
 
-    private void applyDownloadHeaders(HttpURLConnection conn, String fileUrl) {
+    private String getOriginFromUrl(String value) {
         try {
-            String ua = webView != null ? webView.getSettings().getUserAgentString() : null;
-            if (ua == null || ua.length() == 0) {
-                ua = "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36 YieldBrowser";
+            if (value == null || value.length() == 0) return "";
+            Uri uri = Uri.parse(value);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null) return "";
+            int port = uri.getPort();
+            if (port > 0) return scheme + "://" + host + ":" + port;
+            return scheme + "://" + host;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String getRootUrl(String value) {
+        String origin = getOriginFromUrl(value);
+        return origin.length() > 0 ? origin + "/" : "";
+    }
+
+    private String buildAntiHotlinkCookieHeader(String fileUrl, DownloadItem item) {
+        try {
+            LinkedHashSet<String> cookies = new LinkedHashSet<>();
+
+            String[] sources = new String[]{
+                    fileUrl,
+                    item != null ? item.referer : "",
+                    getRootUrl(fileUrl),
+                    item != null ? getRootUrl(item.referer) : "",
+                    "https://gofile.io/",
+                    "https://www.gofile.io/"
+            };
+
+            for (String source : sources) {
+                if (source == null || source.length() == 0) continue;
+                String cookie = CookieManager.getInstance().getCookie(source);
+                if (cookie == null || cookie.trim().length() == 0) continue;
+                String[] parts = cookie.split(";");
+                for (String part : parts) {
+                    String trimmed = part.trim();
+                    if (trimmed.length() > 0) cookies.add(trimmed);
+                }
             }
+
+            StringBuilder sb = new StringBuilder();
+            for (String cookie : cookies) {
+                if (sb.length() > 0) sb.append("; ");
+                sb.append(cookie);
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private HttpURLConnection openDownloadConnection(String url, DownloadItem item, String range) throws Exception {
+        String current = url;
+        for (int redirect = 0; redirect < 6; redirect++) {
+            HttpURLConnection conn = (HttpURLConnection) new URL(current).openConnection();
+            conn.setInstanceFollowRedirects(false);
+            if (range != null && range.length() > 0) {
+                conn.setRequestProperty("Range", range);
+            }
+            applyDownloadHeaders(conn, current, item);
+            conn.connect();
+
+            int code = conn.getResponseCode();
+            if (code == HttpURLConnection.HTTP_MOVED_PERM ||
+                    code == HttpURLConnection.HTTP_MOVED_TEMP ||
+                    code == HttpURLConnection.HTTP_SEE_OTHER ||
+                    code == 307 ||
+                    code == 308) {
+                String location = conn.getHeaderField("Location");
+                conn.disconnect();
+                if (location == null || location.length() == 0) {
+                    throw new Exception("Redirect tanpa lokasi");
+                }
+                URL base = new URL(current);
+                current = new URL(base, location).toString();
+                continue;
+            }
+            return conn;
+        }
+        throw new Exception("Terlalu banyak redirect");
+    }
+
+    private void validateDownloadResponse(HttpURLConnection conn) throws Exception {
+        int code = conn.getResponseCode();
+        if (code >= 400) {
+            throw new Exception("Server menolak unduhan HTTP " + code);
+        }
+        String contentType = conn.getContentType();
+        if (contentType != null) {
+            String lower = contentType.toLowerCase();
+            if (lower.contains("text/html") && conn.getContentLengthLong() > 0 && conn.getContentLengthLong() < 1024 * 1024) {
+                throw new Exception("Link mengarah ke halaman HTML, bukan file. Coba klik tombol download asli di halaman.");
+            }
+        }
+    }
+
+    private void applyDownloadHeaders(HttpURLConnection conn, String fileUrl) {
+        applyDownloadHeaders(conn, fileUrl, null);
+    }
+
+    private void applyDownloadHeaders(HttpURLConnection conn, String fileUrl, DownloadItem item) {
+        try {
+            conn.setConnectTimeout(DOWNLOAD_CONNECT_TIMEOUT);
+            conn.setReadTimeout(DOWNLOAD_READ_TIMEOUT);
+            conn.setUseCaches(false);
+
+            String ua = item != null ? item.userAgent : "";
+            if (ua == null || ua.length() == 0) {
+                ua = webView != null ? webView.getSettings().getUserAgentString() : null;
+            }
+            if (ua == null || ua.length() == 0) {
+                ua = "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36 YieldBrowser";
+            }
+
+            String referer = item != null ? item.referer : "";
+            if (referer == null || referer.length() == 0) referer = getCurrentPageForReferer();
+            String origin = getOriginFromUrl(referer);
+            if (origin.length() == 0) origin = getOriginFromUrl(fileUrl);
+
             conn.setRequestProperty("User-Agent", ua);
             conn.setRequestProperty("Accept", "*/*");
+            conn.setRequestProperty("Accept-Encoding", "identity");
             conn.setRequestProperty("Connection", "keep-alive");
-            String cookie = CookieManager.getInstance().getCookie(fileUrl);
+            conn.setRequestProperty("Cache-Control", "no-cache");
+            conn.setRequestProperty("Pragma", "no-cache");
+
+            // Anti-hotlink protection: make the request look like it came from the real page.
+            if (referer != null && referer.length() > 0) conn.setRequestProperty("Referer", referer);
+            if (origin != null && origin.length() > 0) conn.setRequestProperty("Origin", origin);
+            conn.setRequestProperty("Sec-Fetch-Dest", "empty");
+            conn.setRequestProperty("Sec-Fetch-Mode", "cors");
+            conn.setRequestProperty("Sec-Fetch-Site", "same-origin");
+            conn.setRequestProperty("X-Requested-With", getPackageName());
+
+            String cookie = buildAntiHotlinkCookieHeader(fileUrl, item);
             if (cookie != null && cookie.length() > 0) {
                 conn.setRequestProperty("Cookie", cookie);
             }
@@ -2871,64 +3050,85 @@ public class MainActivity extends Activity {
     private void startTwoConnectionDownload(DownloadItem item, File out) {
         item.status = "running";
         item.pauseRequested = false;
-        item.engineInfo = "Mengecek dukungan split download";
+        item.engineInfo = "Premium Fast Engine • anti-hotlink safe";
         refreshDownloadPanel();
 
         new Thread(() -> {
             try {
-                HttpURLConnection head = (HttpURLConnection) new URL(item.url).openConnection();
-                head.setRequestMethod("GET");
-                head.setRequestProperty("Range", "bytes=0-0");
-                applyDownloadHeaders(head, item.url);
-                head.connect();
+                HttpURLConnection head = null;
+                try {
+                    head = openDownloadConnection(item.url, item, "bytes=0-0");
+                    validateDownloadResponse(head);
 
-                int response = head.getResponseCode();
-                String contentRange = head.getHeaderField("Content-Range");
-                long total = parseTotalSize(contentRange);
-
-                if (item.pauseRequested || "paused".equals(item.status)) {
-                    head.disconnect();
-                    return;
-                }
-
-                if (response == 206 && total > 1) {
-                    head.disconnect();
-                    item.connectionCount = 2;
-                    item.engineInfo = "IDM-style split • 2 koneksi paralel";
-                    item.totalBytes = total;
-                    item.downloadedBytes = 0;
-                    item.progress = 0;
-                    saveDownloadHistory();
-                    refreshDownloadPanel();
-                    showDownloadNotification(item, "Mengunduh 2 koneksi", true);
-
-                    RandomAccessFile raf = new RandomAccessFile(out, "rw");
-                    raf.setLength(total);
-                    raf.close();
-
-                    long mid = total / 2;
-                    long[] done = new long[]{0};
-                    boolean[] ok = new boolean[]{true};
-                    Thread t1 = new Thread(() -> downloadRange(item, out, 0, mid, done, total, ok));
-                    Thread t2 = new Thread(() -> downloadRange(item, out, mid + 1, total - 1, done, total, ok));
-                    t1.start();
-                    t2.start();
-                    t1.join();
-                    t2.join();
+                    int response = head.getResponseCode();
+                    String contentRange = head.getHeaderField("Content-Range");
+                    long total = parseTotalSize(contentRange);
 
                     if (item.pauseRequested || "paused".equals(item.status)) {
-                        saveDownloadHistory();
-                        refreshDownloadPanel();
-                        showDownloadNotification(item, "Unduhan dijeda", false);
+                        head.disconnect();
                         return;
                     }
 
-                    if (ok[0]) completeDownload(item);
-                    else failDownload(item, "Koneksi split gagal");
-                } else {
-                    head.disconnect();
+                    if (response == 206 && total > 1) {
+                        head.disconnect();
+                        item.connectionCount = DOWNLOAD_CONNECTIONS_PREMIUM;
+                        item.engineInfo = "Premium Fast Engine • 2 koneksi paralel • anti-hotlink safe";
+                        item.totalBytes = total;
+                        item.downloadedBytes = 0;
+                        item.progress = 0;
+                        item.failReason = "";
+                        saveDownloadHistory();
+                        refreshDownloadPanel();
+                        showDownloadNotification(item, "Premium Fast • 2 koneksi", true);
+
+                        RandomAccessFile raf = new RandomAccessFile(out, "rw");
+                        raf.setLength(total);
+                        raf.close();
+
+                        long mid = total / 2;
+                        long[] done = new long[]{0};
+                        boolean[] ok = new boolean[]{true};
+                        Thread t1 = new Thread(() -> downloadRange(item, out, 0, mid, done, total, ok));
+                        Thread t2 = new Thread(() -> downloadRange(item, out, mid + 1, total - 1, done, total, ok));
+                        t1.start();
+                        t2.start();
+                        t1.join();
+                        t2.join();
+
+                        if (item.pauseRequested || "paused".equals(item.status)) {
+                            saveDownloadHistory();
+                            refreshDownloadPanel();
+                            showDownloadNotification(item, "Unduhan dijeda", false);
+                            return;
+                        }
+
+                        if (ok[0]) completeDownload(item);
+                        else {
+                            // Some anti-hotlink hosts allow normal browser download but reject multi-range.
+                            item.connectionCount = 1;
+                            item.engineInfo = "Premium Fast Engine • split ditolak server • fallback 1 koneksi";
+                            item.progress = 0;
+                            item.downloadedBytes = 0;
+                            if (out.exists()) out.delete();
+                            saveDownloadHistory();
+                            refreshDownloadPanel();
+                            downloadSingle(item, out);
+                        }
+                    } else {
+                        if (head != null) head.disconnect();
+                        item.connectionCount = 1;
+                        item.engineInfo = "Premium Fast Engine • fallback 1 koneksi • anti-hotlink safe";
+                        saveDownloadHistory();
+                        refreshDownloadPanel();
+                        downloadSingle(item, out);
+                    }
+                } catch (Exception splitError) {
+                    if (head != null) try { head.disconnect(); } catch (Exception ignored) {}
                     item.connectionCount = 1;
-                    item.engineInfo = "Server tidak support split • 1 koneksi";
+                    item.engineInfo = "Premium Fast Engine • split tidak cocok • fallback 1 koneksi";
+                    item.progress = 0;
+                    item.downloadedBytes = 0;
+                    if (out.exists()) out.delete();
                     saveDownloadHistory();
                     refreshDownloadPanel();
                     downloadSingle(item, out);
@@ -2947,16 +3147,14 @@ public class MainActivity extends Activity {
 
     private void downloadRange(DownloadItem item, File out, long start, long end, long[] done, long total, boolean[] ok) {
         try {
-            HttpURLConnection conn = (HttpURLConnection) new URL(item.url).openConnection();
-            conn.setRequestProperty("Range", "bytes=" + start + "-" + end);
-            applyDownloadHeaders(conn, item.url);
-            conn.connect();
+            HttpURLConnection conn = openDownloadConnection(item.url, item, "bytes=" + start + "-" + end);
+            validateDownloadResponse(conn);
 
             InputStream in = conn.getInputStream();
             RandomAccessFile raf = new RandomAccessFile(out, "rw");
             raf.seek(start);
 
-            byte[] buffer = new byte[8192];
+            byte[] buffer = new byte[DOWNLOAD_BUFFER_SIZE];
             int len;
             while ((len = in.read(buffer)) != -1) {
                 if (item.pauseRequested || "paused".equals(item.status)) {
@@ -2970,8 +3168,10 @@ public class MainActivity extends Activity {
                     int percent = (int) Math.min(99, (done[0] * 100) / total);
                     if (percent != item.progress) {
                         item.progress = percent;
-                        refreshDownloadPanel();
-                        showDownloadNotification(item, "2 koneksi paralel • " + percent + "%", true);
+                        if (percent % 2 == 0 || percent >= 99) {
+                            refreshDownloadPanel();
+                            showDownloadNotification(item, "Premium Fast • 2 koneksi • " + percent + "%", true);
+                        }
                     }
                 }
             }
@@ -2985,14 +3185,24 @@ public class MainActivity extends Activity {
 
     private void downloadSingle(DownloadItem item, File out) {
         try {
-            HttpURLConnection conn = (HttpURLConnection) new URL(item.url).openConnection();
-            applyDownloadHeaders(conn, item.url);
-            conn.connect();
+            HttpURLConnection conn = openDownloadConnection(item.url, item, "");
+            validateDownloadResponse(conn);
+            String cd = conn.getHeaderField("Content-Disposition");
+            try {
+                String betterName = URLUtil.guessFileName(item.url, cd, conn.getContentType());
+                if (betterName != null && betterName.length() > 0 && !betterName.equals(item.fileName)) {
+                    File oldFile = out;
+                    File newFile = uniqueFile(new File(out.getParentFile(), betterName));
+                    item.fileName = newFile.getName();
+                    item.path = newFile.getAbsolutePath();
+                    out = newFile;
+                }
+            } catch (Exception ignored) {}
             long total = conn.getContentLengthLong();
             item.totalBytes = total;
             InputStream in = conn.getInputStream();
             FileOutputStream fos = new FileOutputStream(out);
-            byte[] buffer = new byte[8192];
+            byte[] buffer = new byte[DOWNLOAD_BUFFER_SIZE];
             int len;
             long done = 0;
             while ((len = in.read(buffer)) != -1) {
@@ -3006,8 +3216,10 @@ public class MainActivity extends Activity {
                     int percent = (int) Math.min(99, (done * 100) / total);
                     if (percent != item.progress) {
                         item.progress = percent;
-                        refreshDownloadPanel();
-                        showDownloadNotification(item, "1 koneksi • " + percent + "%", true);
+                        if (percent % 2 == 0 || percent >= 99) {
+                            refreshDownloadPanel();
+                            showDownloadNotification(item, "Premium Fast • 1 koneksi • " + percent + "%", true);
+                        }
                     }
                 }
             }
@@ -3040,15 +3252,16 @@ public class MainActivity extends Activity {
     private void failDownload(DownloadItem item, String reason) {
         item.status = "failed";
         item.pauseRequested = false;
+        item.failReason = reason == null ? "Koneksi/server menolak unduhan" : reason;
         if (item.engineInfo == null || item.engineInfo.length() == 0) {
             item.engineInfo = getConnectionLabel(item) + " • terputus/gagal";
-        } else {
+        } else if (!item.engineInfo.contains("terputus")) {
             item.engineInfo = item.engineInfo + " • terputus/gagal";
         }
         saveDownloadHistory();
         refreshDownloadPanel();
-        showDownloadNotification(item, "Unduhan gagal • klik untuk detail", false);
-        runOnUiThread(() -> Toast.makeText(this, "Unduhan gagal. Klik reload untuk download dari awal.", Toast.LENGTH_LONG).show());
+        showDownloadNotification(item, "Unduhan gagal • buka detail", false);
+        runOnUiThread(() -> Toast.makeText(this, "Unduhan gagal. Buka Download untuk reload/detail.", Toast.LENGTH_LONG).show());
     }
 
     private long parseTotalSize(String contentRange) {
@@ -3075,17 +3288,15 @@ public class MainActivity extends Activity {
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
 
-        Intent intent = new Intent(this, MainActivity.class);
+        Intent intent = new Intent(this, DownloadOpenReceiver.class);
         intent.setAction(ACTION_OPEN_DOWNLOADS);
-        intent.setData(Uri.parse("yieldbrowser://downloads/" + item.id + "/" + System.currentTimeMillis()));
         intent.putExtra("open_downloads", true);
         intent.putExtra("download_id", item.id);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
 
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
 
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, item.id + 9000, intent, flags);
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(this, item.id + 12000, intent, flags);
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_DOWNLOADS)
@@ -3098,7 +3309,7 @@ public class MainActivity extends Activity {
             line = "Dijeda • " + getConnectionLabel(item);
         }
 
-        builder.setSmallIcon("completed".equals(item.status) ? android.R.drawable.stat_sys_download_done : android.R.drawable.stat_sys_download)
+        builder.setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle(item.fileName)
                 .setContentText(line)
                 .setContentIntent(pendingIntent)
@@ -3119,7 +3330,7 @@ public class MainActivity extends Activity {
         synchronized (downloadItems) {
             for (DownloadItem item : downloadItems) {
                 if (item.status.equals("completed") || item.status.equals("failed")) {
-                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo));
+                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason));
                 }
             }
         }
@@ -3145,8 +3356,11 @@ public class MainActivity extends Activity {
                         if (parts.length >= 9) {
                             item.engineInfo = decode(parts[8]);
                         } else {
-                            item.engineInfo = item.connectionCount > 1 ? "IDM-style split • 2 koneksi paralel" : "1 koneksi";
+                            item.engineInfo = item.connectionCount > 1 ? "Premium Fast Engine • 2 koneksi paralel" : "1 koneksi";
                         }
+                        if (parts.length >= 10) item.userAgent = decode(parts[9]);
+                        if (parts.length >= 11) item.referer = decode(parts[10]);
+                        if (parts.length >= 12) item.failReason = decode(parts[11]);
                         downloadItems.add(item);
                     }
                 } catch (Exception ignored) {}
