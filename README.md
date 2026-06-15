@@ -1,29 +1,21 @@
-# Yield Browser v0.4.5 Private Mode + Multi Tab
+# Yield Browser v0.4.7 Pause Resume Fix + Home Bookmark Clear
 
-Update ini mengaktifkan **Mode Privat** dan **Multi Tab**.
+Update ini memperbaiki dua masalah utama.
 
-## Perubahan v0.4.5
+## Perubahan v0.4.7
 
-### Mode Privat
-- Menu **Privat** sekarang sudah aktif.
-- Saat diklik, Yield membuat **tab privat baru**.
-- Tab privat tidak menyimpan riwayat browsing.
-- Saat tab privat ditutup, cache/history WebView dibersihkan ringan.
+### Pause / Resume download
+- Tombol **Ⅱ** tetap untuk jeda.
+- Tombol **▶** sekarang mencoba melanjutkan dari file partial yang sudah ada.
+- Tombol **↻** tetap khusus untuk reload/download ulang dari awal.
+- Untuk download **2 koneksi**, aplikasi menyimpan progres part 1 dan part 2.
+- Untuk fallback **1 koneksi**, aplikasi mencoba resume memakai HTTP Range dari byte terakhir.
+- Kalau server menolak resume, baru fallback mulai ulang sesuai respons server.
 
-### Multi Tab
-- Tombol kotak angka di bottom navigation sekarang bisa diklik.
-- Saat diklik, muncul halaman daftar tab.
-- Ada tombol **+** untuk membuat tab baru.
-- Ada tombol **Privat** untuk membuat tab privat.
-- Tab bisa dipilih untuk pindah halaman.
-- Tab bisa ditutup dengan tombol **×**.
-- Angka pada ikon tab mengikuti jumlah tab aktif.
+### Home dan bookmark
+- Saat klik tombol **Home**, address bar dikosongkan.
+- Star bookmark tidak lagi ikut menyala/nempel dari situs sebelumnya.
+- Tab aktif dianggap kembali ke halaman awal.
 
 ## Catatan
-Sistem tab saat ini memakai satu WebView aktif dan menyimpan URL/judul per tab. Ini ringan dan cocok untuk tahap awal. Riwayat WebView per-tab yang benar-benar terpisah bisa dikembangkan di versi berikutnya.
-
-
-## Perubahan v0.4.6
-- Panel riwayat sekarang punya tombol **X** di kanan atas.
-- Kategori unduhan (**Semua / Video / APK / Dokumen / Musik / Lainnya**) disegarkan lebih stabil saat diklik.
-- Klasifikasi unduhan diperkuat memakai nama file, URL, dan MIME type supaya file video/APK lebih akurat masuk kategori yang benar.
+Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server/file host menolak resume, reload dari awal tetap tersedia lewat tombol **↻**.

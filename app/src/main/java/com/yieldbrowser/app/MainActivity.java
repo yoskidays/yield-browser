@@ -186,6 +186,12 @@ public class MainActivity extends Activity {
         String referer = "";
         String failReason = "";
         String categoryHint = "";
+        long part1Start = 0;
+        long part1End = 0;
+        long part1Done = 0;
+        long part2Start = 0;
+        long part2End = 0;
+        long part2Done = 0;
         double speedBytesPerSecond = 0;
         long lastSpeedTimeMs = 0;
         long lastSpeedBytes = 0;
@@ -3040,26 +3046,21 @@ public class MainActivity extends Activity {
         if (item == null || !"paused".equals(item.status)) return;
         try {
             File out = new File(item.path);
-            if (out.exists()) out.delete();
-            item.progress = 0;
-            item.downloadedBytes = 0;
-            item.totalBytes = 0;
-            item.connectionCount = 0;
-            item.speedBytesPerSecond = 0;
-            item.lastSpeedTimeMs = 0;
-            item.lastSpeedBytes = 0;
             item.status = "running";
             item.pauseRequested = false;
-            item.engineInfo = "Mengecek koneksi";
+            item.speedBytesPerSecond = 0;
+            item.lastSpeedTimeMs = 0;
+            item.lastSpeedBytes = item.downloadedBytes;
+            item.engineInfo = item.connectionCount >= 2 ? "2 koneksi sukses" : "1 koneksi sukses";
             saveDownloadHistory();
             refreshDownloadPanel();
-            showDownloadNotification(item, "Premium Fast • lanjutkan", true);
+            showDownloadNotification(item, "Melanjutkan unduhan", true);
+            Toast.makeText(this, "Melanjutkan unduhan dari posisi terakhir", Toast.LENGTH_SHORT).show();
             startTwoConnectionDownload(item, out);
         } catch (Exception e) {
             failDownload(item, e.getMessage());
         }
     }
-
 
     private void reloadDownloadItem(DownloadItem item) {
         if (item == null) return;
@@ -3070,6 +3071,12 @@ public class MainActivity extends Activity {
             item.downloadedBytes = 0;
             item.totalBytes = 0;
             item.connectionCount = 0;
+            item.part1Start = 0;
+            item.part1End = 0;
+            item.part1Done = 0;
+            item.part2Start = 0;
+            item.part2End = 0;
+            item.part2Done = 0;
             item.speedBytesPerSecond = 0;
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = 0;
@@ -3496,6 +3503,7 @@ public class MainActivity extends Activity {
     }
 
     private void startTwoConnectionDownload(DownloadItem item, File out) {
+        boolean resumeAttempt = out.exists() && item.downloadedBytes > 0 && ("running".equals(item.status) || "paused".equals(item.status));
         item.status = "running";
         item.pauseRequested = false;
         item.engineInfo = "Mengecek koneksi";
@@ -3530,22 +3538,49 @@ public class MainActivity extends Activity {
                         item.connectionCount = DOWNLOAD_CONNECTIONS_PREMIUM;
                         item.engineInfo = "2 koneksi sukses";
                         item.totalBytes = total;
-                        item.downloadedBytes = 0;
-                        item.progress = 0;
                         item.failReason = "";
+
+                        long mid = total / 2;
+                        boolean canResumeSplit = resumeAttempt
+                                && out.exists()
+                                && item.totalBytes == total
+                                && item.part1End == mid
+                                && item.part2Start == mid + 1
+                                && (item.part1Done > 0 || item.part2Done > 0);
+
+                        if (!canResumeSplit) {
+                            item.part1Start = 0;
+                            item.part1End = mid;
+                            item.part1Done = 0;
+                            item.part2Start = mid + 1;
+                            item.part2End = total - 1;
+                            item.part2Done = 0;
+                            item.downloadedBytes = 0;
+                            item.progress = 0;
+                            RandomAccessFile raf = new RandomAccessFile(out, "rw");
+                            raf.setLength(total);
+                            raf.close();
+                        } else {
+                            long p1Len = item.part1End - item.part1Start + 1;
+                            long p2Len = item.part2End - item.part2Start + 1;
+                            if (item.part1Done > p1Len) item.part1Done = p1Len;
+                            if (item.part2Done > p2Len) item.part2Done = p2Len;
+                            item.downloadedBytes = item.part1Done + item.part2Done;
+                            item.progress = (int) Math.min(99, (item.downloadedBytes * 100) / total);
+                        }
+
                         saveDownloadHistory();
                         refreshDownloadPanel();
                         showDownloadNotification(item, "2 koneksi", true);
 
-                        RandomAccessFile raf = new RandomAccessFile(out, "rw");
-                        raf.setLength(total);
-                        raf.close();
-
-                        long mid = total / 2;
-                        long[] done = new long[]{0};
+                        long[] done = new long[]{item.part1Done + item.part2Done};
                         boolean[] ok = new boolean[]{true};
-                        Thread t1 = new Thread(() -> downloadRange(item, out, 0, mid, done, total, ok));
-                        Thread t2 = new Thread(() -> downloadRange(item, out, mid + 1, total - 1, done, total, ok));
+
+                        long range1Start = item.part1Start + item.part1Done;
+                        long range2Start = item.part2Start + item.part2Done;
+
+                        Thread t1 = new Thread(() -> downloadRange(item, out, range1Start, item.part1End, done, total, ok, 1));
+                        Thread t2 = new Thread(() -> downloadRange(item, out, range2Start, item.part2End, done, total, ok, 2));
                         t1.start();
                         t2.start();
                         t1.join();
@@ -3560,11 +3595,12 @@ public class MainActivity extends Activity {
 
                         if (ok[0]) completeDownload(item);
                         else {
-                            // Some anti-hotlink hosts allow normal browser download but reject multi-range.
                             item.connectionCount = 1;
                             item.engineInfo = "1 koneksi sukses";
                             item.progress = 0;
                             item.downloadedBytes = 0;
+                            item.part1Done = 0;
+                            item.part2Done = 0;
                             if (out.exists()) out.delete();
                             saveDownloadHistory();
                             refreshDownloadPanel();
@@ -3582,9 +3618,6 @@ public class MainActivity extends Activity {
                     if (head != null) try { head.disconnect(); } catch (Exception ignored) {}
                     item.connectionCount = 1;
                     item.engineInfo = "1 koneksi sukses";
-                    item.progress = 0;
-                    item.downloadedBytes = 0;
-                    if (out.exists()) out.delete();
                     saveDownloadHistory();
                     refreshDownloadPanel();
                     downloadSingle(item, out);
@@ -3601,7 +3634,8 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void downloadRange(DownloadItem item, File out, long start, long end, long[] done, long total, boolean[] ok) {
+    private void downloadRange(DownloadItem item, File out, long start, long end, long[] done, long total, boolean[] ok, int partIndex) {
+        if (start > end) return;
         try {
             HttpURLConnection conn = openDownloadConnection(item.url, item, "bytes=" + start + "-" + end);
             validateDownloadResponse(conn);
@@ -3620,6 +3654,8 @@ public class MainActivity extends Activity {
                 raf.write(buffer, 0, len);
                 synchronized (done) {
                     done[0] += len;
+                    if (partIndex == 1) item.part1Done += len;
+                    else item.part2Done += len;
                     item.downloadedBytes = done[0];
                     updateDownloadSpeed(item, done[0]);
                     int percent = (int) Math.min(99, (done[0] * 100) / total);
@@ -3642,13 +3678,24 @@ public class MainActivity extends Activity {
 
     private void downloadSingle(DownloadItem item, File out) {
         try {
-            HttpURLConnection conn = openDownloadConnection(item.url, item, "");
+            boolean resumeSingle = out.exists() && item.downloadedBytes > 0 && item.connectionCount == 1;
+            long resumeFrom = resumeSingle ? Math.min(item.downloadedBytes, out.length()) : 0;
+
+            HttpURLConnection conn = openDownloadConnection(item.url, item, resumeFrom > 0 ? "bytes=" + resumeFrom + "-" : "");
             validateDownloadResponse(conn);
+
+            int code = conn.getResponseCode();
+            boolean append = resumeFrom > 0 && code == 206;
+            if (!append) {
+                resumeFrom = 0;
+                item.downloadedBytes = 0;
+                item.progress = 0;
+            }
+
             String cd = conn.getHeaderField("Content-Disposition");
             try {
                 String betterName = URLUtil.guessFileName(item.url, cd, conn.getContentType());
-                if (betterName != null && betterName.length() > 0 && !betterName.equals(item.fileName)) {
-                    File oldFile = out;
+                if (betterName != null && betterName.length() > 0 && !betterName.equals(item.fileName) && resumeFrom == 0) {
                     File newFile = uniqueFile(new File(out.getParentFile(), betterName));
                     item.fileName = newFile.getName();
                     item.path = newFile.getAbsolutePath();
@@ -3656,13 +3703,19 @@ public class MainActivity extends Activity {
                 }
                 item.categoryHint = inferDownloadCategoryFromData(item.fileName, item.url, conn.getContentType());
             } catch (Exception ignored) {}
-            long total = conn.getContentLengthLong();
+
+            long contentLen = conn.getContentLengthLong();
+            long total = item.totalBytes > 0 && append ? item.totalBytes : (contentLen > 0 ? contentLen + resumeFrom : item.totalBytes);
             item.totalBytes = total;
+
             InputStream in = conn.getInputStream();
-            FileOutputStream fos = new FileOutputStream(out);
+            FileOutputStream fos = new FileOutputStream(out, append);
             byte[] buffer = new byte[DOWNLOAD_BUFFER_SIZE];
             int len;
-            long done = 0;
+            long done = resumeFrom;
+            item.lastSpeedTimeMs = 0;
+            item.lastSpeedBytes = done;
+
             while ((len = in.read(buffer)) != -1) {
                 if (item.pauseRequested || "paused".equals(item.status)) {
                     break;
@@ -3685,9 +3738,11 @@ public class MainActivity extends Activity {
             fos.close();
             in.close();
             conn.disconnect();
+
             if (item.pauseRequested || "paused".equals(item.status)) {
                 item.status = "paused";
-                item.engineInfo = getConnectionLabel(item) + " • dijeda";
+                item.speedBytesPerSecond = 0;
+                item.engineInfo = "Dijeda";
                 saveDownloadHistory();
                 refreshDownloadPanel();
                 showDownloadNotification(item, "Unduhan dijeda", false);
@@ -3695,7 +3750,16 @@ public class MainActivity extends Activity {
                 completeDownload(item);
             }
         } catch (Exception e) {
-            failDownload(item, e.getMessage());
+            if (item.pauseRequested || "paused".equals(item.status)) {
+                item.status = "paused";
+                item.speedBytesPerSecond = 0;
+                item.engineInfo = "Dijeda";
+                saveDownloadHistory();
+                refreshDownloadPanel();
+                showDownloadNotification(item, "Unduhan dijeda", false);
+            } else {
+                failDownload(item, e.getMessage());
+            }
         }
     }
 
@@ -3790,8 +3854,8 @@ public class MainActivity extends Activity {
         Set<String> saved = new HashSet<>();
         synchronized (downloadItems) {
             for (DownloadItem item : downloadItems) {
-                if (item.status.equals("completed") || item.status.equals("failed")) {
-                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason) + "|" + encode(item.categoryHint));
+                if (item.status.equals("completed") || item.status.equals("failed") || item.status.equals("paused") || item.status.equals("running")) {
+                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason) + "|" + encode(item.categoryHint) + "|" + item.part1Start + "|" + item.part1End + "|" + item.part1Done + "|" + item.part2Start + "|" + item.part2End + "|" + item.part2Done);
                 }
             }
         }
@@ -3823,6 +3887,19 @@ public class MainActivity extends Activity {
                         if (parts.length >= 11) item.referer = decode(parts[10]);
                         if (parts.length >= 12) item.failReason = decode(parts[11]);
                         if (parts.length >= 13) item.categoryHint = decode(parts[12]);
+                        if (parts.length >= 19) {
+                            try { item.part1Start = Long.parseLong(parts[13]); } catch (Exception ignored) {}
+                            try { item.part1End = Long.parseLong(parts[14]); } catch (Exception ignored) {}
+                            try { item.part1Done = Long.parseLong(parts[15]); } catch (Exception ignored) {}
+                            try { item.part2Start = Long.parseLong(parts[16]); } catch (Exception ignored) {}
+                            try { item.part2End = Long.parseLong(parts[17]); } catch (Exception ignored) {}
+                            try { item.part2Done = Long.parseLong(parts[18]); } catch (Exception ignored) {}
+                        }
+                        if ("running".equals(item.status)) {
+                            item.status = "paused";
+                            item.speedBytesPerSecond = 0;
+                            item.engineInfo = "Dijeda";
+                        }
                         if (item.categoryHint == null || item.categoryHint.length() == 0) {
                             item.categoryHint = inferDownloadCategoryFromData(item.fileName, item.url, "");
                         }
@@ -4177,6 +4254,13 @@ public class MainActivity extends Activity {
     private void showHome() {
         homeScroll.setVisibility(View.VISIBLE);
         webView.setVisibility(View.GONE);
+        if (addressBar != null) addressBar.setText("");
+        if (homeSearchInput != null) homeSearchInput.setText("");
+        try {
+            TabInfo tab = getCurrentTab();
+            tab.url = "";
+            tab.title = tab.privateTab ? "Tab privat" : "Tab baru";
+        } catch (Exception ignored) {}
         updateVideoControlsVisibility();
         updateTopActionStates();
         updateTabsCountUi();
@@ -4196,6 +4280,7 @@ public class MainActivity extends Activity {
             String raw = extractOriginalUrl(webView.getUrl());
             if (raw != null && raw.length() > 0) return raw;
         }
+        if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) return null;
         return normalizeInputToUrl(addressBar != null ? addressBar.getText().toString().trim() : "");
     }
 
