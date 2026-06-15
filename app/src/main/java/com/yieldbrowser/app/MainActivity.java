@@ -4520,6 +4520,7 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             webView.loadUrl(originalUrl);
         }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {

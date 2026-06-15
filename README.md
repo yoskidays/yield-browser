@@ -65,3 +65,9 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Fix compile error `class, interface, or enum expected` karena extra closing brace `}`.
 - Struktur `MainActivity` sudah kembali valid.
 - Icon privat topi+kacamata tetap dipertahankan.
+
+
+## v0.5.5
+- Fix compile error `';' expected` pada `configureWebView()` dan `isSystemDarkMode()`.
+- Penyebabnya: method `loadTranslatedPage()` belum ditutup dengan `}`.
+- Struktur `MainActivity.java` dicek ulang: `VideoBridge` tetap 1 dan JavaScript interface tetap 1.
