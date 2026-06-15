@@ -1,26 +1,24 @@
-# Yield Browser v0.1.5 UI Fix
+# Yield Browser v0.1.6 Home UI + Menu Layout
 
-Yield Browser adalah browser Android ringan berbasis WebView.
+Update ini fokus pada tampilan home awal dan susunan menu.
 
-## Perubahan v0.1.5
+## Perubahan v0.1.6
 
-- Address/search bar dibuat lebih panjang dan nyaman dipakai.
-- Menu icon dipisah ke navigation toolbar agar tidak sempit.
-- Semua tombol menu tetap memakai drawable/vector icon, bukan text glyph.
-- Tambahan progress bar tipis saat halaman loading.
-- Keyboard action GO/Search aktif dari address bar.
-- Target test: Android 11 Realme 5 Pro.
+- Home awal dibuat bergaya browser modern gelap.
+- Search bar atas dibuat mirip tampilan browser mobile modern.
+- Home screen berisi judul, tombol cari cepat, dan pintasan.
+- Bottom navigation dibuat seperti contoh: Home, Bookmark, Search, Tabs, Menu.
+- Menu popup disusun seperti contoh kanan:
+  - Unduhan
+  - Bookmark
+  - Privat
+  - Ad Block
+  - Setelan
+  - Sesuaikan menu
+  - Keluar
+- Semua tombol menu memakai drawable/vector icon, bukan text glyph.
+- WebView tetap aktif untuk membuka hasil pencarian atau URL.
 
-## Build APK via GitHub Actions
+## Catatan
 
-1. Upload isi folder project ini ke repository GitHub.
-2. Buka tab Actions.
-3. Jalankan workflow `Build Yield Browser APK`.
-4. Download artifact `YieldBrowser-debug-apk`.
-5. Extract ZIP artifact dan install APK di Android.
-
-## Status fitur
-
-- Browser dasar: aktif.
-- UI icon drawable: aktif.
-- Download manager multi-connection: tahap berikutnya.
+Fitur download manager 2 koneksi belum diaktifkan pada versi ini. Versi ini khusus UI/UX home dan menu terlebih dahulu.
