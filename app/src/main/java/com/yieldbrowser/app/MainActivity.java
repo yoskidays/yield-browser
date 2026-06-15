@@ -29,6 +29,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.StrictMode;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -114,6 +116,8 @@ public class MainActivity extends Activity {
 
     private LinearLayout activeDownloadListPanel;
     private Dialog activeDownloadDialog;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private boolean pendingOpenDownloads = false;
     private String activeDownloadCategory = "Semua";
     private String activeDownloadSearchQuery = "";
     private String activeDownloadSort = "Tanggal";
@@ -163,6 +167,10 @@ public class MainActivity extends Activity {
         int progress;
         long totalBytes;
         long downloadedBytes;
+
+        int connectionCount = 0;
+        boolean pauseRequested = false;
+        String engineInfo = "Menunggu koneksi";
 
         DownloadItem(int id, String url, String fileName, String path, String status, int progress) {
             this.id = id;
@@ -243,6 +251,7 @@ public class MainActivity extends Activity {
 
         setContentView(root);
         updateTopActionStates();
+        handleOpenDownloadsIntent(getIntent());
 
         if (getIntent() != null && getIntent().getBooleanExtra("open_downloads", false)) {
             root.postDelayed(() -> showDownloadManager(), 250);
@@ -253,20 +262,13 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (intent != null && (ACTION_OPEN_DOWNLOADS.equals(intent.getAction()) || intent.getBooleanExtra("open_downloads", false))) {
-            showDownloadManager();
-        }
+        handleOpenDownloadsIntent(intent);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        Intent intent = getIntent();
-        if (intent != null && (ACTION_OPEN_DOWNLOADS.equals(intent.getAction()) || intent.getBooleanExtra("open_downloads", false))) {
-            intent.setAction(null);
-            intent.removeExtra("open_downloads");
-            showDownloadManager();
-        }
+        handleOpenDownloadsIntent(getIntent());
     }
 
     private View createTopBar() {
@@ -2331,7 +2333,7 @@ public class MainActivity extends Activity {
         sub.setEllipsize(TextUtils.TruncateAt.END);
         textWrap.addView(sub);
 
-        if ("running".equals(item.status)) {
+        if ("running".equals(item.status) || "paused".equals(item.status)) {
             ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
             bar.setMax(100);
             bar.setProgress(item.progress);
@@ -2350,6 +2352,30 @@ public class MainActivity extends Activity {
 
         row.addView(textWrap, textParams);
 
+        if ("running".equals(item.status) || "paused".equals(item.status) || "failed".equals(item.status)) {
+            TextView action = new TextView(this);
+            if ("running".equals(item.status)) {
+                action.setText("Ⅱ");
+            } else if ("paused".equals(item.status)) {
+                action.setText("▶");
+            } else {
+                action.setText("↻");
+            }
+            action.setTextColor(Color.WHITE);
+            action.setTextSize(18);
+            action.setTypeface(Typeface.DEFAULT_BOLD);
+            action.setGravity(Gravity.CENTER);
+            action.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
+            action.setOnClickListener(v -> {
+                if ("running".equals(item.status)) pauseDownloadItem(item);
+                else if ("paused".equals(item.status)) resumeDownloadItem(item);
+                else reloadDownloadItem(item);
+            });
+            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(dp(40), dp(40));
+            actionParams.setMargins(0, 0, dp(4), 0);
+            row.addView(action, actionParams);
+        }
+
         TextView more = new TextView(this);
         more.setText("⋮");
         more.setTextColor(Color.parseColor("#D6D9DE"));
@@ -2363,10 +2389,10 @@ public class MainActivity extends Activity {
                 toggleDownloadSelection(item);
             } else if ("completed".equals(item.status)) {
                 openDownloadedFile(item);
-            } else if ("failed".equals(item.status)) {
+            } else if ("failed".equals(item.status) || "paused".equals(item.status)) {
                 showDownloadItemMenu(v, item);
             } else {
-                Toast.makeText(this, "Mengunduh: " + item.progress + "%", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, getConnectionLabel(item) + " • " + item.progress + "%", Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -2385,19 +2411,27 @@ public class MainActivity extends Activity {
         if ("APK".equals(cat)) return R.drawable.ic_file;
         if ("Musik".equals(cat)) return android.R.drawable.ic_media_play;
         if ("Dokumen".equals(cat)) return android.R.drawable.ic_menu_edit;
-        if ("running".equals(item.status)) return R.drawable.ic_download_modern;
+        if ("running".equals(item.status) || "paused".equals(item.status)) return R.drawable.ic_download_modern;
         return R.drawable.ic_file;
     }
 
     private String getDownloadSubtitle(DownloadItem item) {
         String size = readableFileSize(getDownloadSize(item));
         String host = getDownloadHost(item);
+        String engine = getConnectionLabel(item);
         String status;
-        if ("running".equals(item.status)) status = "download • " + item.progress + "%";
-        else if ("failed".equals(item.status)) status = "gagal";
-        else status = host.length() > 0 ? host : "selesai";
 
-        if (host.length() > 0 && !"completed".equals(item.status)) {
+        if ("running".equals(item.status)) {
+            status = "download • " + item.progress + "% • " + engine;
+        } else if ("paused".equals(item.status)) {
+            status = "dijeda • " + item.progress + "% • " + engine;
+        } else if ("failed".equals(item.status)) {
+            status = "terputus/gagal • reload tersedia • " + engine;
+        } else {
+            status = host.length() > 0 ? host + " • " + engine : "selesai • " + engine;
+        }
+
+        if (host.length() > 0 && ("running".equals(item.status) || "paused".equals(item.status) || "failed".equals(item.status))) {
             return size + " • " + status + " • " + host;
         }
         return size + " • " + status;
@@ -2505,27 +2539,119 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private String getConnectionLabel(DownloadItem item) {
+        if (item == null) return "Menunggu koneksi";
+        if (item.connectionCount >= 2) return item.connectionCount + " koneksi paralel";
+        if (item.connectionCount == 1) return "1 koneksi";
+        return "Mengecek koneksi";
+    }
+
+    private void pauseDownloadItem(DownloadItem item) {
+        if (item == null || !"running".equals(item.status)) return;
+        item.pauseRequested = true;
+        item.status = "paused";
+        item.engineInfo = getConnectionLabel(item) + " • dijeda";
+        saveDownloadHistory();
+        refreshDownloadPanel();
+        showDownloadNotification(item, "Unduhan dijeda", false);
+        Toast.makeText(this, "Unduhan dijeda", Toast.LENGTH_SHORT).show();
+    }
+
+    private void resumeDownloadItem(DownloadItem item) {
+        if (item == null || !"paused".equals(item.status)) return;
+        try {
+            File out = new File(item.path);
+            if (out.exists()) out.delete();
+            item.progress = 0;
+            item.downloadedBytes = 0;
+            item.totalBytes = 0;
+            item.connectionCount = 0;
+            item.status = "running";
+            item.pauseRequested = false;
+            item.engineInfo = "Melanjutkan ulang split download";
+            saveDownloadHistory();
+            refreshDownloadPanel();
+            showDownloadNotification(item, "Melanjutkan unduhan", true);
+            startTwoConnectionDownload(item, out);
+        } catch (Exception e) {
+            failDownload(item, e.getMessage());
+        }
+    }
+
+
+    private void reloadDownloadItem(DownloadItem item) {
+        if (item == null) return;
+        try {
+            item.pauseRequested = false;
+            item.status = "running";
+            item.progress = 0;
+            item.downloadedBytes = 0;
+            item.totalBytes = 0;
+            item.connectionCount = 0;
+            item.engineInfo = "Reload dari awal • mengecek split download";
+
+            File out = new File(item.path);
+            if (out.exists()) {
+                out.delete();
+            }
+
+            saveDownloadHistory();
+            refreshDownloadPanel();
+            showDownloadNotification(item, "Reload dari awal", true);
+            Toast.makeText(this, "Download dimulai ulang dari awal", Toast.LENGTH_SHORT).show();
+
+            startTwoConnectionDownload(item, out);
+        } catch (Exception e) {
+            failDownload(item, e.getMessage());
+        }
+    }
+
     private void showDownloadItemMenu(View anchor, DownloadItem item) {
         PopupMenu popup = new PopupMenu(this, anchor);
-        if ("completed".equals(item.status)) {
-            popup.getMenu().add(0, 1, 1, "Bagikan");
-            popup.getMenu().add(0, 2, 2, "Ganti nama");
+
+        if ("running".equals(item.status)) {
+            popup.getMenu().add(0, 10, 0, "Jeda / Pause");
+        } else if ("paused".equals(item.status)) {
+            popup.getMenu().add(0, 11, 0, "Lanjutkan");
+            popup.getMenu().add(0, 12, 1, "Reload dari awal");
+        } else if ("failed".equals(item.status)) {
+            popup.getMenu().add(0, 12, 0, "Reload dari awal");
         }
-        popup.getMenu().add(0, 3, 3, "Hapus");
+
+        if ("completed".equals(item.status)) {
+            popup.getMenu().add(0, 1, 1, "Open");
+            popup.getMenu().add(0, 2, 2, "Bagikan");
+            popup.getMenu().add(0, 3, 3, "Ganti nama");
+        }
+
+        popup.getMenu().add(0, 4, 4, "Hapus riwayat");
+        popup.getMenu().add(0, 5, 5, "Hapus file + riwayat");
+
         popup.setOnMenuItemClickListener(menuItem -> {
             int id = menuItem.getItemId();
-            if (id == 1) {
-                shareDownloadedFile(item);
+            if (id == 10) {
+                pauseDownloadItem(item);
+                return true;
+            } else if (id == 11) {
+                resumeDownloadItem(item);
+                return true;
+            } else if (id == 12) {
+                reloadDownloadItem(item);
+                return true;
+            } else if (id == 1) {
+                openDownloadedFile(item);
                 return true;
             } else if (id == 2) {
-                renameDownloadedFile(item);
+                shareDownloadedFile(item);
                 return true;
             } else if (id == 3) {
-                if ("running".equals(item.status)) {
-                    Toast.makeText(this, "Tunggu unduhan selesai atau gagal sebelum menghapus", Toast.LENGTH_SHORT).show();
-                } else {
-                    removeDownloadItem(item, true);
-                }
+                renameDownloadedFile(item);
+                return true;
+            } else if (id == 4) {
+                removeDownloadItem(item, false);
+                return true;
+            } else if (id == 5) {
+                removeDownloadItem(item, true);
                 return true;
             }
             return false;
@@ -2607,7 +2733,7 @@ public class MainActivity extends Activity {
         selectedDownloadIds.remove(item.id);
         saveDownloadHistory();
         renderDownloadList();
-        Toast.makeText(this, "Unduhan dihapus", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, deleteFile ? "File + riwayat dihapus" : "Riwayat dihapus", Toast.LENGTH_SHORT).show();
     }
 
     private void openDownloadedFile(DownloadItem item) {
@@ -2657,6 +2783,8 @@ public class MainActivity extends Activity {
 
             File out = uniqueFile(new File(dir, fileName));
             DownloadItem item = new DownloadItem(nextDownloadId++, fileUrl, out.getName(), out.getAbsolutePath(), "running", 0);
+            item.connectionCount = 0;
+            item.engineInfo = "Menyiapkan split download";
             synchronized (downloadItems) {
                 downloadItems.add(0, item);
             }
@@ -2721,6 +2849,11 @@ public class MainActivity extends Activity {
     }
 
     private void startTwoConnectionDownload(DownloadItem item, File out) {
+        item.status = "running";
+        item.pauseRequested = false;
+        item.engineInfo = "Mengecek dukungan split download";
+        refreshDownloadPanel();
+
         new Thread(() -> {
             try {
                 HttpURLConnection head = (HttpURLConnection) new URL(item.url).openConnection();
@@ -2733,9 +2866,22 @@ public class MainActivity extends Activity {
                 String contentRange = head.getHeaderField("Content-Range");
                 long total = parseTotalSize(contentRange);
 
+                if (item.pauseRequested || "paused".equals(item.status)) {
+                    head.disconnect();
+                    return;
+                }
+
                 if (response == 206 && total > 1) {
                     head.disconnect();
+                    item.connectionCount = 2;
+                    item.engineInfo = "IDM-style split • 2 koneksi paralel";
                     item.totalBytes = total;
+                    item.downloadedBytes = 0;
+                    item.progress = 0;
+                    saveDownloadHistory();
+                    refreshDownloadPanel();
+                    showDownloadNotification(item, "Mengunduh 2 koneksi", true);
+
                     RandomAccessFile raf = new RandomAccessFile(out, "rw");
                     raf.setLength(total);
                     raf.close();
@@ -2750,14 +2896,31 @@ public class MainActivity extends Activity {
                     t1.join();
                     t2.join();
 
+                    if (item.pauseRequested || "paused".equals(item.status)) {
+                        saveDownloadHistory();
+                        refreshDownloadPanel();
+                        showDownloadNotification(item, "Unduhan dijeda", false);
+                        return;
+                    }
+
                     if (ok[0]) completeDownload(item);
-                    else failDownload(item, "Koneksi range gagal");
+                    else failDownload(item, "Koneksi split gagal");
                 } else {
                     head.disconnect();
+                    item.connectionCount = 1;
+                    item.engineInfo = "Server tidak support split • 1 koneksi";
+                    saveDownloadHistory();
+                    refreshDownloadPanel();
                     downloadSingle(item, out);
                 }
             } catch (Exception e) {
-                failDownload(item, e.getMessage());
+                if (item.pauseRequested || "paused".equals(item.status)) {
+                    saveDownloadHistory();
+                    refreshDownloadPanel();
+                    showDownloadNotification(item, "Unduhan dijeda", false);
+                } else {
+                    failDownload(item, e.getMessage());
+                }
             }
         }).start();
     }
@@ -2776,6 +2939,10 @@ public class MainActivity extends Activity {
             byte[] buffer = new byte[8192];
             int len;
             while ((len = in.read(buffer)) != -1) {
+                if (item.pauseRequested || "paused".equals(item.status)) {
+                    ok[0] = false;
+                    break;
+                }
                 raf.write(buffer, 0, len);
                 synchronized (done) {
                     done[0] += len;
@@ -2784,7 +2951,7 @@ public class MainActivity extends Activity {
                     if (percent != item.progress) {
                         item.progress = percent;
                         refreshDownloadPanel();
-                        showDownloadNotification(item, "Mengunduh • " + percent + "%", true);
+                        showDownloadNotification(item, "2 koneksi paralel • " + percent + "%", true);
                     }
                 }
             }
@@ -2809,6 +2976,9 @@ public class MainActivity extends Activity {
             int len;
             long done = 0;
             while ((len = in.read(buffer)) != -1) {
+                if (item.pauseRequested || "paused".equals(item.status)) {
+                    break;
+                }
                 fos.write(buffer, 0, len);
                 done += len;
                 item.downloadedBytes = done;
@@ -2817,14 +2987,22 @@ public class MainActivity extends Activity {
                     if (percent != item.progress) {
                         item.progress = percent;
                         refreshDownloadPanel();
-                        showDownloadNotification(item, "Server 1 koneksi • " + percent + "%", true);
+                        showDownloadNotification(item, "1 koneksi • " + percent + "%", true);
                     }
                 }
             }
             fos.close();
             in.close();
             conn.disconnect();
-            completeDownload(item);
+            if (item.pauseRequested || "paused".equals(item.status)) {
+                item.status = "paused";
+                item.engineInfo = getConnectionLabel(item) + " • dijeda";
+                saveDownloadHistory();
+                refreshDownloadPanel();
+                showDownloadNotification(item, "Unduhan dijeda", false);
+            } else {
+                completeDownload(item);
+            }
         } catch (Exception e) {
             failDownload(item, e.getMessage());
         }
@@ -2841,10 +3019,16 @@ public class MainActivity extends Activity {
 
     private void failDownload(DownloadItem item, String reason) {
         item.status = "failed";
+        item.pauseRequested = false;
+        if (item.engineInfo == null || item.engineInfo.length() == 0) {
+            item.engineInfo = getConnectionLabel(item) + " • terputus/gagal";
+        } else {
+            item.engineInfo = item.engineInfo + " • terputus/gagal";
+        }
         saveDownloadHistory();
         refreshDownloadPanel();
-        showDownloadNotification(item, "Unduhan gagal", false);
-        runOnUiThread(() -> Toast.makeText(this, "Unduhan gagal: " + reason, Toast.LENGTH_SHORT).show());
+        showDownloadNotification(item, "Unduhan gagal • klik untuk detail", false);
+        runOnUiThread(() -> Toast.makeText(this, "Unduhan gagal. Klik reload untuk download dari awal.", Toast.LENGTH_LONG).show());
     }
 
     private long parseTotalSize(String contentRange) {
@@ -2873,31 +3057,38 @@ public class MainActivity extends Activity {
 
         Intent intent = new Intent(this, MainActivity.class);
         intent.setAction(ACTION_OPEN_DOWNLOADS);
+        intent.setData(Uri.parse("yieldbrowser://downloads/" + item.id + "/" + System.currentTimeMillis()));
         intent.putExtra("open_downloads", true);
         intent.putExtra("download_id", item.id);
-        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
 
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
 
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, item.id, intent, flags);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, item.id + 9000, intent, flags);
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_DOWNLOADS)
                 : new Notification.Builder(this);
 
-        builder.setSmallIcon(android.R.drawable.stat_sys_download)
+        String line = text;
+        if ("running".equals(item.status)) {
+            line = text + " • " + getConnectionLabel(item);
+        } else if ("paused".equals(item.status)) {
+            line = "Dijeda • " + getConnectionLabel(item);
+        }
+
+        builder.setSmallIcon("completed".equals(item.status) ? android.R.drawable.stat_sys_download_done : android.R.drawable.stat_sys_download)
                 .setContentTitle(item.fileName)
-                .setContentText(text)
+                .setContentText(line)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(!ongoing)
                 .setOngoing(ongoing);
 
-        if ("running".equals(item.status)) {
+        if ("running".equals(item.status) || "paused".equals(item.status)) {
             builder.setProgress(100, Math.max(0, Math.min(100, item.progress)), false);
         } else {
             builder.setProgress(0, 0, false);
-            builder.setSmallIcon(android.R.drawable.stat_sys_download_done);
         }
 
         manager.notify(item.id, builder.build());
@@ -2908,7 +3099,7 @@ public class MainActivity extends Activity {
         synchronized (downloadItems) {
             for (DownloadItem item : downloadItems) {
                 if (item.status.equals("completed") || item.status.equals("failed")) {
-                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes);
+                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo));
                 }
             }
         }
@@ -2927,6 +3118,14 @@ public class MainActivity extends Activity {
                         if (parts.length >= 7) {
                             try { item.totalBytes = Long.parseLong(parts[5]); } catch (Exception ignored) {}
                             try { item.downloadedBytes = Long.parseLong(parts[6]); } catch (Exception ignored) {}
+                        }
+                        if (parts.length >= 8) {
+                            try { item.connectionCount = Integer.parseInt(parts[7]); } catch (Exception ignored) {}
+                        }
+                        if (parts.length >= 9) {
+                            item.engineInfo = decode(parts[8]);
+                        } else {
+                            item.engineInfo = item.connectionCount > 1 ? "IDM-style split • 2 koneksi paralel" : "1 koneksi";
                         }
                         downloadItems.add(item);
                     }
