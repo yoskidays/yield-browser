@@ -70,6 +70,8 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.BufferedReader;
 import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -1673,6 +1675,42 @@ content.addView(space(dp(36)));
             window.setAttributes(lp);
         }
         dialog.show();
+    }
+
+    private View fixedMenuRow(int iconRes, String label) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setBackground(roundRect(Color.parseColor("#383A3E"), dp(10), 0, Color.TRANSPARENT));
+
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, dp(62));
+        rowParams.setMargins(0, 0, 0, dp(6));
+        row.setLayoutParams(rowParams);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(Color.parseColor("#E7E8EA"));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
+
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextColor(Color.WHITE);
+        text.setTextSize(16);
+        text.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1);
+        textParams.setMargins(dp(14), 0, dp(8), 0);
+        row.addView(text, textParams);
+
+        TextView fixed = new TextView(this);
+        fixed.setText("Tetap");
+        fixed.setTextColor(COLOR_SUBTEXT);
+        fixed.setTextSize(12);
+        fixed.setTypeface(Typeface.DEFAULT_BOLD);
+        fixed.setGravity(Gravity.CENTER);
+        fixed.setBackground(roundRect(Color.parseColor("#343740"), dp(12), dp(1), COLOR_BORDER));
+        row.addView(fixed, new LinearLayout.LayoutParams(dp(58), dp(28)));
+        return row;
     }
 
     private void showDownloadSettingsPanel() {
@@ -4714,7 +4752,7 @@ content.addView(space(dp(36)));
                     if (raw != null && raw.length() > 0) {
                         compatibleTranslateActive = true;
                         webView.loadUrl(raw);
-                        mainHandler.postDelayed(this::translatePageCompatible, 1800);
+                        mainHandler.postDelayed(() -> translatePageCompatible(), 1800);
                     }
                 }
             });
@@ -4996,7 +5034,7 @@ content.addView(space(dp(36)));
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 6000);
                 }
                 if (compatibleTranslateActive && !isGoogleTranslatedUrl(url)) {
-                    mainHandler.postDelayed(this::translatePageCompatible, 600);
+                    mainHandler.postDelayed(() -> translatePageCompatible(), 600);
                 }
                 updateTopActionStates();
             }

@@ -186,3 +186,10 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - Translate
 - Pengaturan ikon atas ada di `Sesuaikan menu` bagian `Icon atas`.
 - Toggle di panel `Sesuaikan menu` tidak lagi menutup dan membuka ulang panel.
+
+
+## v0.6.9
+- Fix compile error `fixedMenuRow(int,String)` belum ada.
+- Menambahkan import `BufferedReader` dan `InputStreamReader` untuk Mode Translate Kompatibel.
+- Mengganti method reference `this::translatePageCompatible` menjadi lambda `() -> translatePageCompatible()`.
+- Memastikan JavaScript interface `VideoBridge` dan `TranslateBridge` berada di `configureWebView()`.
