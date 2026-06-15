@@ -31,6 +31,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.StrictMode;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -38,6 +39,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.webkit.DownloadListener;
+import android.webkit.CookieManager;
 import android.webkit.MimeTypeMap;
 import android.webkit.URLUtil;
 import android.webkit.WebChromeClient;
@@ -52,6 +54,7 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -68,6 +71,9 @@ import java.net.URL;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Locale;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -91,6 +97,7 @@ public class MainActivity extends Activity {
     private static final String KEY_DOWNLOAD_HISTORY = "download_history";
     private static final String KEY_BROWSER_HISTORY = "browser_history";
     private static final String CHANNEL_DOWNLOADS = "yield_downloads";
+    private static final String ACTION_OPEN_DOWNLOADS = "com.yieldbrowser.app.OPEN_DOWNLOADS";
     private static final int REQ_CAMERA_QR = 2401;
 
     private EditText addressBar;
@@ -107,6 +114,11 @@ public class MainActivity extends Activity {
 
     private LinearLayout activeDownloadListPanel;
     private Dialog activeDownloadDialog;
+    private String activeDownloadCategory = "Semua";
+    private String activeDownloadSearchQuery = "";
+    private String activeDownloadSort = "Tanggal";
+    private boolean downloadSelectMode = false;
+    private final Set<Integer> selectedDownloadIds = new HashSet<>();
 
     private int tabCount = 1;
     private int nextDownloadId = 1000;
@@ -121,18 +133,18 @@ public class MainActivity extends Activity {
     private int textZoom = 100;
 
     private boolean shortcutDownload = true;
-    private boolean shortcutBookmark = true;
+    private boolean shortcutBookmark = false;
     private boolean shortcutPrivate = true;
-    private boolean shortcutAdBlock = false;
+    private boolean shortcutAdBlock = true;
     private boolean shortcutReader = false;
     private boolean shortcutNightMode = false;
-    private boolean shortcutQrScan = true;
+    private boolean shortcutQrScan = false;
     private boolean shortcutHistory = true;
-    private boolean shortcutFindPage = true;
+    private boolean shortcutFindPage = false;
     private boolean shortcutShare = false;
     private boolean shortcutFullscreen = false;
     private boolean videoControlsEnabled = true;
-    private boolean shortcutVideoControls = true;
+    private boolean shortcutVideoControls = false;
     private float videoSpeed = 1.0f;
     private String downloadSubfolder = "Download";
 
@@ -241,7 +253,18 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (intent != null && intent.getBooleanExtra("open_downloads", false)) {
+        if (intent != null && (ACTION_OPEN_DOWNLOADS.equals(intent.getAction()) || intent.getBooleanExtra("open_downloads", false))) {
+            showDownloadManager();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        Intent intent = getIntent();
+        if (intent != null && (ACTION_OPEN_DOWNLOADS.equals(intent.getAction()) || intent.getBooleanExtra("open_downloads", false))) {
+            intent.setAction(null);
+            intent.removeExtra("open_downloads");
             showDownloadManager();
         }
     }
@@ -1966,151 +1989,607 @@ public class MainActivity extends Activity {
         activeDownloadDialog = dialog;
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(16), dp(16), dp(16), dp(16));
-        panel.setBackground(roundRect(Color.parseColor("#171A20"), dp(24), dp(1), Color.parseColor("#2D333D")));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(18), dp(18), dp(10));
+        root.setBackgroundColor(Color.parseColor("#0C0D10"));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Unduhan Yield");
+        title.setText(downloadSelectMode ? selectedDownloadIds.size() + " dipilih" : "Download");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(22);
+        title.setTextSize(28);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        panel.addView(title);
+        header.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
 
-        TextView desc = new TextView(this);
-        desc.setText("Ketuk notifikasi untuk melihat detail. Progress aktif tampil dengan garis dan persen; saat 100%, hanya file yang tampil.");
-        desc.setTextColor(COLOR_SUBTEXT);
-        desc.setTextSize(13);
-        desc.setPadding(0, dp(8), 0, dp(10));
-        panel.addView(desc);
+        ImageButton settings = smallTopIcon(R.drawable.ic_settings, "Pengaturan unduhan", v -> showDownloadSettingsPanel());
+        header.addView(settings, new LinearLayout.LayoutParams(dp(44), dp(44)));
 
-        ScrollView scroll = new ScrollView(this);
+        ImageButton search = smallTopIcon(R.drawable.ic_search, "Cari unduhan", v -> showDownloadSearchDialog());
+        header.addView(search, new LinearLayout.LayoutParams(dp(44), dp(44)));
+
+        TextView close = new TextView(this);
+        close.setText("×");
+        close.setTextColor(Color.parseColor("#D7DAE0"));
+        close.setTextSize(36);
+        close.setGravity(Gravity.CENTER);
+        close.setOnClickListener(v -> dialog.dismiss());
+        header.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        root.addView(header);
+
+        TextView storage = new TextView(this);
+        storage.setText(getStorageUsageText());
+        storage.setTextColor(COLOR_SUBTEXT);
+        storage.setTextSize(13);
+        storage.setPadding(0, dp(2), 0, dp(12));
+        root.addView(storage);
+
+        View line = new View(this);
+        line.setBackgroundColor(Color.parseColor("#2A2E36"));
+        root.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
+
+        HorizontalScrollView categoryScroll = new HorizontalScrollView(this);
+        categoryScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout categories = new LinearLayout(this);
+        categories.setOrientation(LinearLayout.HORIZONTAL);
+        categories.setPadding(0, dp(12), 0, dp(8));
+        categories.addView(downloadCategoryChip("Semua"));
+        categories.addView(downloadCategoryChip("Video"));
+        categories.addView(downloadCategoryChip("APK"));
+        categories.addView(downloadCategoryChip("Dokumen"));
+        categories.addView(downloadCategoryChip("Musik"));
+        categories.addView(downloadCategoryChip("Lainnya"));
+        categoryScroll.addView(categories);
+        root.addView(categoryScroll, new LinearLayout.LayoutParams(-1, -2));
+
         activeDownloadListPanel = new LinearLayout(this);
         activeDownloadListPanel.setOrientation(LinearLayout.VERTICAL);
+
+        ScrollView scroll = new ScrollView(this);
         scroll.addView(activeDownloadListPanel);
-        panel.addView(scroll, new LinearLayout.LayoutParams(-1, dp(360)));
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
         renderDownloadList();
 
-        dialog.setContentView(panel);
+        dialog.setContentView(root);
         dialog.setOnDismissListener(d -> {
             activeDownloadDialog = null;
             activeDownloadListPanel = null;
+            downloadSelectMode = false;
+            selectedDownloadIds.clear();
         });
+
         if (dialog.getWindow() != null) {
             Window window = dialog.getWindow();
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             WindowManager.LayoutParams lp = window.getAttributes();
-            lp.gravity = Gravity.BOTTOM;
+            lp.gravity = Gravity.CENTER;
             lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            lp.height = WindowManager.LayoutParams.MATCH_PARENT;
             window.setAttributes(lp);
         }
         dialog.show();
     }
 
-    private void renderDownloadList() {
-        if (activeDownloadListPanel == null) return;
-        activeDownloadListPanel.removeAllViews();
-        synchronized (downloadItems) {
-            if (downloadItems.isEmpty()) {
-                TextView empty = new TextView(this);
-                empty.setText("Belum ada unduhan.");
-                empty.setTextColor(COLOR_SUBTEXT);
-                empty.setTextSize(15);
-                empty.setPadding(0, dp(24), 0, dp(24));
-                empty.setGravity(Gravity.CENTER);
-                activeDownloadListPanel.addView(empty, new LinearLayout.LayoutParams(-1, -2));
-                return;
+    private TextView downloadCategoryChip(String label) {
+        TextView chip = new TextView(this);
+        boolean selected = label.equals(activeDownloadCategory);
+        chip.setText(label);
+        chip.setTextColor(selected ? Color.parseColor("#111111") : Color.WHITE);
+        chip.setTextSize(13);
+        chip.setTypeface(Typeface.DEFAULT_BOLD);
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(dp(14), 0, dp(14), 0);
+        chip.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20232A"), dp(18), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
+        chip.setOnClickListener(v -> {
+            activeDownloadCategory = label;
+            selectedDownloadIds.clear();
+            downloadSelectMode = false;
+            if (activeDownloadDialog != null && activeDownloadDialog.isShowing()) {
+                activeDownloadDialog.dismiss();
+                showDownloadManager();
+            } else {
+                renderDownloadList();
             }
-            for (DownloadItem item : new ArrayList<>(downloadItems)) {
-                activeDownloadListPanel.addView(downloadRow(item));
-            }
-        }
-    }
-
-    private View downloadRow(DownloadItem item) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(12), dp(12), dp(12), dp(12));
-        card.setBackground(roundRect(Color.parseColor("#101217"), dp(16), dp(1), COLOR_BORDER));
-        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2);
-        cardParams.setMargins(0, dp(8), 0, dp(8));
-        card.setLayoutParams(cardParams);
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(item.status.equals("completed") ? R.drawable.ic_file : R.drawable.ic_download_modern);
-        icon.setColorFilter(item.status.equals("completed") ? COLOR_ON : COLOR_ACCENT);
-        row.addView(icon, new LinearLayout.LayoutParams(dp(28), dp(28)));
-
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams textsParams = new LinearLayout.LayoutParams(0, -2, 1);
-        textsParams.setMargins(dp(12), 0, 0, 0);
-
-        TextView name = new TextView(this);
-        name.setText(item.fileName);
-        name.setTextColor(Color.WHITE);
-        name.setTextSize(15);
-        name.setTypeface(Typeface.DEFAULT_BOLD);
-        texts.addView(name);
-
-        TextView status = new TextView(this);
-        if (item.status.equals("running")) {
-            status.setText("Mengunduh 2 koneksi • " + item.progress + "%");
-        } else if (item.status.equals("completed")) {
-            status.setText("Selesai • " + item.path);
-        } else {
-            status.setText("Gagal • ketuk untuk hapus riwayat");
-        }
-        status.setTextColor(COLOR_SUBTEXT);
-        status.setTextSize(12);
-        texts.addView(status);
-
-        row.addView(texts, textsParams);
-        card.addView(row);
-
-        if (item.status.equals("running")) {
-            ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-            bar.setMax(100);
-            bar.setProgress(item.progress);
-            bar.setProgressDrawable(new ColorDrawable(COLOR_ACCENT));
-            LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, dp(4));
-            barParams.setMargins(dp(40), dp(10), 0, 0);
-            card.addView(bar, barParams);
-        }
-
-        card.setOnClickListener(v -> {
-            if (item.status.equals("completed")) showDownloadedFileOptions(item);
-            else if (item.status.equals("failed")) showDownloadHistoryDeleteOptions(item);
-            else Toast.makeText(this, "Unduhan masih berjalan: " + item.progress + "%", Toast.LENGTH_SHORT).show();
         });
-        return card;
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, dp(36));
+        params.setMargins(0, 0, dp(8), 0);
+        chip.setLayoutParams(params);
+        return chip;
     }
 
-    private void showDownloadedFileOptions(DownloadItem item) {
-        String[] options = {"Open", "Hapus riwayat", "Hapus file + riwayat"};
+    private void showDownloadSearchDialog() {
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setText(activeDownloadSearchQuery);
+        input.setHint("Cari nama file atau sumber");
+        input.setSelectAllOnFocus(true);
+
         new AlertDialog.Builder(this)
-                .setTitle(item.fileName)
-                .setItems(options, (dialog, which) -> {
-                    if (which == 0) openDownloadedFile(item);
-                    else if (which == 1) removeDownloadItem(item, false);
-                    else removeDownloadItem(item, true);
+                .setTitle("Cari unduhan")
+                .setView(input)
+                .setPositiveButton("Cari", (dialog, which) -> {
+                    activeDownloadSearchQuery = input.getText().toString().trim();
+                    renderDownloadList();
+                })
+                .setNeutralButton("Reset", (dialog, which) -> {
+                    activeDownloadSearchQuery = "";
+                    renderDownloadList();
                 })
                 .setNegativeButton("Batal", null)
                 .show();
     }
 
-    private void showDownloadHistoryDeleteOptions(DownloadItem item) {
-        String[] options = {"Hapus riwayat", "Hapus file + riwayat"};
+    private void showDownloadSortDialog() {
+        String[] options = {"Tanggal", "Nama", "Ukuran"};
+        int checked = 0;
+        for (int i = 0; i < options.length; i++) {
+            if (options[i].equals(activeDownloadSort)) checked = i;
+        }
+
         new AlertDialog.Builder(this)
-                .setTitle(item.fileName)
-                .setItems(options, (dialog, which) -> removeDownloadItem(item, which == 1))
+                .setTitle("Urutkan unduhan")
+                .setSingleChoiceItems(options, checked, (dialog, which) -> {
+                    activeDownloadSort = options[which];
+                    dialog.dismiss();
+                    renderDownloadList();
+                })
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
+    private void renderDownloadList() {
+        if (activeDownloadListPanel == null) return;
+        activeDownloadListPanel.removeAllViews();
+
+        activeDownloadListPanel.addView(downloadToolRow());
+
+        ArrayList<DownloadItem> items = getFilteredDownloadItems();
+
+        if (items.isEmpty()) {
+            TextView empty = new TextView(this);
+            String msg = activeDownloadSearchQuery.length() > 0
+                    ? "Tidak ada unduhan yang cocok."
+                    : "Belum ada unduhan di kategori ini.";
+            empty.setText(msg);
+            empty.setTextColor(COLOR_SUBTEXT);
+            empty.setTextSize(15);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(0, dp(48), 0, dp(48));
+            activeDownloadListPanel.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+            return;
+        }
+
+        TextView section = new TextView(this);
+        section.setText(getDownloadSectionTitle(items.size()));
+        section.setTextColor(COLOR_SUBTEXT);
+        section.setTextSize(16);
+        section.setTypeface(Typeface.DEFAULT_BOLD);
+        section.setPadding(0, dp(16), 0, dp(8));
+        activeDownloadListPanel.addView(section);
+
+        for (DownloadItem item : items) {
+            activeDownloadListPanel.addView(downloadRow(item));
+        }
+    }
+
+    private View downloadToolRow() {
+        LinearLayout tools = new LinearLayout(this);
+        tools.setOrientation(LinearLayout.HORIZONTAL);
+        tools.setGravity(Gravity.CENTER_VERTICAL);
+        tools.setPadding(0, dp(8), 0, dp(4));
+
+        TextView sort = downloadToolButton("Urut: " + activeDownloadSort);
+        sort.setOnClickListener(v -> showDownloadSortDialog());
+        tools.addView(sort, new LinearLayout.LayoutParams(0, dp(42), 1));
+
+        TextView select = downloadToolButton(downloadSelectMode ? "Batal pilih" : "Pilih");
+        select.setOnClickListener(v -> {
+            downloadSelectMode = !downloadSelectMode;
+            selectedDownloadIds.clear();
+            renderDownloadList();
+        });
+        LinearLayout.LayoutParams selectParams = new LinearLayout.LayoutParams(0, dp(42), 1);
+        selectParams.setMargins(dp(8), 0, 0, 0);
+        tools.addView(select, selectParams);
+
+        if (downloadSelectMode) {
+            TextView share = downloadToolButton("Bagikan");
+            share.setOnClickListener(v -> shareSelectedDownloads());
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(42), 1);
+            p.setMargins(dp(8), 0, 0, 0);
+            tools.addView(share, p);
+
+            TextView delete = downloadToolButton("Hapus");
+            delete.setTextColor(Color.WHITE);
+            delete.setBackground(roundRect(Color.parseColor("#E5484D"), dp(18), 0, Color.TRANSPARENT));
+            delete.setOnClickListener(v -> deleteSelectedDownloads());
+            LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, dp(42), 1);
+            p2.setMargins(dp(8), 0, 0, 0);
+            tools.addView(delete, p2);
+        }
+
+        return tools;
+    }
+
+    private TextView downloadToolButton(String text) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextColor(Color.WHITE);
+        button.setTextSize(13);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setGravity(Gravity.CENTER);
+        button.setSingleLine(true);
+        button.setEllipsize(TextUtils.TruncateAt.END);
+        button.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
+        return button;
+    }
+
+    private ArrayList<DownloadItem> getFilteredDownloadItems() {
+        ArrayList<DownloadItem> result = new ArrayList<>();
+        synchronized (downloadItems) {
+            for (DownloadItem item : new ArrayList<>(downloadItems)) {
+                if (!matchesDownloadCategory(item, activeDownloadCategory)) continue;
+                if (!matchesDownloadSearch(item)) continue;
+                result.add(item);
+            }
+        }
+
+        Collections.sort(result, (a, b) -> {
+            if ("Nama".equals(activeDownloadSort)) {
+                return safeText(a.fileName).compareToIgnoreCase(safeText(b.fileName));
+            }
+            if ("Ukuran".equals(activeDownloadSort)) {
+                long sa = getDownloadSize(a);
+                long sb = getDownloadSize(b);
+                return Long.compare(sb, sa);
+            }
+            return Integer.compare(b.id, a.id);
+        });
+        return result;
+    }
+
+    private boolean matchesDownloadSearch(DownloadItem item) {
+        if (activeDownloadSearchQuery == null || activeDownloadSearchQuery.trim().length() == 0) return true;
+        String q = activeDownloadSearchQuery.toLowerCase();
+        return safeText(item.fileName).toLowerCase().contains(q)
+                || safeText(item.url).toLowerCase().contains(q)
+                || getDownloadHost(item).toLowerCase().contains(q);
+    }
+
+    private boolean matchesDownloadCategory(DownloadItem item, String category) {
+        if ("Semua".equals(category)) return true;
+        String type = getDownloadCategory(item);
+        return category.equals(type);
+    }
+
+    private String getDownloadCategory(DownloadItem item) {
+        String name = safeText(item.fileName).toLowerCase(Locale.US);
+        if (name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".webm") || name.endsWith(".avi") || name.endsWith(".mov") || name.endsWith(".3gp")) return "Video";
+        if (name.endsWith(".apk") || name.endsWith(".xapk") || name.endsWith(".apks")) return "APK";
+        if (name.endsWith(".mp3") || name.endsWith(".m4a") || name.endsWith(".wav") || name.endsWith(".ogg") || name.endsWith(".flac")) return "Musik";
+        if (name.endsWith(".pdf") || name.endsWith(".doc") || name.endsWith(".docx") || name.endsWith(".xls") || name.endsWith(".xlsx") || name.endsWith(".ppt") || name.endsWith(".pptx") || name.endsWith(".txt")) return "Dokumen";
+        return "Lainnya";
+    }
+
+    private String getDownloadSectionTitle(int count) {
+        String base = activeDownloadCategory;
+        if (activeDownloadSearchQuery != null && activeDownloadSearchQuery.length() > 0) {
+            base += " • hasil \"" + activeDownloadSearchQuery + "\"";
+        }
+        return base + " - " + count + " file";
+    }
+
+    private View downloadRow(DownloadItem item) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(10), 0, dp(10));
+
+        if (downloadSelectMode) {
+            TextView check = new TextView(this);
+            boolean selected = selectedDownloadIds.contains(item.id);
+            check.setText(selected ? "✓" : "");
+            check.setTextColor(Color.parseColor("#111111"));
+            check.setTextSize(18);
+            check.setTypeface(Typeface.DEFAULT_BOLD);
+            check.setGravity(Gravity.CENTER);
+            check.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20232A"), dp(16), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
+            LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(dp(34), dp(34));
+            checkParams.setMargins(0, 0, dp(10), 0);
+            row.addView(check, checkParams);
+        }
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(getDownloadIcon(item));
+        icon.setColorFilter(Color.parseColor("#E8EAED"));
+        icon.setPadding(dp(13), dp(13), dp(13), dp(13));
+        icon.setBackground(roundRect(Color.parseColor("#1E222A"), dp(18), 0, Color.TRANSPARENT));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(56), dp(56)));
+
+        LinearLayout textWrap = new LinearLayout(this);
+        textWrap.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1);
+        textParams.setMargins(dp(12), 0, dp(8), 0);
+
+        TextView name = new TextView(this);
+        name.setText(item.fileName);
+        name.setTextColor(Color.WHITE);
+        name.setTextSize(15);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        textWrap.addView(name);
+
+        TextView sub = new TextView(this);
+        sub.setText(getDownloadSubtitle(item));
+        sub.setTextColor(COLOR_SUBTEXT);
+        sub.setTextSize(13);
+        sub.setSingleLine(true);
+        sub.setEllipsize(TextUtils.TruncateAt.END);
+        textWrap.addView(sub);
+
+        if ("running".equals(item.status)) {
+            ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            bar.setMax(100);
+            bar.setProgress(item.progress);
+            bar.setProgressDrawable(new ColorDrawable(COLOR_ACCENT));
+            LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, dp(4));
+            barParams.setMargins(0, dp(8), 0, 0);
+            textWrap.addView(bar, barParams);
+
+            TextView percent = new TextView(this);
+            percent.setText(item.progress + "%");
+            percent.setTextColor(Color.parseColor("#C9CDD4"));
+            percent.setTextSize(11);
+            percent.setPadding(0, dp(4), 0, 0);
+            textWrap.addView(percent);
+        }
+
+        row.addView(textWrap, textParams);
+
+        TextView more = new TextView(this);
+        more.setText("⋮");
+        more.setTextColor(Color.parseColor("#D6D9DE"));
+        more.setTextSize(30);
+        more.setGravity(Gravity.CENTER);
+        more.setOnClickListener(v -> showDownloadItemMenu(v, item));
+        row.addView(more, new LinearLayout.LayoutParams(dp(42), dp(56)));
+
+        row.setOnClickListener(v -> {
+            if (downloadSelectMode) {
+                toggleDownloadSelection(item);
+            } else if ("completed".equals(item.status)) {
+                openDownloadedFile(item);
+            } else if ("failed".equals(item.status)) {
+                showDownloadItemMenu(v, item);
+            } else {
+                Toast.makeText(this, "Mengunduh: " + item.progress + "%", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        row.setOnLongClickListener(v -> {
+            downloadSelectMode = true;
+            toggleDownloadSelection(item);
+            return true;
+        });
+
+        return row;
+    }
+
+    private int getDownloadIcon(DownloadItem item) {
+        String cat = getDownloadCategory(item);
+        if ("Video".equals(cat)) return R.drawable.ic_video_control;
+        if ("APK".equals(cat)) return R.drawable.ic_file;
+        if ("Musik".equals(cat)) return android.R.drawable.ic_media_play;
+        if ("Dokumen".equals(cat)) return android.R.drawable.ic_menu_edit;
+        if ("running".equals(item.status)) return R.drawable.ic_download_modern;
+        return R.drawable.ic_file;
+    }
+
+    private String getDownloadSubtitle(DownloadItem item) {
+        String size = readableFileSize(getDownloadSize(item));
+        String host = getDownloadHost(item);
+        String status;
+        if ("running".equals(item.status)) status = "download • " + item.progress + "%";
+        else if ("failed".equals(item.status)) status = "gagal";
+        else status = host.length() > 0 ? host : "selesai";
+
+        if (host.length() > 0 && !"completed".equals(item.status)) {
+            return size + " • " + status + " • " + host;
+        }
+        return size + " • " + status;
+    }
+
+    private long getDownloadSize(DownloadItem item) {
+        if (item.totalBytes > 0) return item.totalBytes;
+        if (item.downloadedBytes > 0) return item.downloadedBytes;
+        try {
+            if (item.path != null) {
+                File f = new File(item.path);
+                if (f.exists()) return f.length();
+            }
+        } catch (Exception ignored) {}
+        return 0;
+    }
+
+    private String getDownloadHost(DownloadItem item) {
+        try {
+            if (item.url != null) {
+                Uri uri = Uri.parse(item.url);
+                String host = uri.getHost();
+                return host == null ? "" : host;
+            }
+        } catch (Exception ignored) {}
+        return "";
+    }
+
+    private String safeText(String text) {
+        return text == null ? "" : text;
+    }
+
+    private String readableFileSize(long size) {
+        if (size <= 0) return "0 B";
+        String[] units = new String[]{"B", "KB", "MB", "GB", "TB"};
+        double value = size;
+        int index = 0;
+        while (value >= 1024 && index < units.length - 1) {
+            value /= 1024.0;
+            index++;
+        }
+        String formatted = String.format(Locale.US, index == 0 ? "%.0f %s" : "%.2f %s", value, units[index]);
+        return formatted.replace(".00", "");
+    }
+
+    private String getStorageUsageText() {
+        try {
+            File dir = getDownloadDirectory();
+            long total = dir.getTotalSpace();
+            long free = dir.getFreeSpace();
+            long used = total - free;
+            return readableFileSize(used) + " terpakai dari " + readableFileSize(total);
+        } catch (Exception e) {
+            return "Penyimpanan tersedia";
+        }
+    }
+
+    private void toggleDownloadSelection(DownloadItem item) {
+        if (selectedDownloadIds.contains(item.id)) selectedDownloadIds.remove(item.id);
+        else selectedDownloadIds.add(item.id);
+        renderDownloadList();
+    }
+
+    private ArrayList<DownloadItem> getSelectedDownloads() {
+        ArrayList<DownloadItem> selected = new ArrayList<>();
+        synchronized (downloadItems) {
+            for (DownloadItem item : downloadItems) {
+                if (selectedDownloadIds.contains(item.id)) selected.add(item);
+            }
+        }
+        return selected;
+    }
+
+    private void shareSelectedDownloads() {
+        ArrayList<DownloadItem> selected = getSelectedDownloads();
+        if (selected.isEmpty()) {
+            Toast.makeText(this, "Belum ada file dipilih", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (selected.size() == 1) {
+            shareDownloadedFile(selected.get(0));
+            return;
+        }
+        Toast.makeText(this, "Bagikan multi-file akan disempurnakan setelah FileProvider aktif", Toast.LENGTH_LONG).show();
+    }
+
+    private void deleteSelectedDownloads() {
+        ArrayList<DownloadItem> selected = getSelectedDownloads();
+        if (selected.isEmpty()) {
+            Toast.makeText(this, "Belum ada file dipilih", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Hapus " + selected.size() + " file?")
+                .setMessage("File dan riwayat yang dipilih akan dihapus.")
+                .setPositiveButton("Hapus", (dialog, which) -> {
+                    for (DownloadItem item : selected) {
+                        removeDownloadItem(item, true);
+                    }
+                    selectedDownloadIds.clear();
+                    downloadSelectMode = false;
+                    renderDownloadList();
+                })
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
+    private void showDownloadItemMenu(View anchor, DownloadItem item) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        if ("completed".equals(item.status)) {
+            popup.getMenu().add(0, 1, 1, "Bagikan");
+            popup.getMenu().add(0, 2, 2, "Ganti nama");
+        }
+        popup.getMenu().add(0, 3, 3, "Hapus");
+        popup.setOnMenuItemClickListener(menuItem -> {
+            int id = menuItem.getItemId();
+            if (id == 1) {
+                shareDownloadedFile(item);
+                return true;
+            } else if (id == 2) {
+                renameDownloadedFile(item);
+                return true;
+            } else if (id == 3) {
+                if ("running".equals(item.status)) {
+                    Toast.makeText(this, "Tunggu unduhan selesai atau gagal sebelum menghapus", Toast.LENGTH_SHORT).show();
+                } else {
+                    removeDownloadItem(item, true);
+                }
+                return true;
+            }
+            return false;
+        });
+        popup.show();
+    }
+
+    private void shareDownloadedFile(DownloadItem item) {
+        try {
+            File file = new File(item.path);
+            if (!file.exists()) {
+                Toast.makeText(this, "File tidak ditemukan", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            try {
+                StrictMode.class.getMethod("disableDeathOnFileUriExposure").invoke(null);
+            } catch (Exception ignored) {}
+            Uri uri = Uri.fromFile(file);
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType("*/*");
+            intent.putExtra(Intent.EXTRA_STREAM, uri);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(intent, "Bagikan file"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Gagal membagikan file", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void renameDownloadedFile(DownloadItem item) {
+        File currentFile = new File(item.path);
+        if (!currentFile.exists()) {
+            Toast.makeText(this, "File tidak ditemukan", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setText(item.fileName);
+        input.setSelection(input.getText().length());
+
+        new AlertDialog.Builder(this)
+                .setTitle("Ganti nama")
+                .setView(input)
+                .setPositiveButton("Simpan", (dialog, which) -> {
+                    String newName = input.getText().toString().trim();
+                    if (newName.length() == 0) {
+                        Toast.makeText(this, "Nama file kosong", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    File newFile = new File(currentFile.getParentFile(), newName);
+                    if (newFile.exists()) {
+                        Toast.makeText(this, "Nama file sudah ada", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    if (currentFile.renameTo(newFile)) {
+                        item.fileName = newName;
+                        item.path = newFile.getAbsolutePath();
+                        saveDownloadHistory();
+                        renderDownloadList();
+                        Toast.makeText(this, "Nama file diperbarui", Toast.LENGTH_SHORT).show();
+                    } else {
+                        Toast.makeText(this, "Gagal mengganti nama", Toast.LENGTH_SHORT).show();
+                    }
+                })
                 .setNegativeButton("Batal", null)
                 .show();
     }
@@ -2125,9 +2604,10 @@ public class MainActivity extends Activity {
                 if (f.exists()) f.delete();
             } catch (Exception ignored) {}
         }
+        selectedDownloadIds.remove(item.id);
         saveDownloadHistory();
         renderDownloadList();
-        Toast.makeText(this, deleteFile ? "File dan riwayat dihapus" : "Riwayat dihapus", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Unduhan dihapus", Toast.LENGTH_SHORT).show();
     }
 
     private void openDownloadedFile(DownloadItem item) {
@@ -2143,7 +2623,7 @@ public class MainActivity extends Activity {
             Intent intent = new Intent(Intent.ACTION_VIEW);
             Uri uri = Uri.fromFile(file);
             String ext = MimeTypeMap.getFileExtensionFromUrl(file.getName());
-            String mime = ext != null ? MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.toLowerCase()) : null;
+            String mime = ext != null ? MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.toLowerCase(Locale.US)) : null;
             if (mime == null) mime = "*/*";
             intent.setDataAndType(uri, mime);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -2158,8 +2638,8 @@ public class MainActivity extends Activity {
     }
 
     private void beginDownloadFromWeb(String url, String contentDisposition, String mimeType) {
-        String guessed = URLUtil.guessFileName(url, contentDisposition, mimeType);
-        beginDownload(url, guessed);
+        String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
+        beginDownload(url, fileName);
     }
 
     private void beginDownload(String fileUrl, String guessedFileName) {
@@ -2223,12 +2703,30 @@ public class MainActivity extends Activity {
         return candidate;
     }
 
+    private void applyDownloadHeaders(HttpURLConnection conn, String fileUrl) {
+        try {
+            String ua = webView != null ? webView.getSettings().getUserAgentString() : null;
+            if (ua == null || ua.length() == 0) {
+                ua = "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36 YieldBrowser";
+            }
+            conn.setRequestProperty("User-Agent", ua);
+            conn.setRequestProperty("Accept", "*/*");
+            conn.setRequestProperty("Connection", "keep-alive");
+            String cookie = CookieManager.getInstance().getCookie(fileUrl);
+            if (cookie != null && cookie.length() > 0) {
+                conn.setRequestProperty("Cookie", cookie);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     private void startTwoConnectionDownload(DownloadItem item, File out) {
         new Thread(() -> {
             try {
                 HttpURLConnection head = (HttpURLConnection) new URL(item.url).openConnection();
                 head.setRequestMethod("GET");
                 head.setRequestProperty("Range", "bytes=0-0");
+                applyDownloadHeaders(head, item.url);
                 head.connect();
 
                 int response = head.getResponseCode();
@@ -2268,6 +2766,7 @@ public class MainActivity extends Activity {
         try {
             HttpURLConnection conn = (HttpURLConnection) new URL(item.url).openConnection();
             conn.setRequestProperty("Range", "bytes=" + start + "-" + end);
+            applyDownloadHeaders(conn, item.url);
             conn.connect();
 
             InputStream in = conn.getInputStream();
@@ -2300,6 +2799,7 @@ public class MainActivity extends Activity {
     private void downloadSingle(DownloadItem item, File out) {
         try {
             HttpURLConnection conn = (HttpURLConnection) new URL(item.url).openConnection();
+            applyDownloadHeaders(conn, item.url);
             conn.connect();
             long total = conn.getContentLengthLong();
             item.totalBytes = total;
@@ -2368,31 +2868,39 @@ public class MainActivity extends Activity {
     }
 
     private void showDownloadNotification(DownloadItem item, String text, boolean ongoing) {
-        try {
-            Intent intent = new Intent(this, MainActivity.class);
-            intent.putExtra("open_downloads", true);
-            intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
-            PendingIntent pendingIntent = PendingIntent.getActivity(this, item.id, intent, flags);
+        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager == null) return;
 
-            Notification.Builder builder;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) builder = new Notification.Builder(this, CHANNEL_DOWNLOADS);
-            else builder = new Notification.Builder(this);
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.setAction(ACTION_OPEN_DOWNLOADS);
+        intent.putExtra("open_downloads", true);
+        intent.putExtra("download_id", item.id);
+        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
-            builder.setSmallIcon(android.R.drawable.stat_sys_download)
-                    .setContentTitle(item.fileName)
-                    .setContentText(text + " • Ketuk untuk lihat detail")
-                    .setContentIntent(pendingIntent)
-                    .setOngoing(ongoing)
-                    .setAutoCancel(!ongoing);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
 
-            if (ongoing) builder.setProgress(100, Math.max(0, Math.min(100, item.progress)), false);
-            else if (item.status.equals("completed")) builder.setSmallIcon(android.R.drawable.stat_sys_download_done);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, item.id, intent, flags);
 
-            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            if (manager != null) manager.notify(item.id, builder.build());
-        } catch (Exception ignored) {}
+        Notification.Builder builder = Build.VERSION.SDK_INT >= 26
+                ? new Notification.Builder(this, CHANNEL_DOWNLOADS)
+                : new Notification.Builder(this);
+
+        builder.setSmallIcon(android.R.drawable.stat_sys_download)
+                .setContentTitle(item.fileName)
+                .setContentText(text)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(!ongoing)
+                .setOngoing(ongoing);
+
+        if ("running".equals(item.status)) {
+            builder.setProgress(100, Math.max(0, Math.min(100, item.progress)), false);
+        } else {
+            builder.setProgress(0, 0, false);
+            builder.setSmallIcon(android.R.drawable.stat_sys_download_done);
+        }
+
+        manager.notify(item.id, builder.build());
     }
 
     private void saveDownloadHistory() {
@@ -2400,7 +2908,7 @@ public class MainActivity extends Activity {
         synchronized (downloadItems) {
             for (DownloadItem item : downloadItems) {
                 if (item.status.equals("completed") || item.status.equals("failed")) {
-                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress);
+                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes);
                 }
             }
         }
@@ -2416,6 +2924,10 @@ public class MainActivity extends Activity {
                     String[] parts = row.split("\\|", -1);
                     if (parts.length >= 5) {
                         DownloadItem item = new DownloadItem(nextDownloadId++, decode(parts[0]), decode(parts[1]), decode(parts[2]), parts[3], Integer.parseInt(parts[4]));
+                        if (parts.length >= 7) {
+                            try { item.totalBytes = Long.parseLong(parts[5]); } catch (Exception ignored) {}
+                            try { item.downloadedBytes = Long.parseLong(parts[6]); } catch (Exception ignored) {}
+                        }
                         downloadItems.add(item);
                     }
                 } catch (Exception ignored) {}
@@ -2495,7 +3007,9 @@ public class MainActivity extends Activity {
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
         applyBrowserSettings();
-        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> beginDownloadFromWeb(url, contentDisposition, mimeType));
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
+            beginDownloadFromWeb(url, contentDisposition, mimeType);
+        });
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -2816,21 +3330,52 @@ public class MainActivity extends Activity {
         desktopMode = p.getBoolean("desktopMode", false);
         textZoom = p.getInt("textZoom", 100);
         shortcutDownload = p.getBoolean("shortcutDownload", true);
-        shortcutBookmark = p.getBoolean("shortcutBookmark", true);
+        shortcutBookmark = p.getBoolean("shortcutBookmark", false);
         shortcutPrivate = p.getBoolean("shortcutPrivate", true);
-        shortcutAdBlock = p.getBoolean("shortcutAdBlock", false);
+        shortcutAdBlock = p.getBoolean("shortcutAdBlock", true);
         shortcutReader = p.getBoolean("shortcutReader", false);
         shortcutNightMode = p.getBoolean("shortcutNightMode", false);
-        shortcutQrScan = p.getBoolean("shortcutQrScan", true);
+        shortcutQrScan = p.getBoolean("shortcutQrScan", false);
         shortcutHistory = p.getBoolean("shortcutHistory", true);
-        shortcutFindPage = p.getBoolean("shortcutFindPage", true);
+        shortcutFindPage = p.getBoolean("shortcutFindPage", false);
         shortcutShare = p.getBoolean("shortcutShare", false);
         shortcutFullscreen = p.getBoolean("shortcutFullscreen", false);
         videoControlsEnabled = p.getBoolean("videoControlsEnabled", true);
-        shortcutVideoControls = p.getBoolean("shortcutVideoControls", true);
+        shortcutVideoControls = p.getBoolean("shortcutVideoControls", false);
         videoSpeed = p.getFloat("videoSpeed", 1.0f);
         downloadSubfolder = p.getString("downloadSubfolder", "Download");
         searchEngine = p.getString("searchEngine", "Google");
+
+        if (!p.getBoolean("menuDefaultsV030", false)) {
+            shortcutDownload = true;
+            shortcutBookmark = false;
+            shortcutPrivate = true;
+            shortcutAdBlock = true;
+            shortcutReader = false;
+            shortcutNightMode = false;
+            shortcutQrScan = false;
+            shortcutHistory = true;
+            shortcutFindPage = false;
+            shortcutShare = false;
+            shortcutFullscreen = false;
+            shortcutVideoControls = false;
+
+            p.edit()
+                    .putBoolean("shortcutDownload", shortcutDownload)
+                    .putBoolean("shortcutBookmark", shortcutBookmark)
+                    .putBoolean("shortcutPrivate", shortcutPrivate)
+                    .putBoolean("shortcutAdBlock", shortcutAdBlock)
+                    .putBoolean("shortcutReader", shortcutReader)
+                    .putBoolean("shortcutNightMode", shortcutNightMode)
+                    .putBoolean("shortcutQrScan", shortcutQrScan)
+                    .putBoolean("shortcutHistory", shortcutHistory)
+                    .putBoolean("shortcutFindPage", shortcutFindPage)
+                    .putBoolean("shortcutShare", shortcutShare)
+                    .putBoolean("shortcutFullscreen", shortcutFullscreen)
+                    .putBoolean("shortcutVideoControls", shortcutVideoControls)
+                    .putBoolean("menuDefaultsV030", true)
+                    .apply();
+        }
     }
 
     private void saveSettings() {
@@ -2859,6 +3404,7 @@ public class MainActivity extends Activity {
                 .putFloat("videoSpeed", videoSpeed)
                 .putString("downloadSubfolder", downloadSubfolder)
                 .putString("searchEngine", searchEngine)
+                .putBoolean("menuDefaultsV030", true)
                 .apply();
     }
 

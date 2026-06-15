@@ -1,25 +1,55 @@
-# Yield Browser v0.2.9 Video Controls
+# Yield Browser v0.3.3 Download Manager Modern
 
-Update ini menambahkan kontrol video online untuk halaman seperti YouTube dan player web lain.
+Update ini merevisi halaman **Unduhan** agar lebih mirip browser modern/UC.
 
-## Perubahan v0.2.9
+## Perubahan v0.3.3
 
-- Menambahkan bar **Kontrol Video** saat membuka halaman web.
-- Tombol yang tersedia:
-  - Play
-  - Pause
-  - Stop
-  - Speed
-- Tombol Speed berputar:
-  - 0.5x
-  - 1x
-  - 1.25x
-  - 1.5x
-  - 2x
-- Kontrol video bisa diaktifkan/dinonaktifkan dari **Setelan**.
-- Shortcut **Kontrol video** bisa diatur dari **Sesuaikan menu**.
-- Tombol kontrol memakai drawable/vector icon modern.
+### Tampilan halaman Download
+- Halaman unduhan dibuat full-screen modern.
+- Header berisi:
+  - Download
+  - pengaturan
+  - search
+  - close
+- Menampilkan info penyimpanan:
+  - total terpakai dari kapasitas storage
+
+### Kategori unduhan
+Ada filter kategori:
+- Semua
+- Video
+- APK
+- Dokumen
+- Musik
+- Lainnya
+
+### Search unduhan
+- Bisa mencari berdasarkan nama file, URL, atau host sumber.
+
+### Sort / urutkan
+- Urut berdasarkan:
+  - Tanggal
+  - Nama
+  - Ukuran
+
+### Multi-select
+- Tombol **Pilih** untuk mode seleksi.
+- Bisa pilih beberapa file.
+- Bisa hapus file yang dipilih.
+- Bagikan satu file dari mode seleksi.
+
+### Item unduhan
+Setiap item sekarang memiliki:
+- icon file
+- nama file
+- ukuran + sumber host
+- progress bar + persen saat masih berjalan
+- tombol **titik tiga** di kanan
+
+Menu titik tiga:
+- Bagikan
+- Ganti nama
+- Hapus
 
 ## Catatan
-
-Kontrol bekerja dengan JavaScript pada elemen `<video>` di halaman. Sebagian situs dapat membatasi kontrol tertentu, tetapi mayoritas player HTML5 mendukung Play, Pause, Stop, dan Playback Speed.
+Fitur notifikasi download, auto-open menu unduhan, dan engine 2 koneksi dari v0.3.1 tetap dipertahankan.
