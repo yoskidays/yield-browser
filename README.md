@@ -350,3 +350,67 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Cleanup source:
   - menghapus method `speedGraph()` dan field `speedHistory` yang sudah tidak dipakai di UI.
   - label `Real-time speed graph` diganti menjadi `Real-time speed`.
+
+
+## v0.8.6
+- AdBlock diperkuat untuk popup redirect/click hijack.
+- Memblokir navigasi main-frame ke domain iklan acak seperti `hotterydiseur.shop` dan `sewarsremeets.cfd`.
+- Menambahkan blokir `window.open`, link `target=_blank`, iframe/script popup, dan domain popup ad network.
+- YouTube/GoogleVideo tetap masuk allowlist agar video tidak ikut terblokir.
+- WebView disetel tidak mendukung popup window otomatis saat AdBlock aktif.
+
+
+## v0.8.7
+- Menambahkan menu detail `AdBlock Premium`.
+- Setiap proteksi AdBlock punya ON/OFF sendiri:
+  - AdBlock aktif
+  - Blokir popup iklan
+  - Blokir redirect iklan
+  - Blokir script/iframe iklan
+  - Proteksi click hijack
+- Tidak menambahkan toggle video karena video playback selalu di-allow otomatis agar tidak ikut terblokir.
+- WebView popup setting mengikuti toggle `Blokir popup iklan`.
+- Blokir navigasi redirect mengikuti toggle `Blokir redirect iklan`.
+- Blokir resource script/iframe mengikuti toggle `Blokir script/iframe iklan`.
+- JavaScript click hijack mengikuti toggle `Proteksi click hijack`.
+
+
+## v0.8.8
+- Menambahkan Ad Redirect Isolation.
+- Jika iklan memaksa redirect/popup, URL iklan dialihkan menjadi tab sementara agar tab utama tetap aman.
+- Menambahkan auto close tab iklan agar tab tidak menumpuk.
+- Menambahkan toggle AdBlock:
+  - Alihkan iklan ke tab sementara
+  - Auto close tab iklan
+- JavaScript AdBlock sekarang mengirim URL popup/click hijack ke bridge `YieldAdBlockBridge`.
+- Tab panel menandai tab iklan dengan badge `Ad`.
+- Video playback tetap selalu di-allow dan tidak ikut diblokir.
+
+
+## v0.8.9
+- Memperkuat Desktop mode agar benar-benar terasa seperti tampilan PC/laptop.
+- Desktop mode sekarang memakai User-Agent Windows Chrome, bukan Linux mobile-like.
+- Menambahkan desktop viewport paksa `width=1280` lewat meta viewport injection.
+- Menambahkan initial scale desktop agar halaman lebih lebar dan terlihat seperti desktop.
+- Menambahkan min-width 1280px pada document/body agar situs responsive tidak tetap mode HP.
+- Desktop mode tetap reload halaman saat ON/OFF agar perubahan langsung diterapkan.
+
+
+## v0.9.0
+- Menambahkan menu `Optimasi video online`.
+- Menambahkan Video preload / buffer booster ringan:
+  - preload video dibuat auto.
+  - cache WebView lebih agresif saat booster aktif.
+- Menambahkan HLS segment prefetch ringan:
+  - m3u8/resource HLS dideteksi di halaman.
+  - beberapa segmen awal download HLS di-prefetch ringan.
+- Auto detect kualitas video diperkuat:
+  - watcher mencoba membaca kualitas dari source, JWPlayer, dan Video.js.
+  - tombol kualitas tetap memakai 240p, 360p, 480p, 720p.
+- Floating player ringan:
+  - mencoba Picture-in-Picture Android saat app ditinggalkan jika tersedia.
+- Background play ringan:
+  - media playback tidak dipaksa gesture jika fitur aktif.
+  - video tidak dipaksa pause oleh Yield saat app masuk background.
+- Download kualitas 240p–720p dibuat lebih aman lewat helper/detector, tanpa downloader agresif yang rawan crash.
+- Rapikan kode video watcher dan helper supaya fitur video lebih terpusat.

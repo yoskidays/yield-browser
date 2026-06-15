@@ -14,6 +14,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.PictureInPictureParams;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ContentValues;
@@ -28,6 +29,7 @@ import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
+import android.util.Rational;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -127,6 +129,7 @@ public class MainActivity extends Activity {
     private static final int DOWNLOAD_CONNECTIONS_PREMIUM = 2;
     private static final int DOWNLOAD_CONNECTIONS_DYNAMIC_MAX = 4;
     private static final int DOWNLOAD_RETRY_MAX = 3;
+    private static final int DESKTOP_VIEWPORT_WIDTH = 1280;
     private static final int DOWNLOAD_BUFFER_SIZE = 64 * 1024;
     private static final int DOWNLOAD_CONNECT_TIMEOUT = 15000;
     private static final int DOWNLOAD_READ_TIMEOUT = 30000;
@@ -186,6 +189,12 @@ public class MainActivity extends Activity {
     private final Set<String> nightModeExceptions = new HashSet<>();
     private boolean readerMode = false;
     private boolean adBlock = false;
+    private boolean adBlockPopupBlocker = true;
+    private boolean adBlockRedirectBlocker = true;
+    private boolean adBlockScriptIframeBlocker = true;
+    private boolean adBlockClickHijackBlocker = true;
+    private boolean adBlockRedirectToTempTab = true;
+    private boolean adBlockAutoCloseAdTabs = true;
     private boolean dataSaver = false;
     private boolean desktopMode = false;
     private int textZoom = 100;
@@ -202,6 +211,10 @@ public class MainActivity extends Activity {
     private boolean shortcutShare = false;
     private boolean shortcutFullscreen = false;
     private boolean videoControlsEnabled = true;
+    private boolean videoBufferBooster = true;
+    private boolean hlsSegmentPrefetch = true;
+    private boolean videoFloatingPlayer = true;
+    private boolean videoBackgroundPlay = true;
     private boolean shortcutVideoControls = false;
     private float videoSpeed = 1.0f;
     private String downloadSubfolder = "Download";
@@ -304,11 +317,17 @@ public class MainActivity extends Activity {
         String title;
         String url;
         boolean privateTab;
+        boolean adTab;
 
         TabInfo(String title, String url, boolean privateTab) {
+            this(title, url, privateTab, false);
+        }
+
+        TabInfo(String title, String url, boolean privateTab, boolean adTab) {
             this.title = title;
             this.url = url;
             this.privateTab = privateTab;
+            this.adTab = adTab;
         }
     }
 
@@ -353,6 +372,14 @@ public class MainActivity extends Activity {
             });
         }
     }
+
+    private class AdBlockBridge {
+        @JavascriptInterface
+        public void onAdRedirect(String url) {
+            runOnUiThread(() -> captureAdRedirectToTempTab(url, "Popup iklan"));
+        }
+    }
+
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -446,6 +473,17 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    @Override
+    protected void onPause() {
+        if (videoBackgroundPlay && webView != null) {
+            try {
+                webView.evaluateJavascript("(function(){try{var v=document.querySelector('video');if(v&&!v.paused){v.play().catch(function(){});}return 'keep';}catch(e){return 'err';}})()", null);
+            } catch (Exception ignored) {
+            }
+        }
+        super.onPause();
     }
 
     @Override
@@ -1163,7 +1201,7 @@ content.addView(space(dp(36)));
         row.setBackground(roundRect(index == currentTabIndex ? Color.parseColor("#20232A") : Color.parseColor("#15171D"), dp(18), dp(1), index == currentTabIndex ? COLOR_ACCENT : COLOR_BORDER));
 
         TextView badge = new TextView(this);
-        badge.setText(tab.privateTab ? "P" : String.valueOf(index + 1));
+        badge.setText(tab.adTab ? "Ad" : (tab.privateTab ? "P" : String.valueOf(index + 1)));
         badge.setTextColor(tab.privateTab ? Color.WHITE : Color.parseColor("#111111"));
         badge.setTextSize(13);
         badge.setTypeface(Typeface.DEFAULT_BOLD);
@@ -1353,7 +1391,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.8.5";
+        return "0.9.0";
     }
 
     private void showAboutYieldDialog() {
@@ -1527,6 +1565,9 @@ content.addView(space(dp(36)));
             dialog.dismiss();
             showSettingsPanel();
         }));
+        panel.addView(actionRow(R.drawable.ic_video_control, "Optimasi video online", "Buffer booster, HLS prefetch, kualitas, floating player, dan background play.", v -> {
+            showVideoOptimizationDialog();
+        }));
         panel.addView(actionRow(R.drawable.ic_save_page, "Simpan halaman offline", "Simpan halaman saat ini sebagai web archive.", v -> {
             saveCurrentPageOffline();
         }));
@@ -1538,9 +1579,11 @@ content.addView(space(dp(36)));
             showNightModeSettingsDialog();
         }));
         panel.addView(settingRow(R.drawable.ic_reader, "Reader / novel mode", "Mode baca ringan untuk artikel.", readerMode, v -> { readerMode = !readerMode; saveSettings(); }));
-        panel.addView(settingRow(R.drawable.ic_shield, "Ad block", "Filter iklan sederhana berbasis URL.", adBlock, v -> { adBlock = !adBlock; saveSettings(); }));
+        panel.addView(actionRow(R.drawable.ic_shield, "AdBlock Premium: " + (adBlock ? "ON" : "OFF"), getAdBlockSummary(), v -> {
+            showAdBlockSettingsDialog();
+        }));
         panel.addView(settingRow(R.drawable.ic_data_saver, "Hemat data", "Matikan gambar otomatis saat browsing.", dataSaver, v -> { dataSaver = !dataSaver; applyBrowserSettings(); saveSettings(); }));
-        panel.addView(settingRow(R.drawable.ic_desktop, "Desktop mode", "Ganti user agent ke desktop.", desktopMode, v -> { desktopMode = !desktopMode; applyBrowserSettings(); saveSettings(); if (webView != null && webView.getVisibility() == View.VISIBLE) webView.reload(); }));
+        panel.addView(settingRow(R.drawable.ic_desktop, "Desktop mode", "Paksa tampilan lebar seperti PC/laptop.", desktopMode, v -> { desktopMode = !desktopMode; applyBrowserSettings(); saveSettings(); if (webView != null && webView.getVisibility() == View.VISIBLE) webView.reload(); }));
         panel.addView(actionRow(R.drawable.ic_text_size, "Ukuran teks: " + textZoom + "%", "Atur ukuran teks dengan slider persentase.", v -> {
             showTextZoomDialog(dialog);
         }));
@@ -1562,6 +1605,172 @@ content.addView(space(dp(36)));
             window.setAttributes(lp);
         }
         dialog.show();
+    }
+
+    private String getAdBlockSummary() {
+        if (!adBlock) return "AdBlock mati. Buka untuk pilih proteksi.";
+        ArrayList<String> active = new ArrayList<>();
+        if (adBlockPopupBlocker) active.add("popup");
+        if (adBlockRedirectBlocker) active.add("redirect");
+        if (adBlockScriptIframeBlocker) active.add("script/iframe");
+        if (adBlockClickHijackBlocker) active.add("click hijack");
+        if (adBlockRedirectToTempTab) active.add("tab iklan");
+        if (adBlockAutoCloseAdTabs) active.add("auto close");
+        if (active.isEmpty()) return "AdBlock aktif, belum ada proteksi detail ON.";
+        return "Aktif: " + TextUtils.join(", ", active);
+    }
+
+    private void showAdBlockSettingsDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        scroll.setBackground(roundRect(Color.parseColor("#26292F"), dp(24), dp(1), COLOR_BORDER));
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(18), dp(20), dp(14));
+        scroll.addView(box, new ScrollView.LayoutParams(-1, -2));
+
+        TextView title = new TextView(this);
+        title.setText("AdBlock Premium");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(22);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setIncludeFontPadding(false);
+        box.addView(title);
+
+        TextView info = new TextView(this);
+        info.setText("Atur proteksi iklan satu per satu. Video playback tetap otomatis di-allow agar tidak ikut keblok.");
+        info.setTextColor(COLOR_SUBTEXT);
+        info.setTextSize(13);
+        info.setLineSpacing(0, 1.05f);
+        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(-1, -2);
+        infoLp.setMargins(0, dp(8), 0, dp(12));
+        box.addView(info, infoLp);
+
+        box.addView(adBlockSwitchRow("AdBlock aktif", "Master ON/OFF semua proteksi iklan.", adBlock, v -> {
+            adBlock = !adBlock;
+            applyBrowserSettings();
+            if (adBlock && webView != null && webView.getVisibility() == View.VISIBLE) injectPremiumAdBlock();
+            saveSettings();
+        }));
+
+        box.addView(adBlockSwitchRow("Blokir popup iklan", "Matikan window.open dan pop-up otomatis.", adBlockPopupBlocker, v -> {
+            adBlockPopupBlocker = !adBlockPopupBlocker;
+            applyBrowserSettings();
+            saveSettings();
+        }));
+
+        box.addView(adBlockSwitchRow("Blokir redirect iklan", "Cegah halaman pindah ke domain iklan random.", adBlockRedirectBlocker, v -> {
+            adBlockRedirectBlocker = !adBlockRedirectBlocker;
+            saveSettings();
+        }));
+
+        box.addView(adBlockSwitchRow("Blokir script/iframe iklan", "Blokir resource iklan, script, iframe, dan tracker.", adBlockScriptIframeBlocker, v -> {
+            adBlockScriptIframeBlocker = !adBlockScriptIframeBlocker;
+            saveSettings();
+        }));
+
+        box.addView(adBlockSwitchRow("Proteksi click hijack", "Cegah klik area web membuka link iklan tersembunyi.", adBlockClickHijackBlocker, v -> {
+            adBlockClickHijackBlocker = !adBlockClickHijackBlocker;
+            if (adBlock && webView != null && webView.getVisibility() == View.VISIBLE) injectPremiumAdBlock();
+            saveSettings();
+        }));
+
+        box.addView(adBlockSwitchRow("Alihkan iklan ke tab sementara", "Jika web memaksa redirect iklan, buka sebagai tab iklan sementara agar tab utama tetap aman.", adBlockRedirectToTempTab, v -> {
+            adBlockRedirectToTempTab = !adBlockRedirectToTempTab;
+            saveSettings();
+        }));
+
+        box.addView(adBlockSwitchRow("Auto close tab iklan", "Tab hasil redirect/popup iklan otomatis ditutup agar tab tidak menumpuk.", adBlockAutoCloseAdTabs, v -> {
+            adBlockAutoCloseAdTabs = !adBlockAutoCloseAdTabs;
+            saveSettings();
+        }));
+
+        TextView note = new TextView(this);
+        note.setText("Catatan: video playback tidak diberi tombol khusus karena selalu dilindungi otomatis agar file video/YouTube/GoogleVideo tidak terblokir.");
+        note.setTextColor(COLOR_SUBTEXT);
+        note.setTextSize(12);
+        note.setLineSpacing(0, 1.05f);
+        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
+        noteLp.setMargins(0, dp(8), 0, dp(4));
+        box.addView(note, noteLp);
+
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setGravity(Gravity.END);
+        bottom.setPadding(0, dp(8), 0, 0);
+
+        TextView close = dialogTextButton("TUTUP");
+        close.setOnClickListener(v -> dialog.dismiss());
+        bottom.addView(close);
+        box.addView(bottom);
+
+        dialog.setContentView(scroll);
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            Window window = dialog.getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.9f);
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            window.setAttributes(lp);
+        }
+    }
+
+    private View adBlockSwitchRow(String title, String desc, boolean enabled, View.OnClickListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setBackground(roundRect(Color.parseColor("#30333A"), dp(18), dp(1), Color.parseColor("#3A3D45")));
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
+        rowLp.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(rowLp);
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextColor(Color.parseColor("#F5F6F8"));
+        t.setTextSize(15);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setIncludeFontPadding(false);
+        texts.addView(t);
+
+        TextView d = new TextView(this);
+        d.setText(desc);
+        d.setTextColor(Color.parseColor("#AEB4BF"));
+        d.setTextSize(12);
+        d.setLineSpacing(0, 1.03f);
+        d.setPadding(0, dp(6), dp(8), 0);
+        texts.addView(d);
+
+        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+
+        TextView status = new TextView(this);
+        final boolean[] current = new boolean[]{enabled};
+        status.setText(current[0] ? "ON" : "OFF");
+        status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
+        status.setTypeface(Typeface.DEFAULT_BOLD);
+        status.setTextSize(12);
+        status.setGravity(Gravity.CENTER);
+        status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
+        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(dp(58), dp(32));
+        statusLp.setMargins(dp(12), 0, 0, 0);
+        row.addView(status, statusLp);
+
+        row.setOnClickListener(v -> {
+            if (listener != null) listener.onClick(v);
+            current[0] = !current[0];
+            status.setText(current[0] ? "ON" : "OFF");
+            status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
+            status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
+        });
+        return row;
     }
 
     private void openQrScanner() {
@@ -2419,11 +2628,196 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+    private String getVideoOptimizationSummary() {
+        ArrayList<String> items = new ArrayList<>();
+        if (videoBufferBooster) items.add("buffer");
+        if (hlsSegmentPrefetch) items.add("HLS prefetch");
+        if (videoFloatingPlayer) items.add("floating");
+        if (videoBackgroundPlay) items.add("background");
+        if (items.isEmpty()) return "Semua optimasi video tambahan mati.";
+        return "Aktif: " + TextUtils.join(", ", items);
+    }
+
+    private void showVideoOptimizationDialog() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        scroll.setBackground(roundRect(Color.parseColor("#26292F"), dp(24), dp(1), COLOR_BORDER));
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(18), dp(20), dp(14));
+        scroll.addView(box, new ScrollView.LayoutParams(-1, -2));
+
+        TextView title = new TextView(this);
+        title.setText("Optimasi Video");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(22);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setIncludeFontPadding(false);
+        box.addView(title);
+
+        TextView info = new TextView(this);
+        info.setText("Fitur ringan untuk streaming. Yang sudah otomatis tidak digandakan agar tidak crash.");
+        info.setTextColor(COLOR_SUBTEXT);
+        info.setTextSize(13);
+        info.setLineSpacing(0, 1.05f);
+        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(-1, -2);
+        infoLp.setMargins(0, dp(8), 0, dp(12));
+        box.addView(info, infoLp);
+
+        box.addView(videoOptSwitchRow("Video preload / buffer booster", "Memaksa preload auto dan cache lebih agresif saat ada video.", videoBufferBooster, v -> {
+            videoBufferBooster = !videoBufferBooster;
+            applyBrowserSettings();
+            injectVideoOptimizationIfNeeded();
+            saveSettings();
+        }));
+
+        box.addView(videoOptSwitchRow("HLS segment prefetch", "Mendeteksi m3u8 dan mencoba prefetch ringan segmen berikutnya.", hlsSegmentPrefetch, v -> {
+            hlsSegmentPrefetch = !hlsSegmentPrefetch;
+            injectVideoOptimizationIfNeeded();
+            saveSettings();
+        }));
+
+        box.addView(videoOptSwitchRow("Floating player", "Tombol layar penuh/floating ringan; pakai PiP Android jika tersedia.", videoFloatingPlayer, v -> {
+            videoFloatingPlayer = !videoFloatingPlayer;
+            saveSettings();
+        }));
+
+        box.addView(videoOptSwitchRow("Background play ringan", "Video tidak dipaksa pause saat aplikasi masuk background jika WebView mendukung.", videoBackgroundPlay, v -> {
+            videoBackgroundPlay = !videoBackgroundPlay;
+            applyBrowserSettings();
+            injectVideoOptimizationIfNeeded();
+            saveSettings();
+        }));
+
+        box.addView(videoOptInfoRow("Auto detect kualitas video", "Sudah aktif di tombol kualitas 240p–720p; tidak dibuat dobel."));
+        box.addView(videoOptInfoRow("Download kualitas 240p–720p", "Diperkuat via deteksi source/player. Situs yang menyembunyikan URL tetap mengikuti batas player."));
+
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setGravity(Gravity.END);
+        bottom.setPadding(0, dp(8), 0, 0);
+
+        TextView close = dialogTextButton("TUTUP");
+        close.setOnClickListener(v -> dialog.dismiss());
+        bottom.addView(close);
+        box.addView(bottom);
+
+        dialog.setContentView(scroll);
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            Window window = dialog.getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.9f);
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            window.setAttributes(lp);
+        }
+    }
+
+    private View videoOptSwitchRow(String title, String desc, boolean enabled, View.OnClickListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setBackground(roundRect(Color.parseColor("#30333A"), dp(18), dp(1), Color.parseColor("#3A3D45")));
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
+        rowLp.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(rowLp);
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextColor(Color.parseColor("#F5F6F8"));
+        t.setTextSize(15);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setIncludeFontPadding(false);
+        texts.addView(t);
+
+        TextView d = new TextView(this);
+        d.setText(desc);
+        d.setTextColor(Color.parseColor("#AEB4BF"));
+        d.setTextSize(12);
+        d.setLineSpacing(0, 1.03f);
+        d.setPadding(0, dp(6), dp(8), 0);
+        texts.addView(d);
+
+        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+
+        TextView status = new TextView(this);
+        final boolean[] current = new boolean[]{enabled};
+        status.setText(current[0] ? "ON" : "OFF");
+        status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
+        status.setTypeface(Typeface.DEFAULT_BOLD);
+        status.setTextSize(12);
+        status.setGravity(Gravity.CENTER);
+        status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
+        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(dp(58), dp(32));
+        statusLp.setMargins(dp(12), 0, 0, 0);
+        row.addView(status, statusLp);
+
+        row.setOnClickListener(v -> {
+            if (listener != null) listener.onClick(v);
+            current[0] = !current[0];
+            status.setText(current[0] ? "ON" : "OFF");
+            status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
+            status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
+        });
+        return row;
+    }
+
+    private View videoOptInfoRow(String title, String desc) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setBackground(roundRect(Color.parseColor("#2C2F36"), dp(16), dp(1), Color.parseColor("#373B43")));
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
+        rowLp.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(rowLp);
+
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextColor(Color.parseColor("#F5F6F8"));
+        t.setTextSize(15);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setIncludeFontPadding(false);
+        row.addView(t);
+
+        TextView d = new TextView(this);
+        d.setText(desc);
+        d.setTextColor(Color.parseColor("#AEB4BF"));
+        d.setTextSize(12);
+        d.setPadding(0, dp(6), 0, 0);
+        row.addView(d);
+        return row;
+    }
+
+    private void detectVideoQualities() {
+        if (webView == null || webView.getVisibility() != View.VISIBLE) return;
+        try {
+            webView.evaluateJavascript("(function(){try{return (window.__yieldVideoQualities||[]).join(', ');}catch(e){return '';}})()", value -> {
+                String result = value == null ? "" : value.replace("\"", "");
+                if (result.length() > 0) {
+                    Toast.makeText(this, "Kualitas terdeteksi: " + result + "p", Toast.LENGTH_SHORT).show();
+                }
+            });
+        } catch (Exception ignored) {
+        }
+    }
+
     private void showVideoQualityDialog() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
             Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
             return;
         }
+
+        injectVideoOptimizationIfNeeded();
+        detectVideoQualities();
 
         String[] labels = new String[]{"Auto", "240p", "360p", "480p", "720p"};
         int checked = 0;
@@ -2451,6 +2845,9 @@ private void showDownloadSettingsPanel() {
         saveSettings();
 
         if ("Auto".equals(quality)) {
+            try {
+                webView.evaluateJavascript("(function(){try{if(window.videojs){var ps=window.videojs.getPlayers?window.videojs.getPlayers():{};for(var k in ps){var p=ps[k];if(p&&p.qualityLevels){var ql=p.qualityLevels();for(var i=0;i<ql.length;i++)ql[i].enabled=true;}}}return 'auto';}catch(e){return 'auto_err';}})()", null);
+            } catch (Exception ignored) {}
             Toast.makeText(this, "Kualitas video: Auto", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -2534,16 +2931,25 @@ private void showDownloadSettingsPanel() {
     private void injectVideoPlaybackWatcher() {
         if (webView == null) return;
         String js = "javascript:(function(){"
-                + "if(window.__yieldVideoWatcherInstalled)return;"
                 + "window.__yieldVideoWatcherInstalled=true;"
+                + "var Y_BUF=" + (videoBufferBooster ? "true" : "false") + ",Y_HLS=" + (hlsSegmentPrefetch ? "true" : "false") + ",Y_BG=" + (videoBackgroundPlay ? "true" : "false") + ";"
+                + "function qOf(s){s=(s||'').toLowerCase();var m=s.match(/(240|360|480|720|1080)p|height=(240|360|480|720|1080)|res=(240|360|480|720|1080)|quality=(240|360|480|720|1080)/);return m?(m[1]||m[2]||m[3]||m[4]||''):'';}"
+                + "function collectQ(v){try{var out=[];var ss=v.querySelectorAll('source[src]');for(var i=0;i<ss.length;i++){var q=qOf((ss[i].src||'')+' '+(ss[i].getAttribute('label')||'')+' '+(ss[i].getAttribute('res')||''));if(q&&out.indexOf(q)<0)out.push(q);}try{if(window.jwplayer){var j=window.jwplayer();var lv=j.getQualityLevels?j.getQualityLevels():[];for(var a=0;a<lv.length;a++){var q=(lv[a].height||lv[a].label||'')+'';q=q.replace(/[^0-9]/g,'');if(q&&out.indexOf(q)<0)out.push(q);}}}catch(e){}try{if(window.videojs){var ps=window.videojs.getPlayers?window.videojs.getPlayers():{};for(var k in ps){var p=ps[k];if(p&&p.qualityLevels){var ql=p.qualityLevels();for(var b=0;b<ql.length;b++){var h=(ql[b].height||'')+'';if(h&&out.indexOf(h)<0)out.push(h);}}}}}catch(e){}if(out.length){window.__yieldVideoQualities=out.sort(function(a,b){return parseInt(a)-parseInt(b);});}}catch(e){}}"
+                + "function prefetch(u){try{if(!Y_HLS||!u||window.__yieldPrefetch&&window.__yieldPrefetch[u])return;if(!window.__yieldPrefetch)window.__yieldPrefetch={};window.__yieldPrefetch[u]=true;fetch(u,{method:'GET',mode:'no-cors',cache:'force-cache'}).catch(function(){});}catch(e){}}"
+                + "function hlsProbe(v){try{if(!Y_HLS)return;var u=(v.currentSrc||v.src||'');if(u&&u.indexOf('.m3u8')>-1)prefetch(u);document.querySelectorAll('source[src]').forEach(function(s){var x=s.src||'';if(x.indexOf('.m3u8')>-1)prefetch(x);});performance.getEntriesByType('resource').slice(-40).forEach(function(r){var x=r.name||'';if(x.indexOf('.m3u8')>-1||x.indexOf('.ts')>-1||x.indexOf('.m4s')>-1)prefetch(x);});}catch(e){}}"
+                + "function boost(v){try{if(Y_BUF){v.preload='auto';v.setAttribute('preload','auto');try{v.load();}catch(e){}}if(Y_BG){document.addEventListener('visibilitychange',function(){try{if(document.hidden&&v&&!v.paused){setTimeout(function(){try{v.play();}catch(e){}},250);}}catch(e){}},true);}}catch(e){}}"
                 + "function hook(v){"
                 + " if(!v||v.__yieldHooked)return;"
                 + " v.__yieldHooked=true;"
-                + " var show=function(){try{if(window.YieldVideoBridge)YieldVideoBridge.onVideoPlaying();}catch(e){}};"
+                + " boost(v);collectQ(v);hlsProbe(v);"
+                + " var show=function(){try{collectQ(v);hlsProbe(v);if(window.YieldVideoBridge)YieldVideoBridge.onVideoPlaying();}catch(e){}};"
                 + " var tap=function(){try{if(window.YieldVideoBridge)YieldVideoBridge.onVideoTapped();}catch(e){}};"
                 + " var hide=function(){try{if(window.YieldVideoBridge)YieldVideoBridge.onVideoStopped();}catch(e){}};"
                 + " v.addEventListener('play',show,true);"
                 + " v.addEventListener('playing',show,true);"
+                + " v.addEventListener('loadedmetadata',show,true);"
+                + " v.addEventListener('loadeddata',show,true);"
+                + " v.addEventListener('canplay',show,true);"
                 + " v.addEventListener('click',tap,true);"
                 + " v.addEventListener('touchend',tap,true);"
                 + " v.addEventListener('pause',hide,true);"
@@ -2551,12 +2957,16 @@ private void showDownloadSettingsPanel() {
                 + " if(!v.paused&&!v.ended&&v.readyState>2)show();"
                 + "}"
                 + "function scan(){try{var vs=document.querySelectorAll('video');for(var i=0;i<vs.length;i++){hook(vs[i]);}}catch(e){}}"
-                + "scan();"
+                + "scan();setInterval(scan,2500);"
                 + "try{new MutationObserver(scan).observe(document.documentElement,{childList:true,subtree:true});}catch(e){}"
                 + "})()";
         try {
             webView.loadUrl(js);
         } catch (Exception ignored) {}
+    }
+
+    private void injectVideoOptimizationIfNeeded() {
+        injectVideoPlaybackWatcher();
     }
 
     private void controlVideo(String action) {
@@ -5294,6 +5704,34 @@ private void showDownloadSettingsPanel() {
         }).start();
     }
 
+    private void prefetchHlsSegmentsForDownload(ArrayList<String> segments, DownloadItem item) {
+        if (!hlsSegmentPrefetch || segments == null || segments.isEmpty()) return;
+        int max = Math.min(4, segments.size());
+        for (int i = 0; i < max; i++) {
+            final String u = segments.get(i);
+            new Thread(() -> {
+                HttpURLConnection conn = null;
+                InputStream in = null;
+                try {
+                    conn = openDownloadConnection(u, item, "");
+                    validateDownloadResponse(conn);
+                    in = conn.getInputStream();
+                    byte[] buffer = new byte[16 * 1024];
+                    int read = 0;
+                    while (read < 64 * 1024) {
+                        int len = in.read(buffer);
+                        if (len <= 0) break;
+                        read += len;
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    try { if (in != null) in.close(); } catch (Exception ignored) {}
+                    try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
+                }
+            }).start();
+        }
+    }
+
     private void startHlsDownload(DownloadItem item, File out) {
         item.status = "running";
         item.pauseRequested = false;
@@ -5313,6 +5751,8 @@ private void showDownloadSettingsPanel() {
             try {
                 ArrayList<String> segments = resolveHlsSegments(item.url, item);
                 if (segments.isEmpty()) throw new Exception("Playlist HLS kosong/tidak didukung");
+
+                prefetchHlsSegmentsForDownload(segments, item);
 
                 item.totalBytes = segments.size();
                 item.downloadedBytes = 0;
@@ -6304,10 +6744,115 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+    private boolean captureAdRedirectToTempTab(String url, String reason) {
+        if (!adBlock || url == null || url.trim().length() == 0) return false;
+        if (isMediaResourceUrl(url) || isYoutubeCoreUrl(url)) return false;
+
+        if (!adBlockRedirectToTempTab) {
+            scheduleCloseDetectedAdTabs();
+            return true;
+        }
+
+        String safeUrl = url.trim();
+        int protectedIndex = currentTabIndex;
+        TabInfo adTab = new TabInfo("Iklan diblokir", safeUrl, false, true);
+        tabs.add(adTab);
+        updateTabsCountUi();
+
+        Toast.makeText(this, "Iklan dialihkan ke tab sementara", Toast.LENGTH_SHORT).show();
+
+        if (adBlockAutoCloseAdTabs) {
+            mainHandler.postDelayed(() -> closeAdTabSilently(adTab, protectedIndex), 1200);
+            mainHandler.postDelayed(this::closeDetectedAdTabs, 2200);
+        }
+        return true;
+    }
+
+    private void closeAdTabSilently(TabInfo adTab, int fallbackIndex) {
+        try {
+            int index = tabs.indexOf(adTab);
+            if (index < 0) return;
+
+            boolean closingCurrent = index == currentTabIndex;
+            tabs.remove(index);
+
+            if (tabs.isEmpty()) {
+                tabs.add(new TabInfo("Tab utama", "", false));
+                currentTabIndex = 0;
+                addressBar.setText("");
+                showHome();
+            } else {
+                if (currentTabIndex > index) currentTabIndex--;
+                if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
+                if (closingCurrent) {
+                    currentTabIndex = Math.max(0, Math.min(fallbackIndex, tabs.size() - 1));
+                    TabInfo tab = getCurrentTab();
+                    if (tab.url == null || tab.url.length() == 0) {
+                        addressBar.setText("");
+                        showHome();
+                    } else {
+                        addressBar.setText(tab.url);
+                        webView.setVisibility(View.VISIBLE);
+                        homeScroll.setVisibility(View.GONE);
+                        webView.loadUrl(tab.url);
+                    }
+                }
+            }
+
+            updateTabsCountUi();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void scheduleCloseDetectedAdTabs() {
+        if (!adBlockAutoCloseAdTabs) return;
+        mainHandler.postDelayed(this::closeDetectedAdTabs, 900);
+    }
+
+    private void closeDetectedAdTabs() {
+        try {
+            if (!adBlockAutoCloseAdTabs || tabs.isEmpty()) return;
+
+            boolean changed = false;
+            for (int i = tabs.size() - 1; i >= 0; i--) {
+                TabInfo t = tabs.get(i);
+                if (t == null) continue;
+                boolean suspicious = t.adTab || (t.url != null && t.url.length() > 0 && isSuspiciousPopupNavigation(t.url, getEffectiveCurrentUrl()));
+                if (!suspicious) continue;
+
+                boolean closingCurrent = i == currentTabIndex;
+                tabs.remove(i);
+                changed = true;
+
+                if (closingCurrent) {
+                    currentTabIndex = Math.max(0, Math.min(currentTabIndex - 1, tabs.size() - 1));
+                } else if (currentTabIndex > i) {
+                    currentTabIndex--;
+                }
+            }
+
+            if (tabs.isEmpty()) {
+                tabs.add(new TabInfo("Tab utama", "", false));
+                currentTabIndex = 0;
+                addressBar.setText("");
+                showHome();
+            } else if (currentTabIndex < 0 || currentTabIndex >= tabs.size()) {
+                currentTabIndex = Math.max(0, Math.min(currentTabIndex, tabs.size() - 1));
+            }
+
+            if (changed) {
+                updateTabsCountUi();
+                Toast.makeText(this, "Tab iklan otomatis ditutup", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
         applyBrowserSettings();
         webView.addJavascriptInterface(new VideoBridge(), "YieldVideoBridge");
+        webView.addJavascriptInterface(new AdBlockBridge(), "YieldAdBlockBridge");
         webView.addJavascriptInterface(new TranslateBridge(), "YieldTranslateBridge");
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             beginDownloadFromWeb(url, contentDisposition, mimeType, userAgent);
@@ -6321,16 +6866,34 @@ private void showDownloadSettingsPanel() {
                     Toast.makeText(MainActivity.this, "Diblokir Safe Browsing sederhana", Toast.LENGTH_SHORT).show();
                     return true;
                 }
+                if (adBlock && (adBlockRedirectBlocker || adBlockClickHijackBlocker) && request.isForMainFrame() && isSuspiciousPopupNavigation(u, view != null ? view.getUrl() : "")) {
+                    captureAdRedirectToTempTab(u, "Popup/redirect iklan");
+                    return true;
+                }
                 return false;
             }
 
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                String u = request.getUrl().toString().toLowerCase();
-                if (adBlock && isAdUrl(u)) {
+                String u = request.getUrl().toString();
+                if (adBlock && adBlockScriptIframeBlocker && !isMediaResourceUrl(u) && !isYoutubeCoreUrl(u) && (isAdUrl(u) || isKnownPopupHost(u))) {
                     return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
                 }
                 return super.shouldInterceptRequest(view, request);
+            }
+
+            @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                try {
+                    if (adBlock && adBlockRedirectBlocker && isSuspiciousPopupNavigation(url, getEffectiveCurrentUrl())) {
+                        view.stopLoading();
+                        captureAdRedirectToTempTab(url, "Redirect iklan");
+                        if (view.canGoBack()) view.goBack();
+                        return;
+                    }
+                } catch (Exception ignored) {
+                }
             }
 
             @Override
@@ -6338,6 +6901,9 @@ private void showDownloadSettingsPanel() {
                 String shownUrl = extractOriginalUrl(url);
                 addressBar.setText(shownUrl != null ? shownUrl : url);
                 progressBar.setVisibility(View.GONE);
+                applyDesktopViewportIfNeeded();
+                mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 600);
+                mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1800);
                 if (readerMode) injectReaderMode();
                 if (adBlock) injectPremiumAdBlock();
                 updateVideoControlsVisibility();
@@ -6362,6 +6928,7 @@ private void showDownloadSettingsPanel() {
                     mainHandler.postDelayed(() -> translatePageCompatible(), 600);
                     mainHandler.postDelayed(() -> translatePageCompatible(), 2200);
                 }
+                scheduleCloseDetectedAdTabs();
                 updateTopActionStates();
             }
         });
@@ -6732,14 +7299,25 @@ private void showDownloadSettingsPanel() {
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
         settings.setSupportZoom(true);
+        settings.setSupportMultipleWindows(false);
+        try { settings.setMediaPlaybackRequiresUserGesture(!videoBackgroundPlay); } catch (Exception ignored) {}
+        settings.setJavaScriptCanOpenWindowsAutomatically(!(adBlock && adBlockPopupBlocker));
         settings.setDatabaseEnabled(true);
-        settings.setCacheMode(speedMode ? WebSettings.LOAD_CACHE_ELSE_NETWORK : WebSettings.LOAD_DEFAULT);
+        settings.setCacheMode((speedMode || videoBufferBooster) ? WebSettings.LOAD_CACHE_ELSE_NETWORK : WebSettings.LOAD_DEFAULT);
         settings.setLoadsImagesAutomatically(!dataSaver);
         settings.setTextZoom(textZoom);
+
+        try {
+            settings.setLayoutAlgorithm(desktopMode ? WebSettings.LayoutAlgorithm.NORMAL : WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING);
+        } catch (Exception ignored) {
+        }
+
         if (desktopMode) {
-            settings.setUserAgentString("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36 YieldBrowser");
+            settings.setUserAgentString(getDesktopUserAgent());
+            try { webView.setInitialScale(55); } catch (Exception ignored) {}
         } else {
             settings.setUserAgentString(null);
+            try { webView.setInitialScale(100); } catch (Exception ignored) {}
         }
 
         try {
@@ -6755,9 +7333,107 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+    private String getDesktopUserAgent() {
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+    }
+
+    private void applyDesktopViewportIfNeeded() {
+        if (!desktopMode || webView == null || webView.getVisibility() != View.VISIBLE) return;
+        try {
+            String js = "(function(){"
+                    + "try{"
+                    + "var w=" + DESKTOP_VIEWPORT_WIDTH + ";"
+                    + "var current=Math.max(document.documentElement.clientWidth||0,window.innerWidth||0,360);"
+                    + "var scale=Math.max(0.25,Math.min(0.75,current/w));"
+                    + "var m=document.querySelector('meta[name=viewport]');"
+                    + "if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}"
+                    + "m.setAttribute('content','width='+w+', initial-scale='+scale+', minimum-scale=0.25, maximum-scale=5.0, user-scalable=yes');"
+                    + "document.documentElement.style.minWidth=w+'px';"
+                    + "if(document.body){document.body.style.minWidth=w+'px';document.body.style.overflowX='auto';}"
+                    + "var mobile=document.querySelectorAll('[class*=mobile],[id*=mobile]');"
+                    + "for(var i=0;i<mobile.length&&i<80;i++){mobile[i].className=(mobile[i].className+' desktop-view').replace(/\bmobile\b/g,'desktop');}"
+                    + "return 'desktop_viewport_'+w;"
+                    + "}catch(e){return 'desktop_error';}"
+                    + "})()";
+            webView.evaluateJavascript(js, null);
+        } catch (Exception ignored) {
+        }
+    }
+
     private boolean isUnsafeUrl(String url) {
         String u = url.toLowerCase();
         return u.contains("phishing") || u.contains("malware") || u.contains("virus") || u.contains("scam");
+    }
+
+    private String normalizeHostForAdBlock(String url) {
+        try {
+            if (url == null || url.length() == 0) return "";
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            if (host == null) return "";
+            host = host.toLowerCase(Locale.US);
+            if (host.startsWith("www.")) host = host.substring(4);
+            return host;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private boolean sameOrSubDomain(String host, String baseHost) {
+        if (host == null || baseHost == null || host.length() == 0 || baseHost.length() == 0) return false;
+        return host.equals(baseHost) || host.endsWith("." + baseHost);
+    }
+
+    private boolean isKnownPopupHost(String url) {
+        String host = normalizeHostForAdBlock(url);
+        if (host.length() == 0) return false;
+
+        String[] exactOrContains = new String[]{
+                "hotterydiseur", "sewarsremeets", "sewarsremeet", "onclickads", "clickadu", "popads", "popcash",
+                "popunder", "adsterra", "propellerads", "hilltopads", "exoclick", "trafficjunky", "juicyads",
+                "admaven", "pushpush", "pushengage", "pushwoosh", "realsrv", "highperformanceformat",
+                "highperformancedisplayformat", "xmladfeed", "rotator", "smartlink", "adnxs", "rubiconproject",
+                "taboola", "outbrain", "mgid", "revcontent", "doubleclick", "googlesyndication", "googleadservices"
+        };
+        for (String s : exactOrContains) {
+            if (host.contains(s)) return true;
+        }
+
+        if (host.endsWith(".cfd") || host.endsWith(".click") || host.endsWith(".cam") || host.endsWith(".monster")
+                || host.endsWith(".quest") || host.endsWith(".buzz") || host.endsWith(".icu") || host.endsWith(".cyou")) {
+            return true;
+        }
+
+        String u = url.toLowerCase(Locale.US);
+        return u.contains("/popunder") || u.contains("/popup") || u.contains("/redirect")
+                || u.contains("/push/") || u.contains("?utm_source=ad") || u.contains("&ad_id=")
+                || u.contains("?ad_id=") || u.contains("/prebid") || u.contains("/vast") || u.contains("/vpaid");
+    }
+
+    private boolean isSuspiciousPopupNavigation(String targetUrl, String currentUrl) {
+        if (targetUrl == null || targetUrl.length() == 0) return false;
+        String lower = targetUrl.toLowerCase(Locale.US);
+        if (lower.startsWith("about:") || lower.startsWith("javascript:") || lower.startsWith("data:")) return false;
+        if (lower.startsWith("mailto:") || lower.startsWith("tel:") || lower.startsWith("intent:")) return false;
+        // Video playback tidak boleh diblokir oleh AdBlock.
+        if (isMediaResourceUrl(lower) || isYoutubeCoreUrl(lower)) return false;
+
+        String targetHost = normalizeHostForAdBlock(targetUrl);
+        String currentHost = normalizeHostForAdBlock(currentUrl);
+        if (targetHost.length() == 0) return false;
+        if (sameOrSubDomain(targetHost, currentHost)) return false;
+
+        if (isKnownPopupHost(targetUrl) || isAdUrl(targetUrl)) return true;
+
+        // Banyak iklan click hijack memakai domain acak murah dengan path token panjang.
+        if ((targetHost.endsWith(".shop") || targetHost.endsWith(".xyz") || targetHost.endsWith(".top")
+                || targetHost.endsWith(".site") || targetHost.endsWith(".space") || targetHost.endsWith(".online")
+                || targetHost.endsWith(".live") || targetHost.endsWith(".fun") || targetHost.endsWith(".lol"))
+                && lower.matches(".*https?://[^/]+/[a-z0-9_-]{8,}.*")) {
+            return true;
+        }
+
+        return false;
     }
 
     private boolean isYoutubeCoreUrl(String url) {
@@ -6839,7 +7515,19 @@ private void showDownloadSettingsPanel() {
                 "analytics.tiktok.com",
                 "unityads.unity3d.com",
                 "applovin.com",
-                "adcolony.com"
+                "adcolony.com",
+                "onclickads.net",
+                "clickadu.com",
+                "popads.net",
+                "popcash.net",
+                "propellerads.com",
+                "adsterra.com",
+                "hilltopads.net",
+                "exoclick.com",
+                "trafficjunky.net",
+                "juicyads.com",
+                "admaven.com",
+                "realsrv.com"
         };
 
         for (String b : blocked) {
@@ -6867,19 +7555,36 @@ private void showDownloadSettingsPanel() {
                 || u.contains("sponsor")
                 || u.contains("trackingpixel")
                 || u.contains("prebid")
+                || u.contains("clickunder")
+                || u.contains("onclick")
+                || u.contains("interstitial")
+                || u.contains("adclick")
                 || u.contains("vast")
                 || u.contains("vpaid");
     }
 
     private void injectPremiumAdBlock() {
-        if (webView == null) return;
+        if (webView == null || !adBlock) return;
+
+        String popupEnabled = adBlockPopupBlocker ? "true" : "false";
+        String clickEnabled = adBlockClickHijackBlocker ? "true" : "false";
+        String scriptEnabled = adBlockScriptIframeBlocker ? "true" : "false";
+
         String js = "javascript:(function(){"
-                + "if(window.__yieldAdBlockPremium)return;window.__yieldAdBlockPremium=true;"
+                + "window.__yieldAdBlockPremium=true;"
+                + "var Y_POPUP=" + popupEnabled + ",Y_CLICK=" + clickEnabled + ",Y_SCRIPT=" + scriptEnabled + ";"
+                + "function hostOf(u){try{var a=document.createElement('a');a.href=u;return (a.hostname||'').replace(/^www\\./,'').toLowerCase();}catch(e){return '';}}"
+                + "function media(u){try{var s=(u||'').toLowerCase();return s.indexOf('googlevideo.com/videoplayback')>-1||s.indexOf('/videoplayback')>-1||s.indexOf('.mp4')>-1||s.indexOf('.m3u8')>-1||s.indexOf('.mpd')>-1||s.indexOf('.webm')>-1||s.indexOf('.m4s')>-1||s.indexOf('.ts')>-1||s.indexOf('mime=video')>-1||s.indexOf('mime%3dvideo')>-1;}catch(e){return false;}}"
+                + "function safeVideoHost(h){return h.indexOf('youtube.com')>-1||h.indexOf('youtu.be')>-1||h.indexOf('googlevideo.com')>-1||h.indexOf('ytimg.com')>-1;}"
+                + "function bad(u){try{if(!u||media(u))return false;var h=hostOf(u);var s=(u||'').toLowerCase();var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||h===cur||h.endsWith('.'+cur))return false;if(safeVideoHost(h))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|realsrv|doubleclick|googlesyndication|googleadservices)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;if(/\\.(shop|xyz|top|site|space|online|live|fun|lol)$/.test(h)&&/[\\/][a-z0-9_-]{8,}/.test(s))return true;if(/(popunder|popup|redirect|adclick|clickunder|interstitial|push)/.test(s))return true;return false;}catch(e){return false;}}"
+                + "if(Y_POPUP&&!window.__yieldOpenPatched){window.__yieldOpenPatched=true;var oldOpen=window.open;window.open=function(u,n,f){if(bad(u)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(u));}catch(e){}console.log('Yield isolated popup',u);return {closed:true,focus:function(){},close:function(){}};}try{return oldOpen.call(window,u,n,f);}catch(e){return {closed:true,focus:function(){},close:function(){}};}};}"
+                + "if(Y_CLICK&&!window.__yieldClickPatched){window.__yieldClickPatched=true;document.addEventListener('click',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();console.log('Yield isolated ad link',a.href);return false;}}catch(x){}},true);document.addEventListener('auxclick',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);}"
                 + "function hide(s){try{document.querySelectorAll(s).forEach(function(e){e.style.setProperty('display','none','important');e.remove&&e.remove();});}catch(x){}}"
                 + "function clickSkip(){try{document.querySelectorAll('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button').forEach(function(b){b.click();});}catch(e){}}"
                 + "function clean(){"
                 + "var host=(location.hostname||'').toLowerCase();"
                 + "var isYT=host.indexOf('youtube.com')>-1||host.indexOf('youtu.be')>-1;"
+                + "try{if(Y_CLICK)document.querySelectorAll('a[target=_blank],a[target=\\\"_blank\\\"]').forEach(function(a){if(bad(a.href)){a.removeAttribute('target');a.setAttribute('rel','noopener noreferrer');}});}catch(e){}"
                 + "var selectors=isYT?["
                 + "'ytd-display-ad-renderer','ytd-promoted-video-renderer','ytd-ad-slot-renderer','ytd-companion-slot-renderer',"
                 + "'ytd-banner-promo-renderer','ytd-in-feed-ad-layout-renderer','ytd-promoted-sparkles-web-renderer',"
@@ -6887,14 +7592,16 @@ private void showDownloadSettingsPanel() {
                 + "'.ytp-ad-skip-button-container','.ytp-ad-preview-container','.ytp-ad-progress-list','.GoogleActiveViewElement'"
                 + "]:["
                 + "'.adsbygoogle','iframe[id*=ad]','iframe[src*=ads]','iframe[src*=doubleclick]',"
+                + "'iframe[src*=onclickads]','iframe[src*=clickadu]','iframe[src*=popads]','iframe[src*=propellerads]',"
                 + "'[id*=ad-]','[id^=ad_]','[class*=ad-]','[class*=ads-]','[class*=advert]',"
                 + "'.GoogleActiveViewElement','.ad-banner','.ad-container','.advertisement','.sponsored'"
                 + "];"
-                + "selectors.forEach(hide);"
+                + "if(Y_SCRIPT)selectors.forEach(hide);"
+                + "try{if(Y_SCRIPT)document.querySelectorAll('iframe[src],script[src]').forEach(function(el){var u=el.src||'';if(bad(u)){el.remove();}});}catch(e){}"
                 + "if(isYT)clickSkip();"
                 + "try{document.body.style.setProperty('overflow','auto','important');}catch(e){}"
                 + "}"
-                + "clean();setInterval(clean,1200);"
+                + "clean();setInterval(clean,900);"
                 + "})();";
         webView.loadUrl(js);
     }
@@ -7261,6 +7968,12 @@ private void showDownloadSettingsPanel() {
         nightModeExceptions.addAll(p.getStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>()));
         readerMode = p.getBoolean("readerMode", false);
         adBlock = p.getBoolean("adBlock", false);
+        adBlockPopupBlocker = p.getBoolean("adBlockPopupBlocker", true);
+        adBlockRedirectBlocker = p.getBoolean("adBlockRedirectBlocker", true);
+        adBlockScriptIframeBlocker = p.getBoolean("adBlockScriptIframeBlocker", true);
+        adBlockClickHijackBlocker = p.getBoolean("adBlockClickHijackBlocker", true);
+        adBlockRedirectToTempTab = p.getBoolean("adBlockRedirectToTempTab", true);
+        adBlockAutoCloseAdTabs = p.getBoolean("adBlockAutoCloseAdTabs", true);
         dataSaver = p.getBoolean("dataSaver", false);
         desktopMode = p.getBoolean("desktopMode", false);
         textZoom = p.getInt("textZoom", 100);
@@ -7276,6 +7989,10 @@ private void showDownloadSettingsPanel() {
         shortcutShare = p.getBoolean("shortcutShare", false);
         shortcutFullscreen = p.getBoolean("shortcutFullscreen", false);
         videoControlsEnabled = p.getBoolean("videoControlsEnabled", true);
+        videoBufferBooster = p.getBoolean("videoBufferBooster", true);
+        hlsSegmentPrefetch = p.getBoolean("hlsSegmentPrefetch", true);
+        videoFloatingPlayer = p.getBoolean("videoFloatingPlayer", true);
+        videoBackgroundPlay = p.getBoolean("videoBackgroundPlay", true);
         shortcutVideoControls = p.getBoolean("shortcutVideoControls", false);
         videoSpeed = p.getFloat("videoSpeed", 1.0f);
         selectedVideoQuality = p.getString("selectedVideoQuality", "Auto");
@@ -7334,6 +8051,12 @@ private void showDownloadSettingsPanel() {
                 .putStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>(nightModeExceptions))
                 .putBoolean("readerMode", readerMode)
                 .putBoolean("adBlock", adBlock)
+                .putBoolean("adBlockPopupBlocker", adBlockPopupBlocker)
+                .putBoolean("adBlockRedirectBlocker", adBlockRedirectBlocker)
+                .putBoolean("adBlockScriptIframeBlocker", adBlockScriptIframeBlocker)
+                .putBoolean("adBlockClickHijackBlocker", adBlockClickHijackBlocker)
+                .putBoolean("adBlockRedirectToTempTab", adBlockRedirectToTempTab)
+                .putBoolean("adBlockAutoCloseAdTabs", adBlockAutoCloseAdTabs)
                 .putBoolean("dataSaver", dataSaver)
                 .putBoolean("desktopMode", desktopMode)
                 .putInt("textZoom", textZoom)
@@ -7349,6 +8072,10 @@ private void showDownloadSettingsPanel() {
                 .putBoolean("shortcutShare", shortcutShare)
                 .putBoolean("shortcutFullscreen", shortcutFullscreen)
                 .putBoolean("videoControlsEnabled", videoControlsEnabled)
+                .putBoolean("videoBufferBooster", videoBufferBooster)
+                .putBoolean("hlsSegmentPrefetch", hlsSegmentPrefetch)
+                .putBoolean("videoFloatingPlayer", videoFloatingPlayer)
+                .putBoolean("videoBackgroundPlay", videoBackgroundPlay)
                 .putBoolean("shortcutVideoControls", shortcutVideoControls)
                 .putFloat("videoSpeed", videoSpeed)
                 .putString("selectedVideoQuality", selectedVideoQuality)
@@ -7376,6 +8103,33 @@ private void showDownloadSettingsPanel() {
         button.setContentDescription(desc);
         button.setOnClickListener(listener);
         return button;
+    }
+
+    private boolean hasActiveWebVideo() {
+        if (webView == null || webView.getVisibility() != View.VISIBLE) return false;
+        final boolean[] result = new boolean[]{false};
+        try {
+            webView.evaluateJavascript("(function(){try{var v=document.querySelector('video');return !!(v&&!v.paused&&!v.ended&&v.readyState>1);}catch(e){return false;}})()", value -> {
+                result[0] = "true".equals(value);
+            });
+        } catch (Exception ignored) {}
+        return result[0];
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (!videoFloatingPlayer || webView == null || webView.getVisibility() != View.VISIBLE) return;
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                PictureInPictureParams params = new PictureInPictureParams.Builder()
+                        .setAspectRatio(new Rational(16, 9))
+                        .build();
+                // PiP hanya dicoba ringan. Kalau halaman/player tidak mendukung, Android akan abaikan/throw.
+                enterPictureInPictureMode(params);
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
