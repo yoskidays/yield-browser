@@ -1,21 +1,23 @@
-# Yield Browser v0.3.6 Build Fix + Download Manager Stabilization
+# Yield Browser v0.3.7 Compile Fix + Download Notification Handler
 
-Update ini memperbaiki kemungkinan gagal build dari versi sebelumnya dan menstabilkan download manager.
+Update ini memperbaiki error build dari v0.3.5.
 
-## Perbaikan v0.3.6
+## Perbaikan v0.3.7
 
-- Mengganti icon notifikasi dari `android.R.drawable.stat_sys_download` ke icon drawable aplikasi agar aman saat compile.
-- Mengganti beberapa icon item file dari `android.R.drawable` ke drawable internal Yield.
-- Memperbaiki refresh progress download agar aman dipanggil dari background thread.
-- Menghapus pemanggilan dialog unduhan ganda saat klik notifikasi.
-- Fitur v0.3.5 tetap ada:
-  - notifikasi klik langsung buka menu unduhan
-  - pause/jeda
-  - lanjutkan
-  - reload dari awal
+- Menambahkan method yang hilang: `handleOpenDownloadsIntent(Intent intent)`.
+- Error compile `cannot find symbol handleOpenDownloadsIntent(Intent)` sudah diperbaiki.
+- Klik notifikasi download tetap diarahkan ke menu **Download / Unduhan Yield**.
+- Menghapus pemanggilan lama yang bisa membuka dialog download ganda.
+- Fitur v0.3.5 tetap dipertahankan:
+  - Jeda / Pause
+  - Lanjutkan
+  - Reload dari awal
   - 1 koneksi / 2 koneksi paralel
-  - menu Open, Bagikan, Ganti nama, Hapus riwayat, Hapus file + riwayat
+  - Open
+  - Hapus riwayat
+  - Hapus file + riwayat
+  - tampilan koneksi download gaya IDM
 
 ## Catatan
 
-Gunakan versi ini untuk menggantikan v0.3.5 kalau GitHub Actions gagal build.
+Build gagal sebelumnya bukan karena limit GitHub, tetapi karena method handler notifikasi belum masuk ke source Java.

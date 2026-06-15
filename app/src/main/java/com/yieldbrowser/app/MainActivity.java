@@ -252,6 +252,7 @@ public class MainActivity extends Activity {
         setContentView(root);
         updateTopActionStates();
         handleOpenDownloadsIntent(getIntent());
+
     }
 
     @Override
@@ -265,6 +266,29 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         handleOpenDownloadsIntent(getIntent());
+    }
+
+    private void handleOpenDownloadsIntent(Intent intent) {
+        if (intent == null) return;
+
+        boolean shouldOpen = ACTION_OPEN_DOWNLOADS.equals(intent.getAction())
+                || intent.getBooleanExtra("open_downloads", false)
+                || (intent.getData() != null
+                && "yieldbrowser".equals(intent.getData().getScheme())
+                && "downloads".equals(intent.getData().getHost()));
+
+        if (!shouldOpen) return;
+
+        pendingOpenDownloads = true;
+        intent.setAction(null);
+        intent.removeExtra("open_downloads");
+
+        mainHandler.postDelayed(() -> {
+            if (pendingOpenDownloads) {
+                pendingOpenDownloads = false;
+                showDownloadManager();
+            }
+        }, 250);
     }
 
     private View createTopBar() {
@@ -2405,8 +2429,8 @@ public class MainActivity extends Activity {
         String cat = getDownloadCategory(item);
         if ("Video".equals(cat)) return R.drawable.ic_video_control;
         if ("APK".equals(cat)) return R.drawable.ic_file;
-        if ("Musik".equals(cat)) return R.drawable.ic_file;
-        if ("Dokumen".equals(cat)) return R.drawable.ic_file;
+        if ("Musik".equals(cat)) return android.R.drawable.ic_media_play;
+        if ("Dokumen".equals(cat)) return android.R.drawable.ic_menu_edit;
         if ("running".equals(item.status) || "paused".equals(item.status)) return R.drawable.ic_download_modern;
         return R.drawable.ic_file;
     }
@@ -2756,12 +2780,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshDownloadPanel() {
-        if (activeDownloadListPanel == null) return;
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            renderDownloadList();
-        } else {
-            mainHandler.post(this::renderDownloadList);
-        }
+        runOnUiThread(() -> renderDownloadList());
     }
 
     private void beginDownloadFromWeb(String url, String contentDisposition, String mimeType) {
@@ -3079,7 +3098,7 @@ public class MainActivity extends Activity {
             line = "Dijeda • " + getConnectionLabel(item);
         }
 
-        builder.setSmallIcon(R.drawable.ic_download_modern)
+        builder.setSmallIcon("completed".equals(item.status) ? android.R.drawable.stat_sys_download_done : android.R.drawable.stat_sys_download)
                 .setContentTitle(item.fileName)
                 .setContentText(line)
                 .setContentIntent(pendingIntent)
