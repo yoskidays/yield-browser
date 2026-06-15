@@ -266,8 +266,6 @@ public class MainActivity extends Activity {
             this.privateTab = privateTab;
         }
     }
-    }
-
 
     private class VideoBridge {
         @JavascriptInterface
@@ -4522,8 +4520,6 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             webView.loadUrl(originalUrl);
         }
-    }
-    }
 
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
@@ -4580,7 +4576,6 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
             }
         });
-    }
     }
 
     @SuppressLint("SetJavaScriptEnabled")

@@ -52,3 +52,16 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 
 ## v0.5.3
 - Ikon mode privat diganti menjadi ikon topi + kacamata (incognito style).
+
+
+## v0.5.4
+- Fix compile error `class, interface, or enum expected` di `onCreate`.
+- Penyebabnya adalah extra closing brace `}` sebelum `VideoBridge`.
+- Struktur `MainActivity` dibetulkan.
+- Icon Privat topi+kacamata dari v0.5.3 tetap dipertahankan.
+
+
+## v0.5.4 final fix
+- Fix compile error `class, interface, or enum expected` karena extra closing brace `}`.
+- Struktur `MainActivity` sudah kembali valid.
+- Icon privat topi+kacamata tetap dipertahankan.
