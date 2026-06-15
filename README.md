@@ -1,29 +1,25 @@
-# Yield Browser v0.2.0 UC-style Settings + Yield Downloader
+# Yield Browser v0.2.9 Video Controls
 
-Update ini memasukkan menu-menu ala UC ke dalam **Setelan** sesuai arahan.
+Update ini menambahkan kontrol video online untuk halaman seperti YouTube dan player web lain.
 
-## Perubahan v0.2.0
+## Perubahan v0.2.9
 
-- Posisi menu utama Yield tetap dipertahankan.
-- Fitur ala UC dimasukkan ke **Menu > Setelan**.
-- Tidak memasukkan fitur cloud/sync.
-- Menu Setelan berisi:
-  - Mode cepat
-  - Safe browsing
-  - Night mode
-  - Reader / novel mode
-  - Ad block sederhana
-  - Hemat data
-  - Desktop mode
-  - Ukuran teks
-  - Bersihkan cache
-  - Download manager Yield
-- Download manager Yield memakai konsep **2 koneksi paralel** menggunakan HTTP Range.
-- Jika server tidak mendukung Range, otomatis fallback ke 1 koneksi.
-- Icon fitur baru dibuat sebagai drawable/vector modern.
+- Menambahkan bar **Kontrol Video** saat membuka halaman web.
+- Tombol yang tersedia:
+  - Play
+  - Pause
+  - Stop
+  - Speed
+- Tombol Speed berputar:
+  - 0.5x
+  - 1x
+  - 1.25x
+  - 1.5x
+  - 2x
+- Kontrol video bisa diaktifkan/dinonaktifkan dari **Setelan**.
+- Shortcut **Kontrol video** bisa diatur dari **Sesuaikan menu**.
+- Tombol kontrol memakai drawable/vector icon modern.
 
-## Catatan penting
+## Catatan
 
-Fitur download 2 koneksi bekerja optimal kalau server mendukung `Accept-Ranges` / HTTP Range.
-File tersimpan di folder app external files:
-`Android/data/com.yieldbrowser.install/files/Download`
+Kontrol bekerja dengan JavaScript pada elemen `<video>` di halaman. Sebagian situs dapat membatasi kontrol tertentu, tetapi mayoritas player HTML5 mendukung Play, Pause, Stop, dan Playback Speed.
