@@ -120,6 +120,7 @@ public class MainActivity extends Activity {
     private View bottomNavView;
     private LinearLayout videoControlsBar;
     private TextView videoSpeedLabel;
+    private TextView tabsCountText;
 
     private LinearLayout activeDownloadListPanel;
     private Dialog activeDownloadDialog;
@@ -162,6 +163,8 @@ public class MainActivity extends Activity {
     private final ArrayList<DownloadItem> downloadItems = new ArrayList<>();
     private final ArrayList<ShortcutItemData> shortcutsData = new ArrayList<>();
     private final ArrayList<HistoryItemData> historyData = new ArrayList<>();
+    private final ArrayList<TabInfo> tabs = new ArrayList<>();
+    private int currentTabIndex = 0;
     private LinearLayout shortcutContainer;
     private String searchEngine = "Google";
 
@@ -182,6 +185,7 @@ public class MainActivity extends Activity {
         String userAgent = "";
         String referer = "";
         String failReason = "";
+        String categoryHint = "";
         double speedBytesPerSecond = 0;
         long lastSpeedTimeMs = 0;
         long lastSpeedBytes = 0;
@@ -217,6 +221,18 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static class TabInfo {
+        String title;
+        String url;
+        boolean privateTab;
+
+        TabInfo(String title, String url, boolean privateTab) {
+            this.title = title;
+            this.url = url;
+            this.privateTab = privateTab;
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -225,6 +241,7 @@ public class MainActivity extends Activity {
         loadDownloadHistory();
         loadShortcuts();
         loadBrowserHistory();
+        ensureDefaultTab();
         createNotificationChannel();
         getWindow().setStatusBarColor(COLOR_BG);
 
@@ -702,7 +719,7 @@ public class MainActivity extends Activity {
                 addressBar.requestFocus();
             }
         }));
-        nav.addView(tabsNavButton(v -> Toast.makeText(this, "Jumlah tab: " + tabCount, Toast.LENGTH_SHORT).show()));
+        nav.addView(tabsNavButton(v -> showTabsPanel()));
         nav.addView(bottomNavButton(R.drawable.ic_menu_more, "Menu", v -> showQuickMenu()));
         return nav;
     }
@@ -738,14 +755,299 @@ public class MainActivity extends Activity {
         icon.setColorFilter(Color.parseColor("#F6F7FA"));
         box.addView(icon, new FrameLayout.LayoutParams(-1, -1));
 
-        TextView count = new TextView(this);
-        count.setText(String.valueOf(tabCount));
-        count.setTextColor(Color.parseColor("#F6F7FA"));
-        count.setTextSize(10);
-        count.setTypeface(Typeface.DEFAULT_BOLD);
-        count.setGravity(Gravity.CENTER);
-        box.addView(count, new FrameLayout.LayoutParams(-1, -1));
+        tabsCountText = new TextView(this);
+        tabsCountText.setText(String.valueOf(tabCount));
+        tabsCountText.setTextColor(Color.parseColor("#F6F7FA"));
+        tabsCountText.setTextSize(10);
+        tabsCountText.setTypeface(Typeface.DEFAULT_BOLD);
+        tabsCountText.setGravity(Gravity.CENTER);
+        box.addView(tabsCountText, new FrameLayout.LayoutParams(-1, -1));
         return item;
+    }
+
+    private void ensureDefaultTab() {
+        if (tabs.isEmpty()) {
+            tabs.add(new TabInfo("Tab utama", "", false));
+        }
+        currentTabIndex = Math.max(0, Math.min(currentTabIndex, tabs.size() - 1));
+        tabCount = tabs.size();
+    }
+
+    private TabInfo getCurrentTab() {
+        ensureDefaultTab();
+        return tabs.get(currentTabIndex);
+    }
+
+    private boolean isCurrentPrivateTab() {
+        return getCurrentTab().privateTab;
+    }
+
+    private void saveCurrentTabState() {
+        if (tabs.isEmpty()) return;
+        TabInfo tab = getCurrentTab();
+        try {
+            if (webView != null && webView.getVisibility() == View.VISIBLE && webView.getUrl() != null) {
+                String url = extractOriginalUrl(webView.getUrl());
+                tab.url = url == null ? "" : url;
+                String title = webView.getTitle();
+                if (title != null && title.trim().length() > 0) tab.title = title;
+                else if (tab.url != null && tab.url.length() > 0) tab.title = tab.url;
+            } else if (addressBar != null && addressBar.getText() != null) {
+                String maybeUrl = normalizeInputToUrl(addressBar.getText().toString().trim());
+                if (maybeUrl != null) tab.url = maybeUrl;
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void updateTabsCountUi() {
+        tabCount = Math.max(1, tabs.size());
+        if (tabsCountText != null) {
+            tabsCountText.setText(String.valueOf(tabCount));
+        }
+    }
+
+    private void newNormalTab() {
+        saveCurrentTabState();
+        tabs.add(new TabInfo("Tab baru", "", false));
+        currentTabIndex = tabs.size() - 1;
+        updateTabsCountUi();
+        addressBar.setText("");
+        if (homeSearchInput != null) homeSearchInput.setText("");
+        showHome();
+        Toast.makeText(this, "Tab baru dibuat", Toast.LENGTH_SHORT).show();
+    }
+
+    private void newPrivateTab() {
+        saveCurrentTabState();
+        tabs.add(new TabInfo("Tab privat", "", true));
+        currentTabIndex = tabs.size() - 1;
+        updateTabsCountUi();
+        addressBar.setText("");
+        if (homeSearchInput != null) homeSearchInput.setText("");
+        try {
+            if (webView != null) {
+                webView.clearHistory();
+                webView.clearCache(false);
+            }
+        } catch (Exception ignored) {
+        }
+        showHome();
+        Toast.makeText(this, "Tab privat aktif", Toast.LENGTH_SHORT).show();
+    }
+
+    private void switchToTab(int index) {
+        if (index < 0 || index >= tabs.size()) return;
+        saveCurrentTabState();
+        currentTabIndex = index;
+        TabInfo tab = getCurrentTab();
+        updateTabsCountUi();
+
+        if (tab.url == null || tab.url.length() == 0) {
+            addressBar.setText("");
+            showHome();
+        } else {
+            addressBar.setText(tab.url);
+            webView.setVisibility(View.VISIBLE);
+            homeScroll.setVisibility(View.GONE);
+            updateVideoControlsVisibility();
+            if (translateEnabled) loadTranslatedPage(tab.url);
+            else webView.loadUrl(tab.url);
+        }
+
+        Toast.makeText(this, tab.privateTab ? "Tab privat" : "Tab aktif", Toast.LENGTH_SHORT).show();
+    }
+
+    private void closeTab(int index) {
+        if (tabs.isEmpty() || index < 0 || index >= tabs.size()) return;
+
+        boolean closingCurrent = index == currentTabIndex;
+        TabInfo removed = tabs.remove(index);
+
+        if (tabs.isEmpty()) {
+            tabs.add(new TabInfo("Tab utama", "", false));
+            currentTabIndex = 0;
+            addressBar.setText("");
+            showHome();
+        } else {
+            if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
+            if (closingCurrent) {
+                switchToTab(currentTabIndex);
+            }
+        }
+
+        if (removed.privateTab) {
+            try {
+                if (webView != null) {
+                    webView.clearHistory();
+                    webView.clearCache(false);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        updateTabsCountUi();
+        Toast.makeText(this, "Tab ditutup", Toast.LENGTH_SHORT).show();
+    }
+
+    private void showTabsPanel() {
+        saveCurrentTabState();
+
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(18), dp(18), dp(18), dp(14));
+        root.setBackgroundColor(Color.parseColor("#0C0D10"));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView title = new TextView(this);
+        title.setText("Tab");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(28);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
+
+        TextView privateButton = new TextView(this);
+        privateButton.setText("Privat");
+        privateButton.setTextColor(Color.WHITE);
+        privateButton.setTextSize(14);
+        privateButton.setTypeface(Typeface.DEFAULT_BOLD);
+        privateButton.setGravity(Gravity.CENTER);
+        privateButton.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
+        privateButton.setOnClickListener(v -> {
+            dialog.dismiss();
+            newPrivateTab();
+        });
+        LinearLayout.LayoutParams privateParams = new LinearLayout.LayoutParams(dp(78), dp(42));
+        privateParams.setMargins(0, 0, dp(8), 0);
+        header.addView(privateButton, privateParams);
+
+        TextView plus = new TextView(this);
+        plus.setText("+");
+        plus.setTextColor(Color.parseColor("#111111"));
+        plus.setTextSize(28);
+        plus.setTypeface(Typeface.DEFAULT_BOLD);
+        plus.setGravity(Gravity.CENTER);
+        plus.setBackground(roundRect(COLOR_ACCENT, dp(18), 0, Color.TRANSPARENT));
+        plus.setOnClickListener(v -> {
+            dialog.dismiss();
+            newNormalTab();
+        });
+        header.addView(plus, new LinearLayout.LayoutParams(dp(48), dp(42)));
+
+        TextView close = new TextView(this);
+        close.setText("×");
+        close.setTextColor(Color.parseColor("#D7DAE0"));
+        close.setTextSize(34);
+        close.setGravity(Gravity.CENTER);
+        close.setOnClickListener(v -> dialog.dismiss());
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(44), dp(44));
+        closeParams.setMargins(dp(8), 0, 0, 0);
+        header.addView(close, closeParams);
+
+        root.addView(header);
+
+        TextView hint = new TextView(this);
+        hint.setText("Ketuk tab untuk pindah. Tekan × untuk menutup tab.");
+        hint.setTextColor(COLOR_SUBTEXT);
+        hint.setTextSize(13);
+        hint.setPadding(0, 0, 0, dp(12));
+        root.addView(hint);
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(list);
+
+        for (int i = 0; i < tabs.size(); i++) {
+            final int index = i;
+            list.addView(tabRow(tabs.get(i), index, dialog));
+        }
+
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        dialog.setContentView(root);
+        if (dialog.getWindow() != null) {
+            Window window = dialog.getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.gravity = Gravity.CENTER;
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT;
+            lp.height = WindowManager.LayoutParams.MATCH_PARENT;
+            window.setAttributes(lp);
+        }
+        dialog.show();
+    }
+
+    private View tabRow(TabInfo tab, int index, Dialog dialog) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(12), dp(10), dp(12));
+        row.setBackground(roundRect(index == currentTabIndex ? Color.parseColor("#20232A") : Color.parseColor("#15171D"), dp(18), dp(1), index == currentTabIndex ? COLOR_ACCENT : COLOR_BORDER));
+
+        TextView badge = new TextView(this);
+        badge.setText(tab.privateTab ? "P" : String.valueOf(index + 1));
+        badge.setTextColor(tab.privateTab ? Color.WHITE : Color.parseColor("#111111"));
+        badge.setTextSize(13);
+        badge.setTypeface(Typeface.DEFAULT_BOLD);
+        badge.setGravity(Gravity.CENTER);
+        badge.setBackground(roundRect(tab.privateTab ? Color.parseColor("#6D28D9") : COLOR_ACCENT, dp(14), 0, Color.TRANSPARENT));
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(36), dp(36));
+        badgeParams.setMargins(0, 0, dp(12), 0);
+        row.addView(badge, badgeParams);
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+
+        TextView title = new TextView(this);
+        String tabTitle = tab.title == null || tab.title.length() == 0 ? (tab.privateTab ? "Tab privat" : "Tab baru") : tab.title;
+        title.setText(tabTitle);
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(15);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        texts.addView(title);
+
+        TextView url = new TextView(this);
+        String urlText = tab.url == null || tab.url.length() == 0 ? "Halaman awal" : tab.url;
+        url.setText(tab.privateTab ? "Privat • " + urlText : urlText);
+        url.setTextColor(COLOR_SUBTEXT);
+        url.setTextSize(12);
+        url.setSingleLine(true);
+        url.setEllipsize(TextUtils.TruncateAt.END);
+        texts.addView(url);
+
+        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+
+        TextView close = new TextView(this);
+        close.setText("×");
+        close.setTextColor(Color.WHITE);
+        close.setTextSize(26);
+        close.setGravity(Gravity.CENTER);
+        close.setOnClickListener(v -> {
+            closeTab(index);
+            dialog.dismiss();
+            showTabsPanel();
+        });
+        row.addView(close, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        row.setOnClickListener(v -> {
+            dialog.dismiss();
+            switchToTab(index);
+        });
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, 0, 0, dp(10));
+        row.setLayoutParams(params);
+
+        return row;
     }
 
     private void showQuickMenu() {
@@ -772,7 +1074,7 @@ public class MainActivity extends Activity {
         if (shortcutPrivate) {
             menu.addView(menuRow(R.drawable.ic_private, "Privat", v -> {
                 dialog.dismiss();
-                Toast.makeText(this, "Mode privat akan dibuat setelah sistem tab stabil", Toast.LENGTH_SHORT).show();
+                newPrivateTab();
             }));
         }
         if (shortcutAdBlock) {
@@ -904,8 +1206,9 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             showBookmarkList();
         }));
-        panel.addView(actionRow(R.drawable.ic_private, "Privat", "Mode privat dan tab privat.", v -> {
-            Toast.makeText(this, "Mode privat akan dibuat setelah sistem tab stabil", Toast.LENGTH_SHORT).show();
+        panel.addView(actionRow(R.drawable.ic_private, "Privat", "Buka tab privat tanpa menyimpan riwayat.", v -> {
+            dialog.dismiss();
+            newPrivateTab();
         }));
         panel.addView(actionRow(R.drawable.ic_customize, "Sesuaikan menu", "Atur shortcut yang muncul di menu utama.", v -> {
             dialog.dismiss();
@@ -1317,7 +1620,7 @@ public class MainActivity extends Activity {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(10), dp(6), dp(10), dp(6));
+        bar.setPadding(dp(8), dp(6), dp(8), dp(6));
         bar.setBackgroundColor(Color.parseColor("#101217"));
 
         TextView title = new TextView(this);
@@ -1326,28 +1629,29 @@ public class MainActivity extends Activity {
         title.setTextSize(12);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setGravity(Gravity.CENTER_VERTICAL);
-        bar.addView(title, new LinearLayout.LayoutParams(dp(54), -1));
+        bar.addView(title, new LinearLayout.LayoutParams(dp(46), -1));
 
+        bar.addView(videoTextButton("−10s", "Mundur 10 detik", v -> seekVideoBySeconds(-10)));
         bar.addView(videoButton(R.drawable.ic_video_play, "Play", v -> controlVideo("play")));
         bar.addView(videoButton(R.drawable.ic_video_pause, "Pause", v -> controlVideo("pause")));
-        bar.addView(videoButton(R.drawable.ic_video_stop, "Stop", v -> controlVideo("stop")));
+        bar.addView(videoTextButton("+10s", "Maju 10 detik", v -> seekVideoBySeconds(10)));
 
         videoSpeedLabel = new TextView(this);
         videoSpeedLabel.setText("1x");
         videoSpeedLabel.setTextColor(Color.parseColor("#111111"));
-        videoSpeedLabel.setTextSize(15);
+        videoSpeedLabel.setTextSize(14);
         videoSpeedLabel.setTypeface(Typeface.DEFAULT_BOLD);
         videoSpeedLabel.setGravity(Gravity.CENTER);
         videoSpeedLabel.setBackground(roundRect(COLOR_ACCENT, dp(18), 0, Color.TRANSPARENT));
-        videoSpeedLabel.setOnClickListener(v -> cycleVideoSpeed());
-        LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(dp(70), dp(42));
-        speedParams.setMargins(dp(8), 0, 0, 0);
+        videoSpeedLabel.setOnClickListener(v -> showVideoSpeedDialog());
+        LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(dp(62), dp(42));
+        speedParams.setMargins(dp(4), 0, 0, 0);
         bar.addView(videoSpeedLabel, speedParams);
 
         TextView close = new TextView(this);
         close.setText("×");
         close.setTextColor(Color.WHITE);
-        close.setTextSize(24);
+        close.setTextSize(22);
         close.setGravity(Gravity.CENTER);
         close.setOnClickListener(v -> {
             videoControlsEnabled = false;
@@ -1355,11 +1659,28 @@ public class MainActivity extends Activity {
             updateVideoControlsVisibility();
             Toast.makeText(this, "Kontrol video disembunyikan", Toast.LENGTH_SHORT).show();
         });
-        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(0, dp(42), 1);
-        closeParams.setMargins(dp(8), 0, 0, 0);
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(34), dp(42));
+        closeParams.setMargins(dp(4), 0, 0, 0);
         bar.addView(close, closeParams);
 
         return bar;
+    }
+
+    private View videoTextButton(String text, String label, View.OnClickListener listener) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextColor(Color.WHITE);
+        button.setTextSize(12);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setGravity(Gravity.CENTER);
+        button.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
+        button.setOnClickListener(listener);
+        button.setContentDescription(label);
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(42), 1);
+        params.setMargins(dp(3), 0, dp(3), 0);
+        button.setLayoutParams(params);
+        return button;
     }
 
     private View videoButton(int iconRes, String label, View.OnClickListener listener) {
@@ -1386,6 +1707,50 @@ public class MainActivity extends Activity {
         videoControlsBar.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
+    private void seekVideoBySeconds(int seconds) {
+        if (webView == null || webView.getVisibility() != View.VISIBLE) {
+            Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String js = "javascript:(function(){var v=document.querySelector('video');if(v){try{v.currentTime=Math.max(0,Math.min((v.duration||999999),v.currentTime+" + seconds + "));}catch(e){} }})()";
+        webView.loadUrl(js);
+        Toast.makeText(this, (seconds > 0 ? "Maju " : "Mundur ") + Math.abs(seconds) + " detik", Toast.LENGTH_SHORT).show();
+    }
+
+    private void showVideoSpeedDialog() {
+        if (webView == null || webView.getVisibility() != View.VISIBLE) {
+            Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String[] speeds = new String[]{"0.5x", "1x", "1.25x", "1.5x", "2x"};
+        float[] values = new float[]{0.5f, 1.0f, 1.25f, 1.5f, 2.0f};
+        int checked = 1;
+        for (int i = 0; i < values.length; i++) {
+            if (Math.abs(values[i] - videoSpeed) < 0.01f) checked = i;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Kecepatan video")
+                .setSingleChoiceItems(speeds, checked, (dialog, which) -> {
+                    setVideoSpeed(values[which]);
+                    dialog.dismiss();
+                })
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
+    private void setVideoSpeed(float speed) {
+        videoSpeed = speed;
+        if (videoSpeedLabel != null) {
+            videoSpeedLabel.setText(formatVideoSpeed(videoSpeed));
+        }
+        String speedText = String.valueOf(videoSpeed);
+        webView.loadUrl("javascript:(function(){var v=document.querySelector('video');if(v){v.playbackRate=" + speedText + ";}})()");
+        saveSettings();
+        Toast.makeText(this, "Speed video: " + formatVideoSpeed(videoSpeed), Toast.LENGTH_SHORT).show();
+    }
+
     private void controlVideo(String action) {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
             Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
@@ -1404,27 +1769,19 @@ public class MainActivity extends Activity {
     }
 
     private void cycleVideoSpeed() {
-        if (videoSpeed < 0.75f) videoSpeed = 1.0f;
-        else if (videoSpeed < 1.0f) videoSpeed = 1.25f;
-        else if (videoSpeed < 1.25f) videoSpeed = 1.5f;
-        else if (videoSpeed < 1.5f) videoSpeed = 2.0f;
-        else videoSpeed = 0.5f;
-
-        if (videoSpeedLabel != null) {
-            videoSpeedLabel.setText(formatVideoSpeed(videoSpeed));
-        }
-
-        String speed = String.valueOf(videoSpeed);
-        webView.loadUrl("javascript:(function(){var v=document.querySelector('video');if(v){v.playbackRate=" + speed + ";}})()");
-        Toast.makeText(this, "Speed video: " + formatVideoSpeed(videoSpeed), Toast.LENGTH_SHORT).show();
+        if (videoSpeed < 0.75f) setVideoSpeed(1.0f);
+        else if (videoSpeed < 1.1f) setVideoSpeed(1.25f);
+        else if (videoSpeed < 1.35f) setVideoSpeed(1.5f);
+        else if (videoSpeed < 1.75f) setVideoSpeed(2.0f);
+        else setVideoSpeed(0.5f);
     }
 
     private String formatVideoSpeed(float speed) {
-        if (speed == 1.0f) return "1x";
-        if (speed == 2.0f) return "2x";
-        if (speed == 0.5f) return "0.5x";
-        if (speed == 1.25f) return "1.25x";
-        if (speed == 1.5f) return "1.5x";
+        if (Math.abs(speed - 1.0f) < 0.01f) return "1x";
+        if (Math.abs(speed - 2.0f) < 0.01f) return "2x";
+        if (Math.abs(speed - 0.5f) < 0.01f) return "0.5x";
+        if (Math.abs(speed - 1.25f) < 0.01f) return "1.25x";
+        if (Math.abs(speed - 1.5f) < 0.01f) return "1.5x";
         return speed + "x";
     }
 
@@ -1439,12 +1796,26 @@ public class MainActivity extends Activity {
         panel.setBackground(roundRect(Color.parseColor("#171A20"), dp(24), dp(1), Color.parseColor("#2D333D")));
         scroll.addView(panel);
 
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+
         TextView title = new TextView(this);
         title.setText("Riwayat browsing");
         title.setTextColor(Color.WHITE);
         title.setTextSize(22);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        panel.addView(title);
+        top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+
+        TextView close = new TextView(this);
+        close.setText("×");
+        close.setTextColor(Color.parseColor("#D7DAE0"));
+        close.setTextSize(34);
+        close.setGravity(Gravity.CENTER);
+        close.setOnClickListener(v -> dialog.dismiss());
+        top.addView(close, new LinearLayout.LayoutParams(dp(40), dp(40)));
+
+        panel.addView(top);
 
         if (historyData.isEmpty()) {
             TextView empty = new TextView(this);
@@ -2121,8 +2492,9 @@ public class MainActivity extends Activity {
             selectedDownloadIds.clear();
             downloadSelectMode = false;
             if (activeDownloadDialog != null && activeDownloadDialog.isShowing()) {
-                activeDownloadDialog.dismiss();
-                showDownloadManager();
+                Dialog currentDialog = activeDownloadDialog;
+                currentDialog.dismiss();
+                mainHandler.post(this::showDownloadManager);
             } else {
                 renderDownloadList();
             }
@@ -2299,11 +2671,35 @@ public class MainActivity extends Activity {
     }
 
     private String getDownloadCategory(DownloadItem item) {
-        String name = safeText(item.fileName).toLowerCase(Locale.US);
-        if (name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".webm") || name.endsWith(".avi") || name.endsWith(".mov") || name.endsWith(".3gp")) return "Video";
-        if (name.endsWith(".apk") || name.endsWith(".xapk") || name.endsWith(".apks")) return "APK";
-        if (name.endsWith(".mp3") || name.endsWith(".m4a") || name.endsWith(".wav") || name.endsWith(".ogg") || name.endsWith(".flac")) return "Musik";
-        if (name.endsWith(".pdf") || name.endsWith(".doc") || name.endsWith(".docx") || name.endsWith(".xls") || name.endsWith(".xlsx") || name.endsWith(".ppt") || name.endsWith(".pptx") || name.endsWith(".txt")) return "Dokumen";
+        String hinted = normalizeDetectedCategory(item.categoryHint);
+        if (hinted.length() > 0) return hinted;
+        String detected = inferDownloadCategoryFromData(item.fileName, item.url, "");
+        item.categoryHint = detected;
+        return detected;
+    }
+
+    private String normalizeDetectedCategory(String raw) {
+        if (raw == null) return "";
+        raw = raw.trim();
+        if ("Video".equals(raw) || "APK".equals(raw) || "Dokumen".equals(raw) || "Musik".equals(raw) || "Lainnya".equals(raw)) {
+            return raw;
+        }
+        return "";
+    }
+
+    private String inferDownloadCategoryFromData(String fileName, String url, String mimeType) {
+        String mime = safeText(mimeType).toLowerCase(Locale.US);
+        if (mime.startsWith("video/")) return "Video";
+        if (mime.startsWith("audio/")) return "Musik";
+        if (mime.equals("application/vnd.android.package-archive")) return "APK";
+        if (mime.contains("pdf") || mime.contains("word") || mime.contains("excel") || mime.contains("powerpoint") || mime.startsWith("text/")) return "Dokumen";
+
+        String combined = (safeText(fileName) + " " + safeText(url)).toLowerCase(Locale.US);
+        if (combined.contains(".mp4") || combined.contains(".mkv") || combined.contains(".webm") || combined.contains(".avi") || combined.contains(".mov") || combined.contains(".3gp") || combined.contains(".m3u8")) return "Video";
+        if (combined.contains(".apk") || combined.contains(".xapk") || combined.contains(".apks")) return "APK";
+        if (combined.contains(".mp3") || combined.contains(".m4a") || combined.contains(".wav") || combined.contains(".ogg") || combined.contains(".flac")) return "Musik";
+        if (combined.contains(".pdf") || combined.contains(".doc") || combined.contains(".docx") || combined.contains(".xls") || combined.contains(".xlsx") || combined.contains(".ppt") || combined.contains(".pptx") || combined.contains(".txt")) return "Dokumen";
+
         return "Lainnya";
     }
 
@@ -2459,12 +2855,12 @@ public class MainActivity extends Activity {
     }
 
     private String getDownloadEngineVisibleText(DownloadItem item) {
-        if (item == null) return "Premium Fast Engine: anti-hotlink safe";
-        if (item.connectionCount >= 2) return "Premium Fast Engine: 2 koneksi paralel • anti-hotlink safe";
-        if (item.connectionCount == 1) return "Premium Fast Engine: 1 koneksi • anti-hotlink safe";
-        if ("paused".equals(item.status)) return "Premium Fast Engine: dijeda";
-        if ("failed".equals(item.status)) return "Premium Fast Engine: gagal • klik ↻";
-        return "Premium Fast Engine: cek split + anti-hotlink";
+        if (item == null) return "Mengecek koneksi";
+        if (item.connectionCount >= 2) return "2 koneksi sukses";
+        if (item.connectionCount == 1) return "1 koneksi sukses";
+        if ("paused".equals(item.status)) return "Dijeda";
+        if ("failed".equals(item.status)) return "Gagal • klik ↻";
+        return "Mengecek koneksi";
     }
 
     private String getDownloadSubtitle(DownloadItem item) {
@@ -2623,8 +3019,8 @@ public class MainActivity extends Activity {
 
     private String getConnectionLabel(DownloadItem item) {
         if (item == null) return "Premium Fast";
-        if (item.connectionCount >= 2) return "Premium Fast • 2 koneksi";
-        if (item.connectionCount == 1) return "Premium Fast • 1 koneksi";
+        if (item.connectionCount >= 2) return "2 koneksi";
+        if (item.connectionCount == 1) return "1 koneksi";
         return "Premium Fast • anti-hotlink safe";
     }
 
@@ -2654,7 +3050,7 @@ public class MainActivity extends Activity {
             item.lastSpeedBytes = 0;
             item.status = "running";
             item.pauseRequested = false;
-            item.engineInfo = "Premium Fast Engine • lanjut ulang";
+            item.engineInfo = "Mengecek koneksi";
             saveDownloadHistory();
             refreshDownloadPanel();
             showDownloadNotification(item, "Premium Fast • lanjutkan", true);
@@ -2677,7 +3073,7 @@ public class MainActivity extends Activity {
             item.speedBytesPerSecond = 0;
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = 0;
-            item.engineInfo = "Premium Fast Engine • reload dari awal";
+            item.engineInfo = "Mengecek koneksi";
 
             File out = new File(item.path);
             if (out.exists()) {
@@ -2892,17 +3288,18 @@ public class MainActivity extends Activity {
             item.speedBytesPerSecond = 0;
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = 0;
-            item.engineInfo = "Premium Fast Engine • menyiapkan 2 koneksi";
+            item.engineInfo = "Mengecek koneksi";
             item.userAgent = userAgent == null ? "" : userAgent;
             item.referer = referer == null ? "" : referer;
             item.failReason = "";
+            item.categoryHint = inferDownloadCategoryFromData(fileName, fileUrl, "");
 
             synchronized (downloadItems) {
                 downloadItems.add(0, item);
             }
             saveDownloadHistory();
             refreshDownloadPanel();
-            showDownloadNotification(item, "Premium Fast • mulai mengunduh", true);
+            showDownloadNotification(item, "Mulai mengunduh", true);
 
             Toast.makeText(this, "Unduhan dimulai. Membuka menu Download.", Toast.LENGTH_SHORT).show();
             mainHandler.postDelayed(() -> {
@@ -3101,7 +3498,7 @@ public class MainActivity extends Activity {
     private void startTwoConnectionDownload(DownloadItem item, File out) {
         item.status = "running";
         item.pauseRequested = false;
-        item.engineInfo = "Premium Fast Engine • anti-hotlink safe";
+        item.engineInfo = "Mengecek koneksi";
         refreshDownloadPanel();
 
         new Thread(() -> {
@@ -3114,6 +3511,14 @@ public class MainActivity extends Activity {
                     int response = head.getResponseCode();
                     String contentRange = head.getHeaderField("Content-Range");
                     long total = parseTotalSize(contentRange);
+                    try {
+                        String cd = head.getHeaderField("Content-Disposition");
+                        String betterName = URLUtil.guessFileName(item.url, cd, head.getContentType());
+                        if (betterName != null && betterName.length() > 0) {
+                            item.fileName = betterName;
+                        }
+                        item.categoryHint = inferDownloadCategoryFromData(item.fileName, item.url, head.getContentType());
+                    } catch (Exception ignored) {}
 
                     if (item.pauseRequested || "paused".equals(item.status)) {
                         head.disconnect();
@@ -3123,14 +3528,14 @@ public class MainActivity extends Activity {
                     if (response == 206 && total > 1) {
                         head.disconnect();
                         item.connectionCount = DOWNLOAD_CONNECTIONS_PREMIUM;
-                        item.engineInfo = "Premium Fast Engine • 2 koneksi paralel • anti-hotlink safe";
+                        item.engineInfo = "2 koneksi sukses";
                         item.totalBytes = total;
                         item.downloadedBytes = 0;
                         item.progress = 0;
                         item.failReason = "";
                         saveDownloadHistory();
                         refreshDownloadPanel();
-                        showDownloadNotification(item, "Premium Fast • 2 koneksi", true);
+                        showDownloadNotification(item, "2 koneksi", true);
 
                         RandomAccessFile raf = new RandomAccessFile(out, "rw");
                         raf.setLength(total);
@@ -3157,7 +3562,7 @@ public class MainActivity extends Activity {
                         else {
                             // Some anti-hotlink hosts allow normal browser download but reject multi-range.
                             item.connectionCount = 1;
-                            item.engineInfo = "Premium Fast Engine • split ditolak server • fallback 1 koneksi";
+                            item.engineInfo = "1 koneksi sukses";
                             item.progress = 0;
                             item.downloadedBytes = 0;
                             if (out.exists()) out.delete();
@@ -3168,7 +3573,7 @@ public class MainActivity extends Activity {
                     } else {
                         if (head != null) head.disconnect();
                         item.connectionCount = 1;
-                        item.engineInfo = "Premium Fast Engine • fallback 1 koneksi • anti-hotlink safe";
+                        item.engineInfo = "1 koneksi sukses";
                         saveDownloadHistory();
                         refreshDownloadPanel();
                         downloadSingle(item, out);
@@ -3176,7 +3581,7 @@ public class MainActivity extends Activity {
                 } catch (Exception splitError) {
                     if (head != null) try { head.disconnect(); } catch (Exception ignored) {}
                     item.connectionCount = 1;
-                    item.engineInfo = "Premium Fast Engine • split tidak cocok • fallback 1 koneksi";
+                    item.engineInfo = "1 koneksi sukses";
                     item.progress = 0;
                     item.downloadedBytes = 0;
                     if (out.exists()) out.delete();
@@ -3222,7 +3627,7 @@ public class MainActivity extends Activity {
                         item.progress = percent;
                         if (percent % 2 == 0 || percent >= 99) {
                             refreshDownloadPanel();
-                            showDownloadNotification(item, "Premium Fast • 2 koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
+                            showDownloadNotification(item, "2 koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
                         }
                     }
                 }
@@ -3249,6 +3654,7 @@ public class MainActivity extends Activity {
                     item.path = newFile.getAbsolutePath();
                     out = newFile;
                 }
+                item.categoryHint = inferDownloadCategoryFromData(item.fileName, item.url, conn.getContentType());
             } catch (Exception ignored) {}
             long total = conn.getContentLengthLong();
             item.totalBytes = total;
@@ -3271,7 +3677,7 @@ public class MainActivity extends Activity {
                         item.progress = percent;
                         if (percent % 2 == 0 || percent >= 99) {
                             refreshDownloadPanel();
-                            showDownloadNotification(item, "Premium Fast • 1 koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
+                            showDownloadNotification(item, "1 koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
                         }
                     }
                 }
@@ -3385,7 +3791,7 @@ public class MainActivity extends Activity {
         synchronized (downloadItems) {
             for (DownloadItem item : downloadItems) {
                 if (item.status.equals("completed") || item.status.equals("failed")) {
-                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason));
+                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason) + "|" + encode(item.categoryHint));
                 }
             }
         }
@@ -3411,11 +3817,15 @@ public class MainActivity extends Activity {
                         if (parts.length >= 9) {
                             item.engineInfo = decode(parts[8]);
                         } else {
-                            item.engineInfo = item.connectionCount > 1 ? "Premium Fast Engine • 2 koneksi paralel" : "1 koneksi";
+                            item.engineInfo = item.connectionCount > 1 ? "2 koneksi sukses" : "1 koneksi";
                         }
                         if (parts.length >= 10) item.userAgent = decode(parts[9]);
                         if (parts.length >= 11) item.referer = decode(parts[10]);
                         if (parts.length >= 12) item.failReason = decode(parts[11]);
+                        if (parts.length >= 13) item.categoryHint = decode(parts[12]);
+                        if (item.categoryHint == null || item.categoryHint.length() == 0) {
+                            item.categoryHint = inferDownloadCategoryFromData(item.fileName, item.url, "");
+                        }
                         downloadItems.add(item);
                     }
                 } catch (Exception ignored) {}
@@ -3527,7 +3937,12 @@ public class MainActivity extends Activity {
                 if (readerMode) injectReaderMode();
                 if (adBlock) injectPremiumAdBlock();
                 updateVideoControlsVisibility();
-                addBrowserHistory(view.getTitle(), shownUrl != null ? shownUrl : url);
+                TabInfo currentTab = getCurrentTab();
+                currentTab.url = shownUrl != null ? shownUrl : url;
+                currentTab.title = view.getTitle() != null && view.getTitle().length() > 0 ? view.getTitle() : currentTab.url;
+                if (!currentTab.privateTab) {
+                    addBrowserHistory(view.getTitle(), shownUrl != null ? shownUrl : url);
+                }
                 updateTopActionStates();
             }
         });
@@ -3702,12 +4117,16 @@ public class MainActivity extends Activity {
         else if (text.contains(".") && !text.contains(" ")) url = "https://" + text;
         else url = "https://www.google.com/search?q=" + text.replace(" ", "+");
 
+        TabInfo currentTab = getCurrentTab();
+        currentTab.url = url;
+        currentTab.title = url;
         webView.setVisibility(View.VISIBLE);
         homeScroll.setVisibility(View.GONE);
         updateVideoControlsVisibility();
         if (translateEnabled) loadTranslatedPage(url);
         else webView.loadUrl(url);
         updateTopActionStates();
+        updateTabsCountUi();
     }
 
     private String buildSearchUrl(String query) {
@@ -3760,6 +4179,7 @@ public class MainActivity extends Activity {
         webView.setVisibility(View.GONE);
         updateVideoControlsVisibility();
         updateTopActionStates();
+        updateTabsCountUi();
     }
 
     private void updateTopActionStates() {

@@ -1,19 +1,29 @@
-# Yield Browser v0.4.3 Download Speed Indicator
+# Yield Browser v0.4.5 Private Mode + Multi Tab
 
-Update ini menambahkan indikator kecepatan download pada item unduhan.
+Update ini mengaktifkan **Mode Privat** dan **Multi Tab**.
 
-## Perubahan v0.4.3
+## Perubahan v0.4.5
 
-- Di bawah progress bar, teks persen sekarang menampilkan speed:
-  - `57% • 2.40 MB/s`
-  - `30% • 850 KB/s`
-- Speed dihitung dari perubahan byte per interval waktu.
-- Speed tampil saat download berjalan.
-- Saat download dijeda/gagal/selesai, speed otomatis direset.
-- Notifikasi progress juga menampilkan speed download.
+### Mode Privat
+- Menu **Privat** sekarang sudah aktif.
+- Saat diklik, Yield membuat **tab privat baru**.
+- Tab privat tidak menyimpan riwayat browsing.
+- Saat tab privat ditutup, cache/history WebView dibersihkan ringan.
 
-## Contoh tampilan
-`57% • 2.40 MB/s`
+### Multi Tab
+- Tombol kotak angka di bottom navigation sekarang bisa diklik.
+- Saat diklik, muncul halaman daftar tab.
+- Ada tombol **+** untuk membuat tab baru.
+- Ada tombol **Privat** untuk membuat tab privat.
+- Tab bisa dipilih untuk pindah halaman.
+- Tab bisa ditutup dengan tombol **×**.
+- Angka pada ikon tab mengikuti jumlah tab aktif.
 
 ## Catatan
-Fitur Premium Fast Engine tetap memakai 2 koneksi paralel jika server mendukung HTTP Range, dan fallback ke 1 koneksi jika server menolak split.
+Sistem tab saat ini memakai satu WebView aktif dan menyimpan URL/judul per tab. Ini ringan dan cocok untuk tahap awal. Riwayat WebView per-tab yang benar-benar terpisah bisa dikembangkan di versi berikutnya.
+
+
+## Perubahan v0.4.6
+- Panel riwayat sekarang punya tombol **X** di kanan atas.
+- Kategori unduhan (**Semua / Video / APK / Dokumen / Musik / Lainnya**) disegarkan lebih stabil saat diklik.
+- Klasifikasi unduhan diperkuat memakai nama file, URL, dan MIME type supaya file video/APK lebih akurat masuk kategori yang benar.
