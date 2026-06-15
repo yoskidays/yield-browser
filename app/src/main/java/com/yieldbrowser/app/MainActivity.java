@@ -124,6 +124,8 @@ public class MainActivity extends Activity {
     private static final String CHANNEL_DOWNLOADS = "yield_downloads";
     private static final String ACTION_OPEN_DOWNLOADS = "com.yieldbrowser.app.OPEN_DOWNLOADS";
     private static final int DOWNLOAD_CONNECTIONS_PREMIUM = 2;
+    private static final int DOWNLOAD_CONNECTIONS_DYNAMIC_MAX = 4;
+    private static final int DOWNLOAD_RETRY_MAX = 3;
     private static final int DOWNLOAD_BUFFER_SIZE = 64 * 1024;
     private static final int DOWNLOAD_CONNECT_TIMEOUT = 15000;
     private static final int DOWNLOAD_READ_TIMEOUT = 30000;
@@ -199,6 +201,10 @@ public class MainActivity extends Activity {
     private float videoSpeed = 1.0f;
     private String downloadSubfolder = "Download";
     private String selectedDownloadTreeUri = "";
+    private boolean downloadDynamic4Connections = true;
+    private boolean downloadAutoRetry = true;
+    private boolean downloadHlsEnabled = true;
+    private int downloadSpeedLimitKBps = 0;
     private boolean topIconReload = true;
     private boolean topIconBookmark = true;
     private boolean topIconTranslate = true;
@@ -231,6 +237,9 @@ public class MainActivity extends Activity {
         String failReason = "";
         String categoryHint = "";
         String publicUri = "";
+        int retryCount = 0;
+        boolean hlsDownload = false;
+        ArrayList<Double> speedHistory = new ArrayList<>();
         long part1Start = 0;
         long part1End = 0;
         long part1Done = 0;
@@ -421,7 +430,7 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    protected void onConfigurationChanged(Configuration newConfig) {
+    public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         try {
             getWindow().setStatusBarColor(COLOR_BG);
@@ -1340,7 +1349,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.7.8";
+        return "0.8.0";
     }
 
     private void showAboutYieldDialog() {
@@ -1883,6 +1892,10 @@ private void showDownloadSettingsPanel() {
             dialog.dismiss();
             showDownloadSettingsPanel();
         }));
+
+        panel.addView(actionRow(R.drawable.ic_settings, "Fitur download lanjutan", getAdvancedDownloadSummary(), v -> {
+            showAdvancedDownloadFeaturesDialog(dialog);
+        }));
         dialog.setContentView(panel);
         if (dialog.getWindow() != null) {
             Window window = dialog.getWindow();
@@ -1894,6 +1907,180 @@ private void showDownloadSettingsPanel() {
             window.setAttributes(lp);
         }
         dialog.show();
+    }
+
+    private String getAdvancedDownloadSummary() {
+        String limit = downloadSpeedLimitKBps > 0 ? (downloadSpeedLimitKBps + " KB/s") : "tanpa limit";
+        return "Dynamic 2/4 koneksi, retry, HLS/m3u8, speed limiter: " + limit;
+    }
+
+    private void showAdvancedDownloadFeaturesDialog(Dialog parentDialog) {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(22), dp(20), dp(22), dp(16));
+        box.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(22), dp(1), COLOR_BORDER));
+
+        TextView title = new TextView(this);
+        title.setText("Fitur UC Download");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(22);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        box.addView(title);
+
+        TextView info = new TextView(this);
+        info.setText("Fitur yang sudah kuat tidak digandakan; yang kurang dimaksimalkan di engine Yield.");
+        info.setTextColor(COLOR_SUBTEXT);
+        info.setTextSize(13);
+        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(-1, -2);
+        infoLp.setMargins(0, dp(8), 0, dp(10));
+        box.addView(info, infoLp);
+
+        box.addView(advancedSwitchRow("Dynamic 2/4 koneksi", "File besar otomatis pakai 4 koneksi jika server support Range.", downloadDynamic4Connections, v -> {
+            downloadDynamic4Connections = !downloadDynamic4Connections;
+            saveSettings();
+        }));
+
+        box.addView(advancedSwitchRow("Retry otomatis", "Jika koneksi putus, Yield mencoba ulang sampai 3x dan lanjut dari progres terakhir.", downloadAutoRetry, v -> {
+            downloadAutoRetry = !downloadAutoRetry;
+            saveSettings();
+        }));
+
+        box.addView(advancedSwitchRow("Download HLS/m3u8", "Playlist m3u8 akan dideteksi dan segmen video digabung ke file TS.", downloadHlsEnabled, v -> {
+            downloadHlsEnabled = !downloadHlsEnabled;
+            saveSettings();
+        }));
+
+        box.addView(advancedInfoRow("Smart resume", "Sudah aktif: pause/resume melanjutkan data yang sudah masuk."));
+        box.addView(advancedInfoRow("Auto detect video file", "Sudah aktif: video/HLS diberi kategori Video dan nama file dirapikan."));
+        box.addView(advancedInfoRow("Auto rename file", "Sudah aktif: nama dari server dipakai otomatis dan duplikat dibuat unik."));
+        box.addView(advancedInfoRow("Real-time speed graph", "Aktif di item download berjalan: MB/s + mini graph."));
+
+        TextView limiter = darkDialogActionButton("SPEED LIMITER: " + (downloadSpeedLimitKBps > 0 ? downloadSpeedLimitKBps + " KB/s" : "OFF"));
+        limiter.setOnClickListener(v -> showSpeedLimiterDialog(dialog, parentDialog));
+        box.addView(limiter);
+
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setGravity(Gravity.END);
+        bottom.setPadding(0, dp(8), 0, 0);
+
+        TextView close = dialogTextButton("TUTUP");
+        close.setOnClickListener(v -> {
+            dialog.dismiss();
+            if (parentDialog != null) {
+                parentDialog.dismiss();
+                showDownloadSettingsPanel();
+            }
+        });
+        bottom.addView(close);
+        box.addView(bottom);
+
+        dialog.setContentView(box);
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            Window window = dialog.getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.9f);
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            window.setAttributes(lp);
+        }
+    }
+
+    private View advancedSwitchRow(String title, String desc, boolean enabled, View.OnClickListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        row.setBackground(roundRect(Color.parseColor("#343740"), dp(14), dp(1), COLOR_BORDER));
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
+        rowLp.setMargins(0, dp(6), 0, 0);
+        row.setLayoutParams(rowLp);
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(15);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        texts.addView(t);
+
+        TextView d = new TextView(this);
+        d.setText(desc);
+        d.setTextColor(COLOR_SUBTEXT);
+        d.setTextSize(12);
+        d.setPadding(0, dp(3), dp(8), 0);
+        texts.addView(d);
+
+        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+
+        TextView status = new TextView(this);
+        final boolean[] current = new boolean[]{enabled};
+        status.setText(current[0] ? "ON" : "OFF");
+        status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
+        status.setTypeface(Typeface.DEFAULT_BOLD);
+        status.setTextSize(12);
+        status.setGravity(Gravity.CENTER);
+        status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
+        row.addView(status, new LinearLayout.LayoutParams(dp(48), dp(30)));
+
+        row.setOnClickListener(v -> {
+            if (listener != null) listener.onClick(v);
+            current[0] = !current[0];
+            status.setText(current[0] ? "ON" : "OFF");
+            status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
+            status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
+        });
+        return row;
+    }
+
+    private View advancedInfoRow(String title, String desc) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(12), dp(10), dp(12), dp(10));
+        row.setBackground(roundRect(Color.parseColor("#2F3239"), dp(14), dp(1), Color.parseColor("#3A3D45")));
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
+        rowLp.setMargins(0, dp(6), 0, 0);
+        row.setLayoutParams(rowLp);
+
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(15);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        row.addView(t);
+
+        TextView d = new TextView(this);
+        d.setText(desc);
+        d.setTextColor(COLOR_SUBTEXT);
+        d.setTextSize(12);
+        d.setPadding(0, dp(3), 0, 0);
+        row.addView(d);
+        return row;
+    }
+
+    private void showSpeedLimiterDialog(Dialog advancedDialog, Dialog parentDialog) {
+        String[] labels = new String[]{"OFF", "256 KB/s", "512 KB/s", "1024 KB/s", "2048 KB/s"};
+        int[] values = new int[]{0, 256, 512, 1024, 2048};
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) if (values[i] == downloadSpeedLimitKBps) checked = i;
+
+        new AlertDialog.Builder(this)
+                .setTitle("Speed limiter")
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
+                    downloadSpeedLimitKBps = values[which];
+                    saveSettings();
+                    Toast.makeText(this, "Speed limiter: " + labels[which], Toast.LENGTH_SHORT).show();
+                    d.dismiss();
+                    if (advancedDialog != null) advancedDialog.dismiss();
+                    showAdvancedDownloadFeaturesDialog(parentDialog);
+                })
+                .setNegativeButton("Batal", null)
+                .show();
     }
 
     private void showVideoControlsIfAllowed() {
@@ -3922,7 +4109,7 @@ private void showDownloadSettingsPanel() {
             textWrap.addView(bar, barParams);
 
             TextView percent = new TextView(this);
-            percent.setText(item.progress + "% • " + readableSpeed(item.speedBytesPerSecond));
+            percent.setText(item.progress + "% • " + readableSpeed(item.speedBytesPerSecond) + " • " + speedGraph(item));
             percent.setTextColor(Color.parseColor("#C9CDD4"));
             percent.setTextSize(11);
             percent.setPadding(0, dp(4), 0, 0);
@@ -3986,6 +4173,8 @@ private void showDownloadSettingsPanel() {
 
     private String getDownloadEngineVisibleText(DownloadItem item) {
         if (item == null) return "Mengecek koneksi";
+        if (item.hlsDownload) return "HLS/m3u8";
+        if (item.connectionCount >= 4) return "4 koneksi sukses";
         if (item.connectionCount >= 2) return "2 koneksi sukses";
         if (item.connectionCount == 1) return "1 koneksi sukses";
         if ("paused".equals(item.status)) return "Dijeda";
@@ -4057,6 +4246,10 @@ private void showDownloadSettingsPanel() {
         if (delta < 0) delta = 0;
 
         item.speedBytesPerSecond = (delta * 1000.0) / Math.max(1, elapsed);
+        try {
+            item.speedHistory.add(item.speedBytesPerSecond);
+            while (item.speedHistory.size() > 12) item.speedHistory.remove(0);
+        } catch (Exception ignored) {}
         item.lastSpeedTimeMs = now;
         item.lastSpeedBytes = currentBytes;
     }
@@ -4070,6 +4263,26 @@ private void showDownloadSettingsPanel() {
             return String.format(java.util.Locale.US, "%.1f KB/s", bytesPerSecond / 1024.0).replace(".0", "");
         }
         return String.format(java.util.Locale.US, "%.0f B/s", bytesPerSecond);
+    }
+
+    private String speedGraph(DownloadItem item) {
+        try {
+            if (item == null || item.speedHistory == null || item.speedHistory.isEmpty()) return "▁▁▁▁";
+            double max = 1;
+            for (Double value : item.speedHistory) if (value != null && value > max) max = value;
+            String[] bars = new String[]{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
+            StringBuilder sb = new StringBuilder();
+            for (Double value : item.speedHistory) {
+                double v = value == null ? 0 : value;
+                int idx = (int) Math.round((v / max) * (bars.length - 1));
+                if (idx < 0) idx = 0;
+                if (idx >= bars.length) idx = bars.length - 1;
+                sb.append(bars[idx]);
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "▁▁▁▁";
+        }
     }
 
     private String readableFileSize(long size) {
@@ -4149,6 +4362,8 @@ private void showDownloadSettingsPanel() {
 
     private String getConnectionLabel(DownloadItem item) {
         if (item == null) return "Premium Fast";
+        if (item.hlsDownload) return "HLS";
+        if (item.connectionCount >= 4) return "4 koneksi";
         if (item.connectionCount >= 2) return "2 koneksi";
         if (item.connectionCount == 1) return "1 koneksi";
         return "Premium Fast • anti-hotlink safe";
@@ -4205,6 +4420,7 @@ private void showDownloadSettingsPanel() {
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = 0;
             item.engineInfo = "Mengecek koneksi";
+            item.retryCount = 0;
 
             File out = new File(item.path);
             if (out.exists()) {
@@ -4442,6 +4658,7 @@ private void showDownloadSettingsPanel() {
             File dir = getDownloadDirectory();
             if (!dir.exists()) dir.mkdirs();
 
+            fileName = autoRenameDownloadFile(fileName, fileUrl, "");
             File out = uniqueFile(new File(dir, fileName));
             DownloadItem item = new DownloadItem(nextDownloadId++, fileUrl, out.getName(), out.getAbsolutePath(), "running", 0);
             item.connectionCount = 0;
@@ -4452,6 +4669,7 @@ private void showDownloadSettingsPanel() {
             item.userAgent = userAgent == null ? "" : userAgent;
             item.referer = referer == null ? "" : referer;
             item.failReason = "";
+            item.retryCount = 0;
             item.categoryHint = inferDownloadCategoryFromData(fileName, fileUrl, "");
 
             synchronized (downloadItems) {
@@ -4656,6 +4874,200 @@ private void showDownloadSettingsPanel() {
     }
 
     private void startTwoConnectionDownload(DownloadItem item, File out) {
+        if (item == null || out == null) return;
+
+        if (downloadHlsEnabled && looksLikeHlsDownload(item.url, item.fileName)) {
+            startHlsDownload(item, out);
+            return;
+        }
+
+        boolean resumeAttempt = out.exists() && item.downloadedBytes > 0 && ("running".equals(item.status) || "paused".equals(item.status));
+        if (resumeAttempt || !downloadDynamic4Connections) {
+            startLegacyTwoConnectionDownload(item, out);
+            return;
+        }
+
+        startDynamicMultiConnectionDownload(item, out);
+    }
+
+    private boolean looksLikeHlsDownload(String url, String fileName) {
+        String u = (url == null ? "" : url).toLowerCase(Locale.US);
+        String n = (fileName == null ? "" : fileName).toLowerCase(Locale.US);
+        return u.contains(".m3u8") || n.endsWith(".m3u8") || u.contains("mpegurl");
+    }
+
+    private boolean looksLikeVideoDownload(String url, String fileName, String contentType) {
+        String u = (url == null ? "" : url).toLowerCase(Locale.US);
+        String n = (fileName == null ? "" : fileName).toLowerCase(Locale.US);
+        String c = (contentType == null ? "" : contentType).toLowerCase(Locale.US);
+        return c.startsWith("video/") || c.contains("mpegurl") || u.contains(".m3u8") ||
+                n.endsWith(".mp4") || n.endsWith(".mkv") || n.endsWith(".webm") || n.endsWith(".avi") ||
+                n.endsWith(".mov") || n.endsWith(".ts") || n.endsWith(".m3u8") ||
+                u.contains(".mp4") || u.contains(".mkv") || u.contains(".webm") || u.contains(".ts");
+    }
+
+    private String autoRenameDownloadFile(String fileName, String url, String contentType) {
+        String name = fileName == null ? "" : fileName.trim();
+        if (name.length() == 0) name = "yield_download_" + System.currentTimeMillis();
+
+        if (looksLikeHlsDownload(url, name)) {
+            if (name.toLowerCase(Locale.US).endsWith(".m3u8")) name = name.substring(0, name.length() - 5) + ".ts";
+            else if (!name.toLowerCase(Locale.US).endsWith(".ts")) name = name + ".ts";
+        }
+
+        if (looksLikeVideoDownload(url, name, contentType)) {
+            name = name.replaceAll("(?i)videoplayback(\\.[a-z0-9]+)?$", "yield_video$1");
+            if (!name.contains(".")) name = name + ".mp4";
+        }
+
+        return name.replace("/", "_").replace("\\", "_").replace(":", "_");
+    }
+
+    private void startDynamicMultiConnectionDownload(DownloadItem item, File out) {
+        item.status = "running";
+        item.pauseRequested = false;
+        item.engineInfo = "Mengecek 2/4 koneksi";
+        refreshDownloadPanel();
+
+        new Thread(() -> {
+            HttpURLConnection head = null;
+            try {
+                final File[] outRef = new File[]{out};
+                head = openDownloadConnection(item.url, item, "bytes=0-0");
+                validateDownloadResponse(head);
+
+                int responseCode = head.getResponseCode();
+                String contentRange = head.getHeaderField("Content-Range");
+                long total = parseTotalSize(contentRange);
+                if (total <= 0) total = head.getContentLengthLong();
+
+                String cd = head.getHeaderField("Content-Disposition");
+                try {
+                    String betterName = autoRenameDownloadFile(URLUtil.guessFileName(item.url, cd, head.getContentType()), item.url, head.getContentType());
+                    if (betterName != null && betterName.length() > 0 && !betterName.equals(item.fileName)) {
+                        File newFile = uniqueFile(new File(outRef[0].getParentFile(), betterName));
+                        item.fileName = newFile.getName();
+                        item.path = newFile.getAbsolutePath();
+                        outRef[0] = newFile;
+                    }
+                    item.categoryHint = inferDownloadCategoryFromData(item.fileName, item.url, head.getContentType());
+                } catch (Exception ignored) {}
+
+                boolean rangeOk = responseCode == 206 && total > 1024 * 1024 * 2;
+                if (head != null) head.disconnect();
+
+                if (!rangeOk) {
+                    startLegacyTwoConnectionDownload(item, outRef[0]);
+                    return;
+                }
+
+                int connections = total >= 32L * 1024L * 1024L ? DOWNLOAD_CONNECTIONS_DYNAMIC_MAX : DOWNLOAD_CONNECTIONS_PREMIUM;
+                if (connections <= 2) {
+                    startLegacyTwoConnectionDownload(item, outRef[0]);
+                    return;
+                }
+
+                final long totalFinal = total;
+                item.totalBytes = totalFinal;
+                item.connectionCount = connections;
+                item.engineInfo = connections + " koneksi sukses";
+                item.downloadedBytes = 0;
+                item.progress = 0;
+                item.retryCount = 0;
+
+                try {
+                    RandomAccessFile raf = new RandomAccessFile(outRef[0], "rw");
+                    raf.setLength(totalFinal);
+                    raf.close();
+                } catch (Exception ignored) {}
+
+                saveDownloadHistory();
+                refreshDownloadPanel();
+                showDownloadNotification(item, connections + " koneksi", true);
+
+                long chunk = totalFinal / connections;
+                long[] done = new long[]{0};
+                boolean[] ok = new boolean[]{true};
+                ArrayList<Thread> threads = new ArrayList<>();
+
+                for (int i = 0; i < connections; i++) {
+                    final int part = i + 1;
+                    final long start = i * chunk;
+                    final long end = i == connections - 1 ? totalFinal - 1 : ((i + 1) * chunk) - 1;
+                    Thread t = new Thread(() -> downloadRangeDynamic(item, outRef[0], start, end, done, totalFinal, ok, part, connections));
+                    threads.add(t);
+                    t.start();
+                }
+
+                for (Thread t : threads) t.join();
+
+                if (item.pauseRequested || "paused".equals(item.status)) {
+                    saveDownloadHistory();
+                    refreshDownloadPanel();
+                    showDownloadNotification(item, "Unduhan dijeda", false);
+                    return;
+                }
+
+                if (ok[0]) completeDownload(item);
+                else {
+                    if (outRef[0].exists()) outRef[0].delete();
+                    item.downloadedBytes = 0;
+                    item.progress = 0;
+                    item.connectionCount = 0;
+                    item.engineInfo = "Fallback 2 koneksi";
+                    startLegacyTwoConnectionDownload(item, outRef[0]);
+                }
+            } catch (Exception e) {
+                if (head != null) try { head.disconnect(); } catch (Exception ignored) {}
+                startLegacyTwoConnectionDownload(item, out);
+            }
+        }).start();
+    }
+
+    private void downloadRangeDynamic(DownloadItem item, File out, long start, long end, long[] done, long total, boolean[] ok, int partIndex, int connections) {
+        if (start > end) return;
+        HttpURLConnection conn = null;
+        InputStream in = null;
+        RandomAccessFile raf = null;
+        try {
+            conn = openDownloadConnection(item.url, item, "bytes=" + start + "-" + end);
+            validateDownloadResponse(conn);
+            in = conn.getInputStream();
+            raf = new RandomAccessFile(out, "rw");
+            raf.seek(start);
+            byte[] buffer = new byte[DOWNLOAD_BUFFER_SIZE];
+            int len;
+            while ((len = in.read(buffer)) != -1) {
+                if (item.pauseRequested || "paused".equals(item.status)) {
+                    ok[0] = false;
+                    break;
+                }
+                raf.write(buffer, 0, len);
+                applySpeedLimit(len, connections);
+                synchronized (done) {
+                    done[0] += len;
+                    item.downloadedBytes = done[0];
+                    updateDownloadSpeed(item, done[0]);
+                    int percent = (int) Math.min(99, (done[0] * 100) / Math.max(1, total));
+                    if (percent != item.progress) {
+                        item.progress = percent;
+                        if (percent % 2 == 0 || percent >= 99) {
+                            refreshDownloadPanel();
+                            showDownloadNotification(item, connections + " koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            ok[0] = false;
+        } finally {
+            try { if (raf != null) raf.close(); } catch (Exception ignored) {}
+            try { if (in != null) in.close(); } catch (Exception ignored) {}
+            try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
+        }
+    }
+
+    private void startLegacyTwoConnectionDownload(DownloadItem item, File out) {
         boolean resumeAttempt = out.exists() && item.downloadedBytes > 0 && ("running".equals(item.status) || "paused".equals(item.status));
         item.status = "running";
         item.pauseRequested = false;
@@ -4787,6 +5199,130 @@ private void showDownloadSettingsPanel() {
         }).start();
     }
 
+    private void startHlsDownload(DownloadItem item, File out) {
+        item.status = "running";
+        item.pauseRequested = false;
+        item.hlsDownload = true;
+        item.connectionCount = 1;
+        item.engineInfo = "HLS/m3u8";
+        item.categoryHint = "Video";
+        if (!item.fileName.toLowerCase(Locale.US).endsWith(".ts")) {
+            File renamed = uniqueFile(new File(out.getParentFile(), autoRenameDownloadFile(item.fileName, item.url, "application/vnd.apple.mpegurl")));
+            item.fileName = renamed.getName();
+            item.path = renamed.getAbsolutePath();
+            out = renamed;
+        }
+        refreshDownloadPanel();
+
+        new Thread(() -> {
+            try {
+                ArrayList<String> segments = resolveHlsSegments(item.url, item);
+                if (segments.isEmpty()) throw new Exception("Playlist HLS kosong/tidak didukung");
+
+                item.totalBytes = segments.size();
+                item.downloadedBytes = 0;
+                item.progress = 0;
+                saveDownloadHistory();
+                refreshDownloadPanel();
+                showDownloadNotification(item, "HLS • " + segments.size() + " segmen", true);
+
+                FileOutputStream fos = new FileOutputStream(new File(item.path), false);
+                byte[] buffer = new byte[DOWNLOAD_BUFFER_SIZE];
+
+                for (int i = 0; i < segments.size(); i++) {
+                    if (item.pauseRequested || "paused".equals(item.status)) break;
+                    HttpURLConnection conn = openDownloadConnection(segments.get(i), item, "");
+                    validateDownloadResponse(conn);
+                    InputStream in = conn.getInputStream();
+                    int len;
+                    long segmentBytes = 0;
+                    while ((len = in.read(buffer)) != -1) {
+                        if (item.pauseRequested || "paused".equals(item.status)) break;
+                        fos.write(buffer, 0, len);
+                        segmentBytes += len;
+                        applySpeedLimit(len, 1);
+                        updateDownloadSpeed(item, segmentBytes);
+                    }
+                    in.close();
+                    conn.disconnect();
+                    item.downloadedBytes = i + 1;
+                    item.progress = (int) Math.min(99, ((i + 1) * 100.0) / Math.max(1, segments.size()));
+                    refreshDownloadPanel();
+                    if (i % 3 == 0 || i == segments.size() - 1) {
+                        showDownloadNotification(item, "HLS • " + item.progress + "% • " + readableSpeed(item.speedBytesPerSecond), true);
+                    }
+                }
+                fos.close();
+
+                if (item.pauseRequested || "paused".equals(item.status)) {
+                    item.status = "paused";
+                    item.engineInfo = "HLS dijeda";
+                    saveDownloadHistory();
+                    refreshDownloadPanel();
+                    showDownloadNotification(item, "HLS dijeda", false);
+                } else {
+                    completeDownload(item);
+                }
+            } catch (Exception e) {
+                failDownload(item, e.getMessage());
+            }
+        }).start();
+    }
+
+    private ArrayList<String> resolveHlsSegments(String playlistUrl, DownloadItem item) throws Exception {
+        String text = readUrlText(playlistUrl, item);
+        String base = getBaseUrl(playlistUrl);
+        ArrayList<String> variants = new ArrayList<>();
+        ArrayList<String> segments = new ArrayList<>();
+        String[] lines = text.split("\\n");
+        boolean nextVariant = false;
+        for (String raw : lines) {
+            String line = raw.trim();
+            if (line.length() == 0) continue;
+            if (line.startsWith("#EXT-X-STREAM-INF")) { nextVariant = true; continue; }
+            if (nextVariant && !line.startsWith("#")) { variants.add(resolveUrl(base, line)); nextVariant = false; continue; }
+            nextVariant = false;
+            if (!line.startsWith("#")) segments.add(resolveUrl(base, line));
+        }
+        if (!variants.isEmpty()) return resolveHlsSegments(variants.get(variants.size() - 1), item);
+        return segments;
+    }
+
+    private String readUrlText(String url, DownloadItem item) throws Exception {
+        HttpURLConnection conn = openDownloadConnection(url, item, "");
+        validateDownloadResponse(conn);
+        BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) sb.append(line).append("\n");
+        reader.close();
+        conn.disconnect();
+        return sb.toString();
+    }
+
+    private String getBaseUrl(String url) {
+        try {
+            int idx = url.lastIndexOf('/');
+            if (idx >= 0) return url.substring(0, idx + 1);
+        } catch (Exception ignored) {}
+        return url;
+    }
+
+    private String resolveUrl(String base, String value) {
+        try { return new URL(new URL(base), value).toString(); }
+        catch (Exception e) { return value; }
+    }
+
+    private void applySpeedLimit(int bytesRead, int activeConnections) {
+        try {
+            if (downloadSpeedLimitKBps <= 0 || bytesRead <= 0) return;
+            int connections = Math.max(1, activeConnections);
+            double bytesPerSecond = downloadSpeedLimitKBps * 1024.0;
+            long sleep = (long) ((bytesRead * 1000.0 * connections) / bytesPerSecond);
+            if (sleep > 0) Thread.sleep(Math.min(350, sleep));
+        } catch (Exception ignored) {}
+    }
+
     private void downloadRange(DownloadItem item, File out, long start, long end, long[] done, long total, boolean[] ok, int partIndex) {
         if (start > end) return;
         try {
@@ -4805,6 +5341,7 @@ private void showDownloadSettingsPanel() {
                     break;
                 }
                 raf.write(buffer, 0, len);
+                applySpeedLimit(len, Math.max(1, item.connectionCount));
                 synchronized (done) {
                     done[0] += len;
                     if (partIndex == 1) item.part1Done += len;
@@ -4847,7 +5384,7 @@ private void showDownloadSettingsPanel() {
 
             String cd = conn.getHeaderField("Content-Disposition");
             try {
-                String betterName = URLUtil.guessFileName(item.url, cd, conn.getContentType());
+                String betterName = autoRenameDownloadFile(URLUtil.guessFileName(item.url, cd, conn.getContentType()), item.url, conn.getContentType());
                 if (betterName != null && betterName.length() > 0 && !betterName.equals(item.fileName) && resumeFrom == 0) {
                     File newFile = uniqueFile(new File(out.getParentFile(), betterName));
                     item.fileName = newFile.getName();
@@ -4874,6 +5411,7 @@ private void showDownloadSettingsPanel() {
                     break;
                 }
                 fos.write(buffer, 0, len);
+                applySpeedLimit(len, 1);
                 done += len;
                 item.downloadedBytes = done;
                 updateDownloadSpeed(item, done);
@@ -4920,6 +5458,7 @@ private void showDownloadSettingsPanel() {
         item.progress = 100;
         item.status = "completed";
         item.speedBytesPerSecond = 0;
+        item.retryCount = 0;
         exportCompletedDownload(item);
         saveDownloadHistory();
         refreshDownloadPanel();
@@ -5034,6 +5573,31 @@ private void showDownloadSettingsPanel() {
     }
 
     private void failDownload(DownloadItem item, String reason) {
+        if (item == null) return;
+
+        if (downloadAutoRetry && !item.pauseRequested && item.retryCount < DOWNLOAD_RETRY_MAX) {
+            item.retryCount++;
+            item.status = "running";
+            item.pauseRequested = false;
+            item.speedBytesPerSecond = 0;
+            item.failReason = reason == null ? "Koneksi terputus" : reason;
+            item.engineInfo = "Retry otomatis " + item.retryCount + "/" + DOWNLOAD_RETRY_MAX;
+            saveDownloadHistory();
+            refreshDownloadPanel();
+            showDownloadNotification(item, item.engineInfo, true);
+
+            mainHandler.postDelayed(() -> {
+                try {
+                    File out = new File(item.path);
+                    if (!"running".equals(item.status)) return;
+                    startTwoConnectionDownload(item, out);
+                } catch (Exception e) {
+                    failDownload(item, e.getMessage());
+                }
+            }, 1500L * item.retryCount);
+            return;
+        }
+
         item.status = "failed";
         item.pauseRequested = false;
         item.speedBytesPerSecond = 0;
@@ -5126,7 +5690,7 @@ private void showDownloadSettingsPanel() {
         synchronized (downloadItems) {
             for (DownloadItem item : downloadItems) {
                 if (item.status.equals("completed") || item.status.equals("failed") || item.status.equals("paused") || item.status.equals("running")) {
-                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason) + "|" + encode(item.categoryHint) + "|" + item.part1Start + "|" + item.part1End + "|" + item.part1Done + "|" + item.part2Start + "|" + item.part2End + "|" + item.part2Done + "|" + encode(item.publicUri));
+                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason) + "|" + encode(item.categoryHint) + "|" + item.part1Start + "|" + item.part1End + "|" + item.part1Done + "|" + item.part2Start + "|" + item.part2End + "|" + item.part2Done + "|" + encode(item.publicUri) + "|" + item.retryCount + "|" + item.hlsDownload);
                 }
             }
         }
@@ -5167,6 +5731,8 @@ private void showDownloadSettingsPanel() {
                             try { item.part2Done = Long.parseLong(parts[18]); } catch (Exception ignored) {}
                         }
                         if (parts.length >= 20) item.publicUri = decode(parts[19]);
+                        if (parts.length >= 21) try { item.retryCount = Integer.parseInt(parts[20]); } catch (Exception ignored) {}
+                        if (parts.length >= 22) item.hlsDownload = Boolean.parseBoolean(parts[21]);
                         if ("running".equals(item.status)) {
                             item.status = "paused";
                             item.speedBytesPerSecond = 0;
@@ -6583,6 +7149,10 @@ private void showDownloadSettingsPanel() {
         selectedVideoQuality = p.getString("selectedVideoQuality", "Auto");
         downloadSubfolder = p.getString("downloadSubfolder", "Download");
         selectedDownloadTreeUri = p.getString("selectedDownloadTreeUri", "");
+        downloadDynamic4Connections = p.getBoolean("downloadDynamic4Connections", true);
+        downloadAutoRetry = p.getBoolean("downloadAutoRetry", true);
+        downloadHlsEnabled = p.getBoolean("downloadHlsEnabled", true);
+        downloadSpeedLimitKBps = p.getInt("downloadSpeedLimitKBps", 0);
         topIconReload = p.getBoolean("topIconReload", true);
         topIconBookmark = p.getBoolean("topIconBookmark", true);
         topIconTranslate = p.getBoolean("topIconTranslate", true);
@@ -6652,6 +7222,10 @@ private void showDownloadSettingsPanel() {
                 .putString("selectedVideoQuality", selectedVideoQuality)
                 .putString("downloadSubfolder", downloadSubfolder)
                 .putString("selectedDownloadTreeUri", selectedDownloadTreeUri)
+                .putBoolean("downloadDynamic4Connections", downloadDynamic4Connections)
+                .putBoolean("downloadAutoRetry", downloadAutoRetry)
+                .putBoolean("downloadHlsEnabled", downloadHlsEnabled)
+                .putInt("downloadSpeedLimitKBps", downloadSpeedLimitKBps)
                 .putBoolean("topIconReload", topIconReload)
                 .putBoolean("topIconBookmark", topIconBookmark)
                 .putBoolean("topIconTranslate", topIconTranslate)

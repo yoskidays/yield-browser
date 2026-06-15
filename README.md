@@ -283,3 +283,24 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Menambahkan opsi reset ke default `Download/Yield Browser`.
 - Riwayat download menyimpan URI hasil ekspor agar file bisa dibuka/dibagikan dari lokasi publik/SAF.
 - Membersihkan sisa menu `Tetap tampil` dan `Engine download`.
+
+
+## v0.7.9
+- Fix compile error: `onConfigurationChanged(Configuration)` dibuat `public`.
+- Menambahkan drawable `ic_close.xml` yang dipakai di halaman Tentang Yield.
+- Fitur v0.7.8 tetap dipertahankan:
+  - dialog folder unduhan dark
+  - default hasil download ke Download/Yield Browser
+  - opsi pilih folder HP
+
+
+## v0.8.0
+- Menambahkan fitur UC-style download yang belum ada/kurang maksimal.
+- Auto detect video file: video dan HLS/m3u8 otomatis diberi kategori Video dan nama file dirapikan.
+- Dynamic 2/4 koneksi: file besar otomatis mencoba 4 koneksi jika server support Range; file normal tetap 2 koneksi stabil.
+- Smart resume dipertahankan dan diperkuat dengan retry otomatis dari progres terakhir.
+- Retry otomatis sampai 3 kali jika koneksi terputus.
+- Download HLS/m3u8: playlist dideteksi dan segmen digabung ke file TS.
+- Speed limiter: OFF, 256 KB/s, 512 KB/s, 1024 KB/s, 2048 KB/s.
+- Real-time speed graph: item download berjalan menampilkan MB/s + mini grafik speed.
+- Auto rename file diperkuat untuk video/HLS dan nama duplikat.
