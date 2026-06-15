@@ -1868,7 +1868,7 @@ public class MainActivity extends Activity {
     }
 
     private void showHistoryPanel() {
-        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(COLOR_BG);
@@ -2010,22 +2010,41 @@ public class MainActivity extends Activity {
 
 
     private void applyDarkFullscreenDialog(Dialog dialog) {
+        // Panel tetap full layar, tetapi status bar TETAP terlihat dengan background hitam.
+        try {
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+                getWindow().setStatusBarColor(COLOR_BG);
+                getWindow().setNavigationBarColor(Color.BLACK);
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                int activityFlags = getWindow().getDecorView().getSystemUiVisibility();
+                activityFlags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    activityFlags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                }
+                getWindow().getDecorView().setSystemUiVisibility(activityFlags);
+            }
+        } catch (Exception ignored) {
+        }
+
         Window window = dialog.getWindow();
         if (window == null) return;
 
         window.setBackgroundDrawable(new ColorDrawable(COLOR_BG));
-        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
 
         WindowManager.LayoutParams lp = window.getAttributes();
         lp.width = WindowManager.LayoutParams.MATCH_PARENT;
         lp.height = WindowManager.LayoutParams.MATCH_PARENT;
         lp.gravity = Gravity.TOP;
+        lp.dimAmount = 0f;
         window.setAttributes(lp);
-
-        // Hilangkan area status bar abu/putih di panel full-screen.
-        window.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
-        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
@@ -2039,12 +2058,13 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
             }
+            flags |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
             window.getDecorView().setSystemUiVisibility(flags);
         }
     }
 
     private void showBookmarkHomePanel() {
-        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(COLOR_BG);
@@ -2098,7 +2118,7 @@ public class MainActivity extends Activity {
     }
 
     private void showBookmarkFolderPanel(String folder) {
-        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(COLOR_BG);
@@ -4651,8 +4671,8 @@ public class MainActivity extends Activity {
         boolean active = isNightModeActiveForCurrentSite();
         String js;
         if (active) {
-            // CSS dibuat lebih aman: tidak memaksa semua div/card menjadi transparan.
-            // Ini mencegah teks situs jadi bertumpuk/nyatu di atas gambar.
+            // Mode malam aman: jangan paksa semua teks/div/card karena Google AI/Search bisa rusak.
+            // WebView ForceDark yang menangani darkening utama, CSS ini hanya mencegah white flash.
             js =
                     "javascript:(function(){"
                             + "try{"
@@ -4660,16 +4680,10 @@ public class MainActivity extends Activity {
                             + "var old=document.getElementById(id);if(old)old.remove();"
                             + "var s=document.createElement('style');s.id=id;"
                             + "s.innerHTML="
-                            + "'html{background:#0b0d10!important;}' + "
-                            + "'body{background:#0b0d10!important;color:#e8edf5!important;}' + "
-                            + "'p,span,b,strong,i,em,h1,h2,h3,h4,h5,h6,label,small,li,td,th{color:#e8edf5!important;}' + "
-                            + "'a,a span,a strong{color:#8ab4ff!important;}' + "
-                            + "'input,textarea,select{background:#1b1f27!important;color:#f5f7fa!important;border-color:#4b5563!important;}' + "
-                            + "'button{color:#f5f7fa!important;border-color:#4b5563!important;}' + "
-                            + "'::placeholder{color:#9ca3af!important;}' + "
-                            + "'img,video,canvas,svg,picture{filter:none!important;}' + "
-                            + "'[style*=\\\\\"background:#fff\\\\\"],[style*=\\\\\"background: #fff\\\\\"],[style*=\\\\\"background-color:#fff\\\\\"],[style*=\\\\\"background-color: #fff\\\\\"]{background:#151922!important;}' + "
-                            + "'pre,code{background:#151922!important;color:#e8edf5!important;}';"
+                            + "'html,body{background:#0b0d10!important;color-scheme:dark!important;}' + "
+                            + "':root{color-scheme:dark!important;}' + "
+                            + "'input,textarea,select{color-scheme:dark!important;}' + "
+                            + "'img,video,canvas,svg,picture{filter:none!important;}';"
                             + "document.head.appendChild(s);"
                             + "}catch(e){}"
                             + "})()";

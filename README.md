@@ -78,3 +78,13 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - CSS mode malam tidak lagi memaksa semua `div`, `article`, dan card menjadi gelap/transparan.
 - Bookmark dan Histori dibuat true fullscreen agar area atas tidak putih/abu-abu.
 - Status bar panel Bookmark/Histori disembunyikan/digelapkan penuh.
+
+
+## v0.5.7
+- Histori dan Bookmark tidak lagi memakai fullscreen hide-status-bar.
+- Status bar tetap terlihat, tetapi background dipaksa hitam.
+- Dialog panel dibersihkan dari dim/gray overlay.
+- Mode Malam web dibuat lebih aman untuk Google Search/AI:
+  - tidak lagi memaksa semua `div`, `span`, `p`, dan card menjadi warna tertentu
+  - hanya memakai `color-scheme: dark` + background dasar
+  - gambar/video/canvas tetap normal
