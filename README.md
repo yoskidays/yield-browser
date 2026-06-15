@@ -253,3 +253,33 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - kontrol video bisa muncul lagi setelah X
   - tombol Full
   - fullscreen video fallback.
+
+
+## v0.7.5
+- Fix fullscreen video yang balik ke Home saat berubah landscape.
+- MainActivity diberi `configChanges` agar tidak recreate saat orientasi berubah.
+- Menambahkan `onConfigurationChanged` untuk menjaga state WebView.
+- Menghapus bagian `Tetap tampil` di panel `Sesuaikan menu`.
+- Menghapus row `Engine download` di Pengaturan Unduhan karena belum ada fungsi pengaturan aktif.
+
+
+## v0.7.6
+- Revisi tampilan Tentang Yield menjadi gaya halaman profesional seperti referensi.
+- Menambah kartu Versi aplikasi, Sistem operasi, dan Developer.
+- Teks developer diganti menjadi: develop by yoski days.
+
+
+## v0.7.7
+- Revisi judul home "Yield Browser" agar lebih profesional dan elegan.
+- Warna nama dibedakan: "Yield" terang netral, "Browser" memakai warna identitas brand.
+
+
+## v0.7.8
+- Semua AlertDialog default dibuat dark melalui theme.
+- Dialog `Folder unduhan` dibuat custom dark, tidak putih lagi.
+- Default hasil download sekarang disalin ke folder publik `Download/Yield Browser`.
+- Folder app tetap dipakai sebagai staging agar download 2 koneksi tetap stabil di Android 11.
+- Menambahkan opsi `Pilih folder HP`; jika dipilih, file hasil download akan disalin ke folder HP tersebut setelah selesai.
+- Menambahkan opsi reset ke default `Download/Yield Browser`.
+- Riwayat download menyimpan URI hasil ekspor agar file bisa dibuka/dibagikan dari lokasi publik/SAF.
+- Membersihkan sisa menu `Tetap tampil` dan `Engine download`.

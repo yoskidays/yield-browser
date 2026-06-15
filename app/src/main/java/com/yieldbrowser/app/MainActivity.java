@@ -16,12 +16,14 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ContentValues;
 import android.content.pm.PackageInfo;
 import android.content.pm.ActivityInfo;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -35,6 +37,8 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.StrictMode;
+import android.provider.DocumentsContract;
+import android.provider.MediaStore;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -70,8 +74,10 @@ import android.widget.Toast;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.InputStreamReader;
 import java.io.BufferedReader;
 import java.io.RandomAccessFile;
@@ -122,6 +128,7 @@ public class MainActivity extends Activity {
     private static final int DOWNLOAD_CONNECT_TIMEOUT = 15000;
     private static final int DOWNLOAD_READ_TIMEOUT = 30000;
     private static final int REQ_CAMERA_QR = 2401;
+    private static final int REQ_PICK_DOWNLOAD_FOLDER = 2402;
 
     private EditText addressBar;
     private EditText homeSearchInput;
@@ -191,6 +198,7 @@ public class MainActivity extends Activity {
     private boolean shortcutVideoControls = false;
     private float videoSpeed = 1.0f;
     private String downloadSubfolder = "Download";
+    private String selectedDownloadTreeUri = "";
     private boolean topIconReload = true;
     private boolean topIconBookmark = true;
     private boolean topIconTranslate = true;
@@ -222,6 +230,7 @@ public class MainActivity extends Activity {
         String referer = "";
         String failReason = "";
         String categoryHint = "";
+        String publicUri = "";
         long part1Start = 0;
         long part1End = 0;
         long part1Done = 0;
@@ -393,6 +402,39 @@ public class MainActivity extends Activity {
         handleOpenDownloadsIntent(intent);
     }
 
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_PICK_DOWNLOAD_FOLDER && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            Uri treeUri = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(treeUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            } catch (Exception ignored) {
+            }
+            selectedDownloadTreeUri = treeUri.toString();
+            saveSettings();
+            Toast.makeText(this, "Folder HP dipilih untuk hasil download", Toast.LENGTH_SHORT).show();
+            showDownloadSettingsPanel();
+        }
+    }
+
+    @Override
+    protected void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        try {
+            getWindow().setStatusBarColor(COLOR_BG);
+            if (webView != null && webView.getVisibility() == View.VISIBLE) {
+                saveCurrentTabState();
+                updateTopActionStates();
+                injectVideoPlaybackWatcher();
+                checkAndShowVideoControls();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -494,12 +536,27 @@ public class MainActivity extends Activity {
 
         content.addView(space(dp(16)));
 
-        TextView title = new TextView(this);
-        title.setText("Yield Browser");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(28);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        content.addView(title);
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setOrientation(LinearLayout.HORIZONTAL);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView titleYield = new TextView(this);
+        titleYield.setText("Yield");
+        titleYield.setTextColor(Color.parseColor("#F4F6FA"));
+        titleYield.setTextSize(31);
+        titleYield.setLetterSpacing(-0.01f);
+        titleYield.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        titleRow.addView(titleYield);
+
+        TextView titleBrowser = new TextView(this);
+        titleBrowser.setText(" Browser");
+        titleBrowser.setTextColor(Color.parseColor("#DDA13A"));
+        titleBrowser.setTextSize(31);
+        titleBrowser.setLetterSpacing(-0.01f);
+        titleBrowser.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        titleRow.addView(titleBrowser);
+
+        content.addView(titleRow);
 
         TextView subtitle = new TextView(this);
         subtitle.setText("Cepat, ringan, dan siap dipakai.");
@@ -1283,68 +1340,96 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.7.2";
+        return "0.7.8";
     }
 
     private void showAboutYieldDialog() {
-        Dialog dialog = new Dialog(this);
+        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(22), dp(22), dp(22), dp(18));
-        box.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(22), dp(1), COLOR_BORDER));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.parseColor("#17191E"));
+        root.setPadding(dp(18), dp(18), dp(18), dp(18));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+
+        ImageView back = new ImageView(this);
+        back.setImageResource(R.drawable.ic_back);
+        back.setColorFilter(Color.parseColor("#D8D8DB"));
+        LinearLayout.LayoutParams backLp = new LinearLayout.LayoutParams(dp(28), dp(28));
+        header.addView(back, backLp);
 
         TextView title = new TextView(this);
         title.setText("Tentang Yield");
-        title.setTextColor(Color.WHITE);
+        title.setTextColor(Color.parseColor("#EDEDF0"));
         title.setTextSize(24);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setGravity(Gravity.CENTER_HORIZONTAL);
-        box.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(0, -2, 1f);
+        titleLp.setMargins(dp(18), 0, dp(18), 0);
+        header.addView(title, titleLp);
 
-        TextView appName = new TextView(this);
-        appName.setText("Yield Browser");
-        appName.setTextColor(Color.WHITE);
-        appName.setTextSize(18);
-        appName.setTypeface(Typeface.DEFAULT_BOLD);
-        appName.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams appParams = new LinearLayout.LayoutParams(-1, -2);
-        appParams.setMargins(0, dp(18), 0, dp(4));
-        box.addView(appName, appParams);
+        ImageView close = new ImageView(this);
+        close.setImageResource(R.drawable.ic_close);
+        close.setColorFilter(Color.parseColor("#D8D8DB"));
+        LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(dp(28), dp(28));
+        header.addView(close, closeLp);
 
-        TextView version = new TextView(this);
-        version.setText("Versi aplikasi: " + getAppVersionName());
-        version.setTextColor(COLOR_SUBTEXT);
-        version.setTextSize(15);
-        version.setGravity(Gravity.CENTER_HORIZONTAL);
-        box.addView(version, new LinearLayout.LayoutParams(-1, -2));
+        root.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView dev = new TextView(this);
-        dev.setText("Develop by Yield Yoski Days");
-        dev.setTextColor(COLOR_ACCENT);
-        dev.setTextSize(15);
-        dev.setTypeface(Typeface.DEFAULT_BOLD);
-        dev.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams devParams = new LinearLayout.LayoutParams(-1, -2);
-        devParams.setMargins(0, dp(16), 0, dp(18));
-        box.addView(dev, devParams);
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
+        cardLp.setMargins(0, dp(20), 0, 0);
+        root.addView(aboutInfoCard("Versi aplikasi", "Yield Browser " + getAppVersionName()), cardLp);
 
-        TextView close = dialogTextButton("TUTUP");
-        close.setGravity(Gravity.CENTER);
+        String osInfo = "Android " + Build.VERSION.RELEASE + " ; Build/" + Build.ID;
+        LinearLayout.LayoutParams cardLp2 = new LinearLayout.LayoutParams(-1, -2);
+        cardLp2.setMargins(0, dp(10), 0, 0);
+        root.addView(aboutInfoCard("Sistem operasi", osInfo), cardLp2);
+
+        LinearLayout.LayoutParams cardLp3 = new LinearLayout.LayoutParams(-1, -2);
+        cardLp3.setMargins(0, dp(10), 0, 0);
+        root.addView(aboutInfoCard("Developer", "develop by yoski days"), cardLp3);
+
+        View spacer = new View(this);
+        root.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        back.setOnClickListener(v -> dialog.dismiss());
         close.setOnClickListener(v -> dialog.dismiss());
-        box.addView(close, new LinearLayout.LayoutParams(-1, dp(44)));
 
-        dialog.setContentView(box);
+        dialog.setContentView(root);
         dialog.show();
         if (dialog.getWindow() != null) {
             Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.84f);
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            window.setAttributes(lp);
+            window.setBackgroundDrawable(new ColorDrawable(Color.parseColor("#17191E")));
+            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
         }
+    }
+
+    private View aboutInfoCard(String heading, String value) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(18), dp(16), dp(18), dp(16));
+        card.setBackground(roundRect(Color.parseColor("#2A2D33"), dp(20), dp(1), Color.parseColor("#343841")));
+
+        TextView t1 = new TextView(this);
+        t1.setText(heading);
+        t1.setTextColor(Color.parseColor("#E9E9EC"));
+        t1.setTextSize(18);
+        t1.setTypeface(Typeface.DEFAULT_BOLD);
+        card.addView(t1);
+
+        TextView t2 = new TextView(this);
+        t2.setText(value);
+        t2.setTextColor(Color.parseColor("#BFC2C9"));
+        t2.setTextSize(15);
+        t2.setLineSpacing(0f, 1.1f);
+        LinearLayout.LayoutParams t2lp = new LinearLayout.LayoutParams(-1, -2);
+        t2lp.setMargins(0, dp(6), 0, 0);
+        card.addView(t2, t2lp);
+
+        return card;
     }
 
     private void showSettingsPanel() {
@@ -1742,18 +1827,6 @@ content.addView(space(dp(36)));
         panel.addView(customizeToggleRow(R.drawable.ic_fullscreen, "Layar penuh", shortcutFullscreen, v -> { shortcutFullscreen = !shortcutFullscreen; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_video_control, "Kontrol video", shortcutVideoControls, v -> { shortcutVideoControls = !shortcutVideoControls; saveSettings(); }));
 
-        TextView fixed = new TextView(this);
-        fixed.setText("Tetap tampil");
-        fixed.setTextColor(COLOR_SUBTEXT);
-        fixed.setTextSize(16);
-        fixed.setTypeface(Typeface.DEFAULT_BOLD);
-        fixed.setPadding(dp(8), dp(18), 0, dp(12));
-        panel.addView(fixed);
-
-        panel.addView(fixedMenuRow(R.drawable.ic_settings, "Setelan"));
-        panel.addView(fixedMenuRow(R.drawable.ic_customize, "Sesuaikan menu"));
-        panel.addView(fixedMenuRow(R.drawable.ic_exit, "Keluar"));
-
         dialog.setContentView(scroll);
         if (dialog.getWindow() != null) {
             Window window = dialog.getWindow();
@@ -1767,43 +1840,7 @@ content.addView(space(dp(36)));
         dialog.show();
     }
 
-    private View fixedMenuRow(int iconRes, String label) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        row.setBackground(roundRect(Color.parseColor("#383A3E"), dp(10), 0, Color.TRANSPARENT));
-
-        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, dp(62));
-        rowParams.setMargins(0, 0, 0, dp(6));
-        row.setLayoutParams(rowParams);
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
-        icon.setColorFilter(Color.parseColor("#E7E8EA"));
-        row.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
-
-        TextView text = new TextView(this);
-        text.setText(label);
-        text.setTextColor(Color.WHITE);
-        text.setTextSize(16);
-        text.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1);
-        textParams.setMargins(dp(14), 0, dp(8), 0);
-        row.addView(text, textParams);
-
-        TextView fixed = new TextView(this);
-        fixed.setText("Tetap");
-        fixed.setTextColor(COLOR_SUBTEXT);
-        fixed.setTextSize(12);
-        fixed.setTypeface(Typeface.DEFAULT_BOLD);
-        fixed.setGravity(Gravity.CENTER);
-        fixed.setBackground(roundRect(Color.parseColor("#343740"), dp(12), dp(1), COLOR_BORDER));
-        row.addView(fixed, new LinearLayout.LayoutParams(dp(58), dp(28)));
-        return row;
-    }
-
-    private void showDownloadSettingsPanel() {
+private void showDownloadSettingsPanel() {
         Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
@@ -1820,7 +1857,7 @@ content.addView(space(dp(36)));
         panel.addView(title);
 
         TextView path = new TextView(this);
-        path.setText("Lokasi sekarang:\\n" + getDownloadDirectory().getAbsolutePath());
+        path.setText(getDownloadLocationText());
         path.setTextColor(COLOR_SUBTEXT);
         path.setTextSize(13);
         path.setPadding(0, dp(8), 0, dp(12));
@@ -1830,7 +1867,7 @@ content.addView(space(dp(36)));
             dialog.dismiss();
             showDownloadManager();
         }));
-        panel.addView(actionRow(R.drawable.ic_folder, "Atur subfolder penyimpanan", "Contoh: Download, Video, Anime, Dokumen.", v -> {
+        panel.addView(actionRow(R.drawable.ic_folder, "Lokasi / folder unduhan", "Default: Download/Yield Browser, atau pilih folder HP.", v -> {
             showDownloadFolderDialog(dialog);
         }));
         panel.addView(actionRow(R.drawable.ic_clear, "Bersihkan riwayat selesai", "Hanya menghapus riwayat, file tetap aman.", v -> {
@@ -1846,10 +1883,6 @@ content.addView(space(dp(36)));
             dialog.dismiss();
             showDownloadSettingsPanel();
         }));
-        panel.addView(actionRow(R.drawable.ic_settings, "Engine download", "Premium Fast Engine: default 2 koneksi paralel, buffer 64KB, fallback 1 koneksi jika server tidak support Range.", v -> {
-            Toast.makeText(this, "Premium Fast Engine aktif: 2 koneksi paralel + buffer 64KB", Toast.LENGTH_LONG).show();
-        }));
-
         dialog.setContentView(panel);
         if (dialog.getWindow() != null) {
             Window window = dialog.getWindow();
@@ -2054,6 +2087,9 @@ content.addView(space(dp(36)));
 
     private void openAppVideoFullscreenFallback() {
         try {
+            if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) {
+                restoreHiddenWebPage();
+            }
             originalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
             originalRequestedOrientation = getRequestedOrientation();
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
@@ -3179,29 +3215,154 @@ content.addView(space(dp(36)));
         dialog.show();
     }
 
+    private String getDownloadLocationText() {
+        if (selectedDownloadTreeUri != null && selectedDownloadTreeUri.length() > 0) {
+            return "Lokasi sekarang:\nFolder HP dipilih\n" + selectedDownloadTreeUri;
+        }
+        return "Lokasi sekarang:\nDefault: Download/Yield Browser\nStaging: " + getDownloadDirectory().getAbsolutePath();
+    }
+
     private void showDownloadFolderDialog(Dialog parentDialog) {
-        final EditText input = new EditText(this);
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(22), dp(20), dp(22), dp(16));
+        box.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(22), dp(1), COLOR_BORDER));
+
+        TextView title = new TextView(this);
+        title.setText("Folder unduhan");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(22);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        box.addView(title);
+
+        TextView info = new TextView(this);
+        info.setText("Default hasil download masuk ke folder Download/Yield Browser. Folder app tetap dipakai sebagai staging agar download 2 koneksi tetap stabil.");
+        info.setTextColor(COLOR_SUBTEXT);
+        info.setTextSize(14);
+        info.setLineSpacing(0, 1.08f);
+        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(-1, -2);
+        infoLp.setMargins(0, dp(8), 0, dp(14));
+        box.addView(info, infoLp);
+
+        EditText input = new EditText(this);
         input.setText(downloadSubfolder);
         input.setSingleLine(true);
-        input.setHint("Nama subfolder");
-        input.setTextColor(Color.parseColor("#15171C"));
+        input.setHint("Nama subfolder staging");
+        input.setHintTextColor(Color.parseColor("#8D929C"));
+        input.setTextColor(Color.WHITE);
+        input.setTextSize(17);
+        input.setSelectAllOnFocus(false);
+        try {
+            input.setBackgroundTintList(ColorStateList.valueOf(COLOR_ACCENT));
+        } catch (Exception ignored) {}
+        box.addView(input, new LinearLayout.LayoutParams(-1, -2));
 
-        new AlertDialog.Builder(this)
-                .setTitle("Subfolder unduhan")
-                .setMessage("Folder berada di dalam direktori app Yield Browser agar aman di Android 11.")
-                .setView(input)
-                .setPositiveButton("Simpan", (d, which) -> {
-                    String value = input.getText().toString().trim();
-                    if (value.length() == 0) value = "Download";
-                    value = value.replace("/", "-").replace("\\\\", "-");
-                    downloadSubfolder = value;
-                    saveSettings();
-                    Toast.makeText(this, "Folder unduhan diubah", Toast.LENGTH_SHORT).show();
-                    parentDialog.dismiss();
-                    showDownloadSettingsPanel();
-                })
-                .setNegativeButton("Batal", null)
-                .show();
+        TextView current = new TextView(this);
+        current.setText(getDownloadLocationText());
+        current.setTextColor(COLOR_SUBTEXT);
+        current.setTextSize(12);
+        current.setLineSpacing(0, 1.05f);
+        LinearLayout.LayoutParams curLp = new LinearLayout.LayoutParams(-1, -2);
+        curLp.setMargins(0, dp(12), 0, dp(10));
+        box.addView(current, curLp);
+
+        TextView choose = darkDialogActionButton("PILIH FOLDER HP");
+        choose.setOnClickListener(v -> {
+            String value = input.getText().toString().trim();
+            if (value.length() == 0) value = "Download";
+            value = value.replace("/", "-").replace("\\", "-");
+            downloadSubfolder = value;
+            saveSettings();
+            dialog.dismiss();
+            if (parentDialog != null) parentDialog.dismiss();
+            chooseExternalDownloadFolder();
+        });
+        box.addView(choose, new LinearLayout.LayoutParams(-1, dp(46)));
+
+        TextView reset = darkDialogActionButton("RESET KE DEFAULT DOWNLOAD/YIELD BROWSER");
+        reset.setOnClickListener(v -> {
+            String value = input.getText().toString().trim();
+            if (value.length() == 0) value = "Download";
+            value = value.replace("/", "-").replace("\\", "-");
+            downloadSubfolder = value;
+            selectedDownloadTreeUri = "";
+            saveSettings();
+            Toast.makeText(this, "Default: Download/Yield Browser", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+            if (parentDialog != null) {
+                parentDialog.dismiss();
+                showDownloadSettingsPanel();
+            }
+        });
+        box.addView(reset, new LinearLayout.LayoutParams(-1, dp(46)));
+
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setGravity(Gravity.END);
+        bottom.setPadding(0, dp(8), 0, 0);
+
+        TextView cancel = dialogTextButton("BATAL");
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        bottom.addView(cancel);
+
+        TextView save = dialogTextButton("SIMPAN");
+        save.setOnClickListener(v -> {
+            String value = input.getText().toString().trim();
+            if (value.length() == 0) value = "Download";
+            value = value.replace("/", "-").replace("\\", "-");
+            downloadSubfolder = value;
+            saveSettings();
+            Toast.makeText(this, "Subfolder staging disimpan", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+            if (parentDialog != null) {
+                parentDialog.dismiss();
+                showDownloadSettingsPanel();
+            }
+        });
+        bottom.addView(save);
+
+        box.addView(bottom);
+
+        dialog.setContentView(box);
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            Window window = dialog.getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.88f);
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            window.setAttributes(lp);
+        }
+    }
+
+    private TextView darkDialogActionButton(String text) {
+        TextView btn = new TextView(this);
+        btn.setText(text);
+        btn.setTextColor(Color.WHITE);
+        btn.setTextSize(13);
+        btn.setTypeface(Typeface.DEFAULT_BOLD);
+        btn.setGravity(Gravity.CENTER);
+        btn.setPadding(dp(12), dp(10), dp(12), dp(10));
+        btn.setBackground(roundRect(Color.parseColor("#343740"), dp(14), dp(1), COLOR_BORDER));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(46));
+        lp.setMargins(0, dp(6), 0, 0);
+        btn.setLayoutParams(lp);
+        return btn;
+    }
+
+    private void chooseExternalDownloadFolder() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+            startActivityForResult(intent, REQ_PICK_DOWNLOAD_FOLDER);
+        } catch (Exception e) {
+            Toast.makeText(this, "Pemilih folder tidak tersedia", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private TextView sectionTitle(String text) {
@@ -4116,15 +4277,14 @@ content.addView(space(dp(36)));
 
     private void shareDownloadedFile(DownloadItem item) {
         try {
-            File file = new File(item.path);
-            if (!file.exists()) {
+            Uri uri = getBestDownloadUri(item);
+            if (uri == null) {
                 Toast.makeText(this, "File tidak ditemukan", Toast.LENGTH_SHORT).show();
                 return;
             }
             try {
                 StrictMode.class.getMethod("disableDeathOnFileUriExposure").invoke(null);
             } catch (Exception ignored) {}
-            Uri uri = Uri.fromFile(file);
             Intent intent = new Intent(Intent.ACTION_SEND);
             intent.setType("*/*");
             intent.putExtra(Intent.EXTRA_STREAM, uri);
@@ -4188,6 +4348,12 @@ content.addView(space(dp(36)));
             downloadItems.remove(item);
         }
 
+        if (deleteFile && item.publicUri != null && item.publicUri.length() > 0) {
+            try {
+                getContentResolver().delete(Uri.parse(item.publicUri), null, null);
+            } catch (Exception ignored) {}
+        }
+
         if (deleteFile && item.path != null) {
             try {
                 File f = new File(item.path);
@@ -4201,10 +4367,25 @@ content.addView(space(dp(36)));
         Toast.makeText(this, deleteFile ? "File + riwayat dihapus" : "Riwayat dihapus", Toast.LENGTH_SHORT).show();
     }
 
+    private Uri getBestDownloadUri(DownloadItem item) {
+        try {
+            if (item != null && item.publicUri != null && item.publicUri.length() > 0) {
+                return Uri.parse(item.publicUri);
+            }
+        } catch (Exception ignored) {}
+        try {
+            if (item != null && item.path != null && item.path.length() > 0) {
+                File file = new File(item.path);
+                if (file.exists()) return Uri.fromFile(file);
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
     private void openDownloadedFile(DownloadItem item) {
         try {
-            File file = new File(item.path);
-            if (!file.exists()) {
+            Uri uri = getBestDownloadUri(item);
+            if (uri == null) {
                 Toast.makeText(this, "File tidak ditemukan", Toast.LENGTH_SHORT).show();
                 return;
             }
@@ -4212,12 +4393,11 @@ content.addView(space(dp(36)));
                 StrictMode.class.getMethod("disableDeathOnFileUriExposure").invoke(null);
             } catch (Exception ignored) {}
             Intent intent = new Intent(Intent.ACTION_VIEW);
-            Uri uri = Uri.fromFile(file);
-            String ext = MimeTypeMap.getFileExtensionFromUrl(file.getName());
+            String ext = MimeTypeMap.getFileExtensionFromUrl(item.fileName);
             String mime = ext != null ? MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.toLowerCase(Locale.US)) : null;
             if (mime == null) mime = "*/*";
             intent.setDataAndType(uri, mime);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivity(intent);
         } catch (Exception e) {
             Toast.makeText(this, "Tidak ada aplikasi untuk membuka file ini", Toast.LENGTH_SHORT).show();
@@ -4740,10 +4920,117 @@ content.addView(space(dp(36)));
         item.progress = 100;
         item.status = "completed";
         item.speedBytesPerSecond = 0;
+        exportCompletedDownload(item);
         saveDownloadHistory();
         refreshDownloadPanel();
         showDownloadNotification(item, "Unduhan selesai", false);
         runOnUiThread(() -> Toast.makeText(this, "Unduhan selesai: " + item.fileName, Toast.LENGTH_SHORT).show());
+    }
+
+    private void exportCompletedDownload(DownloadItem item) {
+        if (item == null || item.path == null || item.path.length() == 0) return;
+        File source = new File(item.path);
+        if (!source.exists()) return;
+
+        try {
+            Uri exported;
+            if (selectedDownloadTreeUri != null && selectedDownloadTreeUri.length() > 0) {
+                exported = copyFileToSelectedTree(source, item.fileName);
+            } else {
+                exported = copyFileToDefaultDownloads(source, item.fileName);
+            }
+
+            if (exported != null) {
+                item.publicUri = exported.toString();
+                item.engineInfo = getConnectionLabel(item) + " • tersimpan";
+                runOnUiThread(() -> Toast.makeText(this, "Disimpan ke folder unduhan", Toast.LENGTH_SHORT).show());
+            }
+        } catch (Exception e) {
+            runOnUiThread(() -> Toast.makeText(this, "Download selesai, tapi gagal salin ke folder HP", Toast.LENGTH_LONG).show());
+        }
+    }
+
+    private Uri copyFileToSelectedTree(File source, String fileName) throws Exception {
+        Uri treeUri = Uri.parse(selectedDownloadTreeUri);
+        Uri docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri));
+        String mime = getMimeTypeForName(fileName);
+        Uri newFile = DocumentsContract.createDocument(getContentResolver(), docUri, mime, fileName);
+        if (newFile == null) throw new Exception("Tidak bisa membuat file di folder HP");
+        copyFileToUri(source, newFile);
+        return newFile;
+    }
+
+    private Uri copyFileToDefaultDownloads(File source, String fileName) throws Exception {
+        String mime = getMimeTypeForName(fileName);
+
+        if (Build.VERSION.SDK_INT >= 29) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Yield Browser");
+            values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+
+            Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) throw new Exception("Tidak bisa membuat file di Downloads");
+            copyFileToUri(source, uri);
+
+            ContentValues done = new ContentValues();
+            done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+            getContentResolver().update(uri, done, null, null);
+            return uri;
+        } else {
+            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Yield Browser");
+            if (!dir.exists()) dir.mkdirs();
+            File out = uniqueFile(new File(dir, fileName));
+            copyFileToFile(source, out);
+            return Uri.fromFile(out);
+        }
+    }
+
+    private void copyFileToUri(File source, Uri uri) throws Exception {
+        InputStream in = null;
+        OutputStream out = null;
+        try {
+            in = new FileInputStream(source);
+            out = getContentResolver().openOutputStream(uri, "w");
+            if (out == null) throw new Exception("Output folder tidak tersedia");
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                out.write(buffer, 0, read);
+            }
+            out.flush();
+        } finally {
+            try { if (in != null) in.close(); } catch (Exception ignored) {}
+            try { if (out != null) out.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private void copyFileToFile(File source, File target) throws Exception {
+        InputStream in = null;
+        OutputStream out = null;
+        try {
+            in = new FileInputStream(source);
+            out = new FileOutputStream(target);
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = in.read(buffer)) != -1) out.write(buffer, 0, read);
+            out.flush();
+        } finally {
+            try { if (in != null) in.close(); } catch (Exception ignored) {}
+            try { if (out != null) out.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private String getMimeTypeForName(String fileName) {
+        try {
+            String ext = MimeTypeMap.getFileExtensionFromUrl(fileName);
+            if (ext != null && ext.length() > 0) {
+                String mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext.toLowerCase(Locale.US));
+                if (mime != null) return mime;
+            }
+        } catch (Exception ignored) {}
+        return "application/octet-stream";
     }
 
     private void failDownload(DownloadItem item, String reason) {
@@ -4839,7 +5126,7 @@ content.addView(space(dp(36)));
         synchronized (downloadItems) {
             for (DownloadItem item : downloadItems) {
                 if (item.status.equals("completed") || item.status.equals("failed") || item.status.equals("paused") || item.status.equals("running")) {
-                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason) + "|" + encode(item.categoryHint) + "|" + item.part1Start + "|" + item.part1End + "|" + item.part1Done + "|" + item.part2Start + "|" + item.part2End + "|" + item.part2Done);
+                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason) + "|" + encode(item.categoryHint) + "|" + item.part1Start + "|" + item.part1End + "|" + item.part1Done + "|" + item.part2Start + "|" + item.part2End + "|" + item.part2Done + "|" + encode(item.publicUri));
                 }
             }
         }
@@ -4879,6 +5166,7 @@ content.addView(space(dp(36)));
                             try { item.part2End = Long.parseLong(parts[17]); } catch (Exception ignored) {}
                             try { item.part2Done = Long.parseLong(parts[18]); } catch (Exception ignored) {}
                         }
+                        if (parts.length >= 20) item.publicUri = decode(parts[19]);
                         if ("running".equals(item.status)) {
                             item.status = "paused";
                             item.speedBytesPerSecond = 0;
@@ -6294,6 +6582,7 @@ content.addView(space(dp(36)));
         videoSpeed = p.getFloat("videoSpeed", 1.0f);
         selectedVideoQuality = p.getString("selectedVideoQuality", "Auto");
         downloadSubfolder = p.getString("downloadSubfolder", "Download");
+        selectedDownloadTreeUri = p.getString("selectedDownloadTreeUri", "");
         topIconReload = p.getBoolean("topIconReload", true);
         topIconBookmark = p.getBoolean("topIconBookmark", true);
         topIconTranslate = p.getBoolean("topIconTranslate", true);
@@ -6362,6 +6651,7 @@ content.addView(space(dp(36)));
                 .putFloat("videoSpeed", videoSpeed)
                 .putString("selectedVideoQuality", selectedVideoQuality)
                 .putString("downloadSubfolder", downloadSubfolder)
+                .putString("selectedDownloadTreeUri", selectedDownloadTreeUri)
                 .putBoolean("topIconReload", topIconReload)
                 .putBoolean("topIconBookmark", topIconBookmark)
                 .putBoolean("topIconTranslate", topIconTranslate)
