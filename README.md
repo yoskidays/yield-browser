@@ -337,3 +337,16 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Fix compile error pada dynamic 2/4 koneksi.
 - Variabel `total`, `connections`, dan output file dibuat final copy sebelum dipakai di lambda thread.
 - Fitur v0.8.3 tetap dipertahankan.
+
+
+## v0.8.5
+- Merapikan dialog Folder unduhan:
+  - tombol reset dibuat 2 baris agar teks `DOWNLOAD/YIELD BROWSER` tidak kepotong.
+  - button dark dialog dibuat lebih fleksibel untuk teks panjang.
+- AdBlock YouTube diperbaiki:
+  - endpoint internal YouTube/GoogleVideo tidak diblokir agar video awal tidak blank.
+  - cosmetic adblock YouTube dibuat lebih aman dan tidak menyentuh class `.ad-showing`.
+  - skip/hide iklan YouTube tetap dicoba lewat JavaScript ringan.
+- Cleanup source:
+  - menghapus method `speedGraph()` dan field `speedHistory` yang sudah tidak dipakai di UI.
+  - label `Real-time speed graph` diganti menjadi `Real-time speed`.

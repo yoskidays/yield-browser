@@ -244,7 +244,6 @@ public class MainActivity extends Activity {
         String publicUri = "";
         int retryCount = 0;
         boolean hlsDownload = false;
-        ArrayList<Double> speedHistory = new ArrayList<>();
         long part1Start = 0;
         long part1End = 0;
         long part1Done = 0;
@@ -1354,7 +1353,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.8.4";
+        return "0.8.5";
     }
 
     private void showAboutYieldDialog() {
@@ -1968,7 +1967,7 @@ private void showDownloadSettingsPanel() {
         box.addView(advancedInfoRow("Smart resume"));
         box.addView(advancedInfoRow("Auto detect video file"));
         box.addView(advancedInfoRow("Auto rename file"));
-        box.addView(advancedInfoRow("Real-time speed graph"));
+        box.addView(advancedInfoRow("Real-time speed"));
 
         TextView limiter = darkDialogActionButton("SPEED LIMITER: " + (downloadSpeedLimitKBps > 0 ? downloadSpeedLimitKBps + " KB/s" : "OFF"));
         limiter.setOnClickListener(v -> showSpeedLimiterDialog(dialog, parentDialog));
@@ -3579,7 +3578,11 @@ private void showDownloadSettingsPanel() {
         });
         box.addView(choose, new LinearLayout.LayoutParams(-1, dp(46)));
 
-        TextView reset = darkDialogActionButton("RESET KE DEFAULT DOWNLOAD/YIELD BROWSER");
+        TextView reset = darkDialogActionButton("RESET DEFAULT\nDOWNLOAD/YIELD BROWSER");
+        reset.setTextSize(12);
+        reset.setSingleLine(false);
+        reset.setMaxLines(2);
+        reset.setLineSpacing(0, 0.92f);
         reset.setOnClickListener(v -> {
             String value = input.getText().toString().trim();
             if (value.length() == 0) value = "Download";
@@ -3594,7 +3597,7 @@ private void showDownloadSettingsPanel() {
                 showDownloadSettingsPanel();
             }
         });
-        box.addView(reset, new LinearLayout.LayoutParams(-1, dp(46)));
+        box.addView(reset, new LinearLayout.LayoutParams(-1, dp(62)));
 
         LinearLayout bottom = new LinearLayout(this);
         bottom.setGravity(Gravity.END);
@@ -3641,7 +3644,10 @@ private void showDownloadSettingsPanel() {
         btn.setTextSize(13);
         btn.setTypeface(Typeface.DEFAULT_BOLD);
         btn.setGravity(Gravity.CENTER);
-        btn.setPadding(dp(12), dp(10), dp(12), dp(10));
+        btn.setSingleLine(false);
+        btn.setMaxLines(2);
+        btn.setLineSpacing(0, 0.95f);
+        btn.setPadding(dp(12), dp(8), dp(12), dp(8));
         btn.setBackground(roundRect(Color.parseColor("#343740"), dp(14), dp(1), COLOR_BORDER));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(46));
         lp.setMargins(0, dp(6), 0, 0);
@@ -4356,10 +4362,6 @@ private void showDownloadSettingsPanel() {
         if (delta < 0) delta = 0;
 
         item.speedBytesPerSecond = (delta * 1000.0) / Math.max(1, elapsed);
-        try {
-            item.speedHistory.add(item.speedBytesPerSecond);
-            while (item.speedHistory.size() > 12) item.speedHistory.remove(0);
-        } catch (Exception ignored) {}
         item.lastSpeedTimeMs = now;
         item.lastSpeedBytes = currentBytes;
     }
@@ -4373,26 +4375,6 @@ private void showDownloadSettingsPanel() {
             return String.format(java.util.Locale.US, "%.1f KB/s", bytesPerSecond / 1024.0).replace(".0", "");
         }
         return String.format(java.util.Locale.US, "%.0f B/s", bytesPerSecond);
-    }
-
-    private String speedGraph(DownloadItem item) {
-        try {
-            if (item == null || item.speedHistory == null || item.speedHistory.isEmpty()) return "▁▁▁▁";
-            double max = 1;
-            for (Double value : item.speedHistory) if (value != null && value > max) max = value;
-            String[] bars = new String[]{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"};
-            StringBuilder sb = new StringBuilder();
-            for (Double value : item.speedHistory) {
-                double v = value == null ? 0 : value;
-                int idx = (int) Math.round((v / max) * (bars.length - 1));
-                if (idx < 0) idx = 0;
-                if (idx >= bars.length) idx = bars.length - 1;
-                sb.append(bars[idx]);
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            return "▁▁▁▁";
-        }
     }
 
     private String readableFileSize(long size) {
@@ -6778,6 +6760,19 @@ private void showDownloadSettingsPanel() {
         return u.contains("phishing") || u.contains("malware") || u.contains("virus") || u.contains("scam");
     }
 
+    private boolean isYoutubeCoreUrl(String url) {
+        if (url == null) return false;
+        String u = url.toLowerCase(Locale.US);
+        return u.contains("youtube.com/")
+                || u.contains("m.youtube.com/")
+                || u.contains("www.youtube.com/")
+                || u.contains("youtu.be/")
+                || u.contains("youtubei/v1/")
+                || u.contains("ytimg.com/")
+                || u.contains("ggpht.com/")
+                || u.contains("googlevideo.com/");
+    }
+
     private boolean isMediaResourceUrl(String url) {
         if (url == null) return false;
         String u = url.toLowerCase(Locale.US);
@@ -6805,6 +6800,7 @@ private void showDownloadSettingsPanel() {
         String u = url.toLowerCase(Locale.US);
 
         if (isMediaResourceUrl(u)) return false;
+        if (isYoutubeCoreUrl(u)) return false;
 
         String[] blocked = new String[]{
                 "doubleclick.net",
@@ -6854,15 +6850,9 @@ private void showDownloadSettingsPanel() {
     }
 
     private boolean isYoutubeAdUrl(String u) {
-        return u.contains("youtube.com/pagead/")
-                || u.contains("youtube.com/api/stats/ads")
-                || u.contains("youtube.com/get_midroll_info")
-                || u.contains("youtube.com/ptracking")
-                || u.contains("youtube.com/pcs/activeview")
-                || u.contains("youtube.com/youtubei/v1/log_event")
-                || u.contains("youtube.com/youtubei/v1/player/ad_break")
-                || u.contains("youtube.com/youtubei/v1/ad")
-                || (u.contains("googlevideo.com/videoplayback") && (u.contains("oad=") || u.contains("ctier=") || u.contains("oad=1")));
+        // Jangan blokir endpoint internal YouTube/GoogleVideo karena bisa membuat video awal gagal load.
+        // Iklan YouTube ditangani lewat cosmetic JS skip/hide yang lebih aman.
+        return false;
     }
 
     private boolean isPopUnderOrAdAsset(String u) {
@@ -6886,21 +6876,25 @@ private void showDownloadSettingsPanel() {
         String js = "javascript:(function(){"
                 + "if(window.__yieldAdBlockPremium)return;window.__yieldAdBlockPremium=true;"
                 + "function hide(s){try{document.querySelectorAll(s).forEach(function(e){e.style.setProperty('display','none','important');e.remove&&e.remove();});}catch(x){}}"
+                + "function clickSkip(){try{document.querySelectorAll('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button').forEach(function(b){b.click();});}catch(e){}}"
                 + "function clean(){"
-                + "var selectors=["
-                + "'.adsbygoogle','iframe[id*=ad]','iframe[src*=ads]','iframe[src*=doubleclick]',"
-                + "'[id*=ad-]','[id^=ad_]','[class*=ad-]','[class*=ads-]','[class*=advert]',"
+                + "var host=(location.hostname||'').toLowerCase();"
+                + "var isYT=host.indexOf('youtube.com')>-1||host.indexOf('youtu.be')>-1;"
+                + "var selectors=isYT?["
                 + "'ytd-display-ad-renderer','ytd-promoted-video-renderer','ytd-ad-slot-renderer','ytd-companion-slot-renderer',"
                 + "'ytd-banner-promo-renderer','ytd-in-feed-ad-layout-renderer','ytd-promoted-sparkles-web-renderer',"
-                + "'.ytp-ad-module','.video-ads','.ytp-ad-overlay-container','.ytp-ad-player-overlay','.ytp-ad-text','.ytp-ad-image-overlay',"
-                + "'.ytp-ad-skip-button-container','.ytp-ad-preview-container','.ytp-ad-progress-list','.ytp-ad-player-overlay-layout',"
-                + "'.GoogleActiveViewElement','.ad-showing'];"
+                + "'.ytp-ad-module','.ytp-ad-overlay-container','.ytp-ad-text','.ytp-ad-image-overlay',"
+                + "'.ytp-ad-skip-button-container','.ytp-ad-preview-container','.ytp-ad-progress-list','.GoogleActiveViewElement'"
+                + "]:["
+                + "'.adsbygoogle','iframe[id*=ad]','iframe[src*=ads]','iframe[src*=doubleclick]',"
+                + "'[id*=ad-]','[id^=ad_]','[class*=ad-]','[class*=ads-]','[class*=advert]',"
+                + "'.GoogleActiveViewElement','.ad-banner','.ad-container','.advertisement','.sponsored'"
+                + "];"
                 + "selectors.forEach(hide);"
-                + "try{document.querySelectorAll('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button').forEach(function(b){b.click();});}catch(e){}"
-                + "try{var v=document.querySelector('video');if(v&&document.querySelector('.ad-showing')){v.muted=true;if(isFinite(v.duration)&&v.duration>0)v.currentTime=v.duration;}}catch(e){}"
+                + "if(isYT)clickSkip();"
                 + "try{document.body.style.setProperty('overflow','auto','important');}catch(e){}"
                 + "}"
-                + "clean();setInterval(clean,700);"
+                + "clean();setInterval(clean,1200);"
                 + "})();";
         webView.loadUrl(js);
     }
