@@ -124,6 +124,7 @@ public class MainActivity extends Activity {
     private ProgressBar progressBar;
     private WebView webView;
     private ScrollView homeScroll;
+    private ImageButton reloadButton;
     private ImageButton bookmarkButton;
     private ImageButton translateButton;
     private View topBarView;
@@ -151,6 +152,7 @@ public class MainActivity extends Activity {
     private boolean translateEnabled = false;
     private boolean hideGoogleTranslateBar = true;
     private String lastTranslateOriginalUrl = "";
+    private boolean compatibleTranslateActive = false;
     private boolean speedMode = false;
     private boolean safeMode = true;
     private boolean nightMode = true;
@@ -177,6 +179,9 @@ public class MainActivity extends Activity {
     private boolean shortcutVideoControls = false;
     private float videoSpeed = 1.0f;
     private String downloadSubfolder = "Download";
+    private boolean topIconReload = true;
+    private boolean topIconBookmark = true;
+    private boolean topIconTranslate = true;
 
     private final ArrayList<DownloadItem> downloadItems = new ArrayList<>();
     private final ArrayList<ShortcutItemData> shortcutsData = new ArrayList<>();
@@ -270,6 +275,26 @@ public class MainActivity extends Activity {
             this.title = title;
             this.url = url;
             this.privateTab = privateTab;
+        }
+    }
+
+    private class TranslateBridge {
+        @JavascriptInterface
+        public void translateText(int index, String text) {
+            if (text == null) return;
+            final String clean = text.trim();
+            if (clean.length() < 2 || clean.length() > 450) return;
+
+            new Thread(() -> {
+                String translated = translateTextViaGoogle(clean);
+                if (translated == null || translated.trim().length() == 0) return;
+                runOnUiThread(() -> applyCompatibleTranslation(index, translated));
+            }).start();
+        }
+
+        @JavascriptInterface
+        public void onCollected(int count) {
+            runOnUiThread(() -> Toast.makeText(MainActivity.this, "Translate kompatibel berjalan: " + count + " teks", Toast.LENGTH_SHORT).show());
         }
     }
 
@@ -416,8 +441,15 @@ public class MainActivity extends Activity {
         });
         bar.addView(addressBar, new LinearLayout.LayoutParams(0, -2, 1));
 
+        reloadButton = smallTopIcon(R.drawable.ic_refresh, "Reload website", v -> reloadCurrentWebsite());
+        LinearLayout.LayoutParams reloadParams = new LinearLayout.LayoutParams(dp(30), dp(30));
+        reloadParams.setMargins(dp(2), 0, 0, 0);
+        bar.addView(reloadButton, reloadParams);
+
         bookmarkButton = smallTopIcon(R.drawable.ic_star, "Bookmark", v -> toggleBookmark());
-        bar.addView(bookmarkButton, new LinearLayout.LayoutParams(dp(30), dp(30)));
+        LinearLayout.LayoutParams bookmarkParams = new LinearLayout.LayoutParams(dp(30), dp(30));
+        bookmarkParams.setMargins(dp(2), 0, 0, 0);
+        bar.addView(bookmarkButton, bookmarkParams);
 
         translateButton = smallTopIcon(R.drawable.ic_translate, "Translate", v -> toggleTranslate());
         LinearLayout.LayoutParams translateParams = new LinearLayout.LayoutParams(dp(30), dp(30));
@@ -1573,6 +1605,30 @@ content.addView(space(dp(36)));
 
         panel.addView(header);
 
+        TextView topSub = new TextView(this);
+        topSub.setText("Icon atas");
+        topSub.setTextColor(COLOR_SUBTEXT);
+        topSub.setTextSize(16);
+        topSub.setTypeface(Typeface.DEFAULT_BOLD);
+        topSub.setPadding(dp(8), 0, 0, dp(12));
+        panel.addView(topSub);
+
+        panel.addView(customizeToggleRow(R.drawable.ic_refresh, "Reload di address bar", topIconReload, v -> {
+            topIconReload = !topIconReload;
+            saveSettings();
+            updateTopActionStates();
+        }));
+        panel.addView(customizeToggleRow(R.drawable.ic_bookmark, "Bookmark di address bar", topIconBookmark, v -> {
+            topIconBookmark = !topIconBookmark;
+            saveSettings();
+            updateTopActionStates();
+        }));
+        panel.addView(customizeToggleRow(R.drawable.ic_translate, "Translate di address bar", topIconTranslate, v -> {
+            topIconTranslate = !topIconTranslate;
+            saveSettings();
+            updateTopActionStates();
+        }));
+
         TextView sub = new TextView(this);
         sub.setText("Menu utama");
         sub.setTextColor(COLOR_SUBTEXT);
@@ -1581,18 +1637,18 @@ content.addView(space(dp(36)));
         sub.setPadding(dp(8), 0, 0, dp(12));
         panel.addView(sub);
 
-        panel.addView(customizeToggleRow(R.drawable.ic_download_modern, "Unduhan Yield", shortcutDownload, v -> { shortcutDownload = !shortcutDownload; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_bookmark, "Bookmark", shortcutBookmark, v -> { shortcutBookmark = !shortcutBookmark; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_private, "Privat", shortcutPrivate, v -> { shortcutPrivate = !shortcutPrivate; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_shield, "AdBlock Premium", shortcutAdBlock, v -> { shortcutAdBlock = !shortcutAdBlock; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_reader, "Reader / Novel Mode", shortcutReader, v -> { shortcutReader = !shortcutReader; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_night, "Night Mode", shortcutNightMode, v -> { shortcutNightMode = !shortcutNightMode; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_qr_scan, "Pindai QR Code", shortcutQrScan, v -> { shortcutQrScan = !shortcutQrScan; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_history, "Riwayat", shortcutHistory, v -> { shortcutHistory = !shortcutHistory; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_find_page, "Cari di halaman", shortcutFindPage, v -> { shortcutFindPage = !shortcutFindPage; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_share, "Bagikan halaman", shortcutShare, v -> { shortcutShare = !shortcutShare; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_fullscreen, "Layar penuh", shortcutFullscreen, v -> { shortcutFullscreen = !shortcutFullscreen; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_video_control, "Kontrol video", shortcutVideoControls, v -> { shortcutVideoControls = !shortcutVideoControls; saveSettings(); dialog.dismiss(); showCustomizeMenuPanel(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_download_modern, "Unduhan Yield", shortcutDownload, v -> { shortcutDownload = !shortcutDownload; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_bookmark, "Bookmark", shortcutBookmark, v -> { shortcutBookmark = !shortcutBookmark; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_private, "Privat", shortcutPrivate, v -> { shortcutPrivate = !shortcutPrivate; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_shield, "AdBlock Premium", shortcutAdBlock, v -> { shortcutAdBlock = !shortcutAdBlock; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_reader, "Reader / Novel Mode", shortcutReader, v -> { shortcutReader = !shortcutReader; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_night, "Night Mode", shortcutNightMode, v -> { shortcutNightMode = !shortcutNightMode; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_qr_scan, "Pindai QR Code", shortcutQrScan, v -> { shortcutQrScan = !shortcutQrScan; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_history, "Riwayat", shortcutHistory, v -> { shortcutHistory = !shortcutHistory; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_find_page, "Cari di halaman", shortcutFindPage, v -> { shortcutFindPage = !shortcutFindPage; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_share, "Bagikan halaman", shortcutShare, v -> { shortcutShare = !shortcutShare; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_fullscreen, "Layar penuh", shortcutFullscreen, v -> { shortcutFullscreen = !shortcutFullscreen; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_video_control, "Kontrol video", shortcutVideoControls, v -> { shortcutVideoControls = !shortcutVideoControls; saveSettings(); }));
 
         TextView fixed = new TextView(this);
         fixed.setText("Tetap tampil");
@@ -2773,7 +2829,6 @@ content.addView(space(dp(36)));
         save.setOnClickListener(v -> {
             textZoom = selectedZoom[0];
             applyBrowserSettings();
-        webView.addJavascriptInterface(new VideoBridge(), "YieldVideoBridge");
             saveSettings();
             Toast.makeText(this, "Ukuran teks: " + textZoom + "%", Toast.LENGTH_SHORT).show();
             dialog.dismiss();
@@ -2844,7 +2899,6 @@ content.addView(space(dp(36)));
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(14), dp(12), dp(14), dp(12));
         row.setBackground(roundRect(Color.parseColor("#383A3E"), dp(10), 0, Color.TRANSPARENT));
-        row.setOnClickListener(listener);
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, dp(70));
         rowParams.setMargins(0, 0, 0, dp(6));
         row.setLayoutParams(rowParams);
@@ -2852,60 +2906,34 @@ content.addView(space(dp(36)));
         ImageView icon = new ImageView(this);
         icon.setImageResource(iconRes);
         icon.setColorFilter(Color.parseColor("#E7E8EA"));
-        row.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
 
         TextView text = new TextView(this);
         text.setText(label);
         text.setTextColor(Color.WHITE);
-        text.setTextSize(17);
+        text.setTextSize(16);
+        text.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1);
-        textParams.setMargins(dp(18), 0, dp(12), 0);
+        textParams.setMargins(dp(14), 0, dp(8), 0);
         row.addView(text, textParams);
 
-        TextView toggle = new TextView(this);
-        toggle.setText(enabled ? "ON" : "OFF");
-        toggle.setTextColor(Color.WHITE);
-        toggle.setGravity(Gravity.CENTER);
-        toggle.setTypeface(Typeface.DEFAULT_BOLD);
-        toggle.setTextSize(12);
-        toggle.setBackground(roundRect(enabled ? Color.parseColor("#FF715C") : Color.parseColor("#5A5D63"), dp(18), 0, Color.TRANSPARENT));
-        row.addView(toggle, new LinearLayout.LayoutParams(dp(58), dp(34)));
+        TextView status = new TextView(this);
+        final boolean[] current = new boolean[]{enabled};
+        status.setText(current[0] ? "ON" : "OFF");
+        status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
+        status.setTypeface(Typeface.DEFAULT_BOLD);
+        status.setTextSize(12);
+        status.setGravity(Gravity.CENTER);
+        status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
+        row.addView(status, new LinearLayout.LayoutParams(dp(46), dp(28)));
 
-        return row;
-    }
-
-    private View fixedMenuRow(int iconRes, String label) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        row.setBackground(roundRect(Color.parseColor("#303236"), dp(10), 0, Color.TRANSPARENT));
-        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, dp(64));
-        rowParams.setMargins(0, 0, 0, dp(6));
-        row.setLayoutParams(rowParams);
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
-        icon.setColorFilter(Color.parseColor("#E7E8EA"));
-        row.addView(icon, new LinearLayout.LayoutParams(dp(26), dp(26)));
-
-        TextView text = new TextView(this);
-        text.setText(label);
-        text.setTextColor(Color.WHITE);
-        text.setTextSize(17);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1);
-        textParams.setMargins(dp(18), 0, dp(12), 0);
-        row.addView(text, textParams);
-
-        TextView fixed = new TextView(this);
-        fixed.setText("Tetap");
-        fixed.setTextColor(COLOR_SUBTEXT);
-        fixed.setGravity(Gravity.CENTER);
-        fixed.setTypeface(Typeface.DEFAULT_BOLD);
-        fixed.setTextSize(12);
-        fixed.setBackground(roundRect(Color.parseColor("#24262B"), dp(18), dp(1), COLOR_BORDER));
-        row.addView(fixed, new LinearLayout.LayoutParams(dp(58), dp(34)));
-
+        row.setOnClickListener(v -> {
+            if (listener != null) listener.onClick(v);
+            current[0] = !current[0];
+            status.setText(current[0] ? "ON" : "OFF");
+            status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
+            status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
+        });
         return row;
     }
 
@@ -4587,7 +4615,8 @@ content.addView(space(dp(36)));
         String original = getOriginalForTranslate(current);
 
         ArrayList<String> options = new ArrayList<>();
-        options.add("Terjemahkan halaman ke Indonesia");
+        options.add("Terjemahkan halaman ke Indonesia (kompatibel)");
+        options.add("Google Translate proxy (lama)");
         options.add(hideGoogleTranslateBar ? "Tampilkan bar Google Translate" : "Sembunyikan bar Google Translate");
         options.add("Terjemahkan teks halaman saja");
         options.add("Reload website");
@@ -4607,6 +4636,16 @@ content.addView(space(dp(36)));
                             return;
                         }
                         translateEnabled = true;
+                        compatibleTranslateActive = true;
+                        lastTranslateOriginalUrl = original;
+                        translatePageCompatible();
+                    } else if (selected.startsWith("Google Translate proxy")) {
+                        if (original == null || original.length() == 0) {
+                            Toast.makeText(this, "Buka website dulu untuk translate", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        translateEnabled = true;
+                        compatibleTranslateActive = false;
                         lastTranslateOriginalUrl = original;
                         loadTranslatedPage(original);
                     } else if (selected.startsWith("Tampilkan bar")) {
@@ -4628,6 +4667,8 @@ content.addView(space(dp(36)));
                         Toast.makeText(this, "Klik menu website diaktifkan", Toast.LENGTH_SHORT).show();
                     } else if (selected.startsWith("Matikan")) {
                         translateEnabled = false;
+                        compatibleTranslateActive = false;
+                        clearCompatibleTranslationMarks();
                         updateTopActionStates();
                         String raw = getOriginalForTranslate(current);
                         if ((raw == null || raw.length() == 0) && lastTranslateOriginalUrl.length() > 0) raw = lastTranslateOriginalUrl;
@@ -4663,9 +4704,134 @@ content.addView(space(dp(36)));
         return lower.contains("translate.google.") || lower.contains(".translate.goog") || lower.contains("_x_tr_sl=");
     }
 
+    private void detectTranslateProxyBlocked(String url) {
+        if (!isGoogleTranslatedUrl(url) || webView == null) return;
+        try {
+            webView.evaluateJavascript("(function(){var t=(document.body&&document.body.innerText?document.body.innerText:'').toLowerCase();return t.indexOf('aku bukan robot')>-1||t.indexOf('not a robot')>-1||t.indexOf('captcha')>-1||t.indexOf('verify')>-1;})()", value -> {
+                if ("true".equals(value)) {
+                    Toast.makeText(this, "Website menolak Google Translate. Beralih ke mode kompatibel.", Toast.LENGTH_LONG).show();
+                    String raw = lastTranslateOriginalUrl != null && lastTranslateOriginalUrl.length() > 0 ? lastTranslateOriginalUrl : getOriginalForTranslate(url);
+                    if (raw != null && raw.length() > 0) {
+                        compatibleTranslateActive = true;
+                        webView.loadUrl(raw);
+                        mainHandler.postDelayed(this::translatePageCompatible, 1800);
+                    }
+                }
+            });
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void translatePageCompatible() {
+        if (webView == null || webView.getVisibility() != View.VISIBLE) {
+            Toast.makeText(this, "Buka website dulu untuk translate kompatibel", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String js =
+                "javascript:(function(){"
+                        + "try{"
+                        + "if(window.__yieldCompatibleTranslateRunning)return;"
+                        + "window.__yieldCompatibleTranslateRunning=true;"
+                        + "window.__yieldTextNodes=[];"
+                        + "function skip(n){"
+                        + " var p=n.parentNode;if(!p)return true;"
+                        + " var tag=(p.nodeName||'').toLowerCase();"
+                        + " if(['script','style','noscript','textarea','input','select','option','code','pre'].indexOf(tag)>=0)return true;"
+                        + " if(p.closest&&p.closest('[contenteditable=true],.notranslate,#yield-hide-translate-bar'))return true;"
+                        + " return false;"
+                        + "}"
+                        + "var walker=document.createTreeWalker(document.body||document.documentElement,NodeFilter.SHOW_TEXT,{acceptNode:function(n){"
+                        + " if(skip(n))return NodeFilter.FILTER_REJECT;"
+                        + " var t=(n.nodeValue||'').replace(/\\s+/g,' ').trim();"
+                        + " if(t.length<3||t.length>420)return NodeFilter.FILTER_REJECT;"
+                        + " if(/^[-–—→\\s\\d.,:;!?'\"()\\[\\]{}]+$/.test(t))return NodeFilter.FILTER_REJECT;"
+                        + " return NodeFilter.FILTER_ACCEPT;"
+                        + "}},false);"
+                        + "var node;var max=90;var i=0;"
+                        + "window.__yieldApplyTranslation=function(idx,text){try{var n=window.__yieldTextNodes[idx];if(n&&text){if(!n.__yieldOriginal)n.__yieldOriginal=n.nodeValue;n.nodeValue=text;}}catch(e){}};"
+                        + "while((node=walker.nextNode())&&i<max){"
+                        + " var text=(node.nodeValue||'').replace(/\\s+/g,' ').trim();"
+                        + " window.__yieldTextNodes.push(node);"
+                        + " try{YieldTranslateBridge.translateText(i,text);}catch(e){}"
+                        + " i++;"
+                        + "}"
+                        + "try{YieldTranslateBridge.onCollected(i);}catch(e){}"
+                        + "}catch(e){alert('Translate kompatibel gagal: '+e.message);}"
+                        + "})()";
+        try {
+            webView.loadUrl(js);
+            Toast.makeText(this, "Translate kompatibel aktif", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Translate kompatibel gagal", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void clearCompatibleTranslationMarks() {
+        if (webView == null) return;
+        String js =
+                "javascript:(function(){"
+                        + "try{"
+                        + "if(window.__yieldTextNodes){for(var i=0;i<window.__yieldTextNodes.length;i++){var n=window.__yieldTextNodes[i];if(n&&n.__yieldOriginal){n.nodeValue=n.__yieldOriginal;}}}"
+                        + "window.__yieldCompatibleTranslateRunning=false;"
+                        + "}catch(e){}"
+                        + "})()";
+        try {
+            webView.loadUrl(js);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void applyCompatibleTranslation(int index, String translated) {
+        if (webView == null) return;
+        try {
+            String js = "javascript:(function(){try{if(window.__yieldApplyTranslation)window.__yieldApplyTranslation("
+                    + index + "," + org.json.JSONObject.quote(translated) + ");}catch(e){}})()";
+            webView.loadUrl(js);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String translateTextViaGoogle(String text) {
+        HttpURLConnection conn = null;
+        try {
+            String q = URLEncoder.encode(text, "UTF-8");
+            URL url = new URL("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=id&dt=t&q=" + q);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(10000);
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 YieldBrowser");
+            conn.setRequestProperty("Accept", "application/json,text/plain,*/*");
+
+            InputStream in = conn.getInputStream();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) response.append(line);
+            reader.close();
+
+            org.json.JSONArray root = new org.json.JSONArray(response.toString());
+            org.json.JSONArray sentences = root.getJSONArray(0);
+            StringBuilder out = new StringBuilder();
+            for (int i = 0; i < sentences.length(); i++) {
+                org.json.JSONArray part = sentences.getJSONArray(i);
+                out.append(part.optString(0, ""));
+            }
+            String result = out.toString().trim();
+            return result.length() > 0 ? result : text;
+        } catch (Exception e) {
+            return text;
+        } finally {
+            if (conn != null) {
+                try { conn.disconnect(); } catch (Exception ignored) {}
+            }
+        }
+    }
+
     private void loadTranslatedPage(String originalUrl) {
         if (originalUrl == null || originalUrl.length() == 0) return;
         try {
+            compatibleTranslateActive = false;
             lastTranslateOriginalUrl = originalUrl;
             String encoded = URLEncoder.encode(originalUrl, "UTF-8");
             webView.loadUrl("https://translate.google.com/translate?sl=auto&tl=id&u=" + encoded);
@@ -4778,6 +4944,8 @@ content.addView(space(dp(36)));
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
         applyBrowserSettings();
+        webView.addJavascriptInterface(new VideoBridge(), "YieldVideoBridge");
+        webView.addJavascriptInterface(new TranslateBridge(), "YieldTranslateBridge");
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             beginDownloadFromWeb(url, contentDisposition, mimeType, userAgent);
         });
@@ -4819,12 +4987,16 @@ content.addView(space(dp(36)));
                 videoControlsManualHidden = false;
                 injectVideoPlaybackWatcher();
                 applyNightModeToWebPage();
+                detectTranslateProxyBlocked(url);
                 if (hideGoogleTranslateBar && isGoogleTranslatedUrl(url)) {
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 250);
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 800);
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 1800);
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 3500);
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 6000);
+                }
+                if (compatibleTranslateActive && !isGoogleTranslatedUrl(url)) {
+                    mainHandler.postDelayed(this::translatePageCompatible, 600);
                 }
                 updateTopActionStates();
             }
@@ -5482,12 +5654,20 @@ content.addView(space(dp(36)));
     }
 
     private void updateTopActionStates() {
+        if (reloadButton != null) {
+            reloadButton.setVisibility(topIconReload ? View.VISIBLE : View.GONE);
+            reloadButton.setColorFilter(Color.parseColor("#E9EDF5"));
+        }
         if (bookmarkButton != null) {
+            bookmarkButton.setVisibility(topIconBookmark ? View.VISIBLE : View.GONE);
             String url = getEffectiveCurrentUrl();
             boolean bookmarked = url != null && getBookmarks().contains(url);
             bookmarkButton.setColorFilter(bookmarked ? COLOR_ACCENT : Color.parseColor("#E9EDF5"));
         }
-        if (translateButton != null) translateButton.setColorFilter(translateEnabled ? COLOR_ACCENT : Color.parseColor("#E9EDF5"));
+        if (translateButton != null) {
+            translateButton.setVisibility(topIconTranslate ? View.VISIBLE : View.GONE);
+            translateButton.setColorFilter(translateEnabled ? COLOR_ACCENT : Color.parseColor("#E9EDF5"));
+        }
     }
 
     private String getEffectiveCurrentUrl() {
@@ -5640,6 +5820,9 @@ content.addView(space(dp(36)));
         shortcutVideoControls = p.getBoolean("shortcutVideoControls", false);
         videoSpeed = p.getFloat("videoSpeed", 1.0f);
         downloadSubfolder = p.getString("downloadSubfolder", "Download");
+        topIconReload = p.getBoolean("topIconReload", true);
+        topIconBookmark = p.getBoolean("topIconBookmark", true);
+        topIconTranslate = p.getBoolean("topIconTranslate", true);
         searchEngine = p.getString("searchEngine", "Google");
 
         if (!p.getBoolean("menuDefaultsV030", false)) {
@@ -5702,6 +5885,9 @@ content.addView(space(dp(36)));
                 .putBoolean("shortcutVideoControls", shortcutVideoControls)
                 .putFloat("videoSpeed", videoSpeed)
                 .putString("downloadSubfolder", downloadSubfolder)
+                .putBoolean("topIconReload", topIconReload)
+                .putBoolean("topIconBookmark", topIconBookmark)
+                .putBoolean("topIconTranslate", topIconTranslate)
                 .putString("searchEngine", searchEngine)
                 .putBoolean("menuDefaultsV030", true)
                 .apply();

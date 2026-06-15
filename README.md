@@ -166,3 +166,23 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Menghapus tulisan info di Home:
   `Download langsung berjalan saat tombol unduh ditekan. Detail ada di Menu > Unduhan Yield.`
 - Tampilan Home dibuat lebih bersih.
+
+
+## v0.6.7
+- Translate dibuat lebih kompatibel untuk website yang menolak Google Translate proxy.
+- Opsi utama `Terjemahkan halaman ke Indonesia` sekarang memakai Mode Translate Kompatibel:
+  - tetap membuka website asli
+  - menerjemahkan teks langsung di halaman
+  - tidak memakai domain `.translate.goog`, sehingga lebih kecil kemungkinan kena anti-bot.
+- Opsi `Google Translate proxy (lama)` tetap tersedia.
+- Jika halaman proxy menampilkan captcha/`Aku bukan robot`, browser mencoba kembali ke website asli dan menjalankan Mode Translate Kompatibel.
+
+
+## v0.6.8
+- Menambahkan ikon Reload website di address bar, posisinya sebelum Bookmark.
+- Tiga ikon atas bisa diatur ON/OFF:
+  - Reload
+  - Bookmark
+  - Translate
+- Pengaturan ikon atas ada di `Sesuaikan menu` bagian `Icon atas`.
+- Toggle di panel `Sesuaikan menu` tidak lagi menutup dan membuka ulang panel.
