@@ -331,3 +331,9 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Item fungsi aktif dibuat lebih bersih dengan ikon centang.
 - Jarak antar item dan tinggi card diperbaiki.
 - Tombol ON/OFF dibuat lebih rapi.
+
+
+## v0.8.4
+- Fix compile error pada dynamic 2/4 koneksi.
+- Variabel `total`, `connections`, dan output file dibuat final copy sebelum dipakai di lambda thread.
+- Fitur v0.8.3 tetap dipertahankan.

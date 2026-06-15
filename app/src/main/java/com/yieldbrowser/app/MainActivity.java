@@ -1354,7 +1354,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.8.3";
+        return "0.8.4";
     }
 
     private void showAboutYieldDialog() {
@@ -5094,16 +5094,20 @@ private void showDownloadSettingsPanel() {
                 refreshDownloadPanel();
                 showDownloadNotification(item, connections + " koneksi", true);
 
-                long chunk = total / connections;
-                long[] done = new long[]{0};
-                boolean[] ok = new boolean[]{true};
+                final long finalTotal = total;
+                final int finalConnections = connections;
+                final File finalOutFile = outRef[0];
+
+                long chunk = finalTotal / finalConnections;
+                final long[] done = new long[]{0};
+                final boolean[] ok = new boolean[]{true};
                 ArrayList<Thread> threads = new ArrayList<>();
 
-                for (int i = 0; i < connections; i++) {
+                for (int i = 0; i < finalConnections; i++) {
                     final int part = i + 1;
                     final long start = i * chunk;
-                    final long end = i == connections - 1 ? total - 1 : ((i + 1) * chunk) - 1;
-                    Thread t = new Thread(() -> downloadRangeDynamic(item, outRef[0], start, end, done, total, ok, part, connections));
+                    final long end = i == finalConnections - 1 ? finalTotal - 1 : ((i + 1) * chunk) - 1;
+                    Thread t = new Thread(() -> downloadRangeDynamic(item, finalOutFile, start, end, done, finalTotal, ok, part, finalConnections));
                     threads.add(t);
                     t.start();
                 }
