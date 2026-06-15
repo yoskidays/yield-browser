@@ -1,14 +1,29 @@
-# Yield Browser v0.1.9 Top Bar Simplify
+# Yield Browser v0.2.0 UC-style Settings + Yield Downloader
 
-Update ini merapikan bagian top bar.
+Update ini memasukkan menu-menu ala UC ke dalam **Setelan** sesuai arahan.
 
-## Perubahan v0.1.9
+## Perubahan v0.2.0
 
-- Menghapus icon panah/download dari top bar atas.
-- Menyisakan search, bookmark, translate, dan menu.
-- Fitur bookmark dan translate dari v0.1.8 tetap dipertahankan.
-- UI home dan bottom navigation tetap sama.
+- Posisi menu utama Yield tetap dipertahankan.
+- Fitur ala UC dimasukkan ke **Menu > Setelan**.
+- Tidak memasukkan fitur cloud/sync.
+- Menu Setelan berisi:
+  - Mode cepat
+  - Safe browsing
+  - Night mode
+  - Reader / novel mode
+  - Ad block sederhana
+  - Hemat data
+  - Desktop mode
+  - Ukuran teks
+  - Bersihkan cache
+  - Download manager Yield
+- Download manager Yield memakai konsep **2 koneksi paralel** menggunakan HTTP Range.
+- Jika server tidak mendukung Range, otomatis fallback ke 1 koneksi.
+- Icon fitur baru dibuat sebagai drawable/vector modern.
 
-## Catatan
+## Catatan penting
 
-Fitur download manager 2 koneksi masih belum diaktifkan pada versi ini.
+Fitur download 2 koneksi bekerja optimal kalau server mendukung `Accept-Ranges` / HTTP Range.
+File tersimpan di folder app external files:
+`Android/data/com.yieldbrowser.install/files/Download`

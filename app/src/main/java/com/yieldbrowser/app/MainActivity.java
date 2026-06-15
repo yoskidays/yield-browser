@@ -1,7 +1,9 @@
+
 package com.yieldbrowser.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -9,6 +11,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Environment;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -16,7 +19,11 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
+import android.webkit.DownloadListener;
+import android.webkit.URLUtil;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -31,7 +38,13 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.RandomAccessFile;
+import java.net.HttpURLConnection;
 import java.net.URLEncoder;
+import java.net.URL;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -42,6 +55,7 @@ public class MainActivity extends Activity {
     private static final int COLOR_TEXT = Color.parseColor("#F5F7FA");
     private static final int COLOR_SUBTEXT = Color.parseColor("#B7BDC8");
     private static final int COLOR_ACCENT = Color.parseColor("#F39A22");
+    private static final int COLOR_ON = Color.parseColor("#22C55E");
     private static final String PREFS = "yield_browser_prefs";
     private static final String KEY_BOOKMARKS = "bookmarks";
 
@@ -52,13 +66,23 @@ public class MainActivity extends Activity {
     private ImageButton bookmarkButton;
     private ImageButton translateButton;
     private int tabCount = 1;
+
     private boolean translateEnabled = false;
-    private String currentOriginalUrl = null;
+    private boolean speedMode = false;
+    private boolean safeMode = true;
+    private boolean nightMode = true;
+    private boolean readerMode = false;
+    private boolean adBlock = false;
+    private boolean dataSaver = false;
+    private boolean desktopMode = false;
+    private int textZoom = 100;
+    private String lastDownloadInfo = "Belum ada unduhan.";
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        loadSettings();
         getWindow().setStatusBarColor(COLOR_BG);
 
         LinearLayout root = new LinearLayout(this);
@@ -127,8 +151,7 @@ public class MainActivity extends Activity {
             }
             return false;
         });
-        LinearLayout.LayoutParams addressParams = new LinearLayout.LayoutParams(0, -2, 1);
-        bar.addView(addressBar, addressParams);
+        bar.addView(addressBar, new LinearLayout.LayoutParams(0, -2, 1));
 
         bookmarkButton = smallTopIcon(R.drawable.ic_star, "Bookmark", v -> toggleBookmark());
         bar.addView(bookmarkButton, new LinearLayout.LayoutParams(dp(30), dp(30)));
@@ -186,8 +209,7 @@ public class MainActivity extends Activity {
         searchHint.setText("Telusuri atau ketik URL");
         searchHint.setTextColor(Color.parseColor("#9BA2AE"));
         searchHint.setTextSize(16);
-        LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(0, -2, 1);
-        searchCard.addView(searchHint, hintParams);
+        searchCard.addView(searchHint, new LinearLayout.LayoutParams(0, -2, 1));
 
         TextView searchButton = new TextView(this);
         searchButton.setText("Cari");
@@ -234,7 +256,7 @@ public class MainActivity extends Activity {
         content.addView(space(dp(28)));
 
         TextView more = new TextView(this);
-        more.setText("Tambahkan shortcut favorit atau mulai mencari dari kolom di atas.");
+        more.setText("Fitur UC-style tersedia di Menu > Setelan. Download memakai engine Yield 2 koneksi.");
         more.setTextColor(COLOR_SUBTEXT);
         more.setTextSize(14);
         content.addView(more);
@@ -242,7 +264,7 @@ public class MainActivity extends Activity {
         content.addView(space(dp(36)));
 
         TextView footer = new TextView(this);
-        footer.setText("Yield Browser • Home awal mirip browser modern");
+        footer.setText("Yield Browser • Home modern + IDM-style downloader");
         footer.setTextColor(Color.parseColor("#808794"));
         footer.setTextSize(13);
         content.addView(footer);
@@ -266,8 +288,7 @@ public class MainActivity extends Activity {
         circle.setTextSize(16);
         circle.setGravity(Gravity.CENTER);
         circle.setBackground(roundRect(badgeColor, dp(22), dp(1), Color.parseColor("#31353C")));
-        LinearLayout.LayoutParams circleParams = new LinearLayout.LayoutParams(dp(60), dp(60));
-        item.addView(circle, circleParams);
+        item.addView(circle, new LinearLayout.LayoutParams(dp(60), dp(60)));
 
         TextView text = new TextView(this);
         text.setText(label);
@@ -286,10 +307,6 @@ public class MainActivity extends Activity {
                 openAddressBarUrl();
             }
         });
-        item.setOnLongClickListener(v -> {
-            Toast.makeText(this, "Edit shortcut: " + label, Toast.LENGTH_SHORT).show();
-            return true;
-        });
         return item;
     }
 
@@ -301,7 +318,7 @@ public class MainActivity extends Activity {
         nav.setBackgroundColor(Color.parseColor("#090A0D"));
 
         nav.addView(bottomNavButton(R.drawable.ic_home, "Home", v -> showHome()));
-        nav.addView(bottomNavButton(R.drawable.ic_bookmark, "Bookmark", v -> Toast.makeText(this, "Bookmark akan disiapkan di update berikutnya", Toast.LENGTH_SHORT).show()));
+        nav.addView(bottomNavButton(R.drawable.ic_bookmark, "Bookmark", v -> showBookmarkList()));
         nav.addView(bottomNavButton(R.drawable.ic_search, "Search", v -> addressBar.requestFocus()));
         nav.addView(tabsNavButton(v -> Toast.makeText(this, "Jumlah tab: " + tabCount, Toast.LENGTH_SHORT).show()));
         nav.addView(bottomNavButton(R.drawable.ic_menu_more, "Menu", v -> showQuickMenu()));
@@ -314,8 +331,7 @@ public class MainActivity extends Activity {
         item.setGravity(Gravity.CENTER);
         item.setOnClickListener(listener);
         item.setContentDescription(description);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1);
-        item.setLayoutParams(params);
+        item.setLayoutParams(new LinearLayout.LayoutParams(0, -1, 1));
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(iconRes);
@@ -330,12 +346,10 @@ public class MainActivity extends Activity {
         item.setGravity(Gravity.CENTER);
         item.setOnClickListener(listener);
         item.setContentDescription("Tabs");
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, 1);
-        item.setLayoutParams(params);
+        item.setLayoutParams(new LinearLayout.LayoutParams(0, -1, 1));
 
         FrameLayout box = new FrameLayout(this);
-        LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(dp(24), dp(24));
-        item.addView(box, boxParams);
+        item.addView(box, new LinearLayout.LayoutParams(dp(24), dp(24)));
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_tabs);
@@ -349,125 +363,7 @@ public class MainActivity extends Activity {
         count.setTypeface(Typeface.DEFAULT_BOLD);
         count.setGravity(Gravity.CENTER);
         box.addView(count, new FrameLayout.LayoutParams(-1, -1));
-
         return item;
-    }
-
-    private void toggleBookmark() {
-        String url = getEffectiveCurrentUrl();
-        if (url == null || url.length() == 0) {
-            Toast.makeText(this, "Belum ada situs untuk dibookmark", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        Set<String> bookmarks = getBookmarks();
-        if (bookmarks.contains(url)) {
-            bookmarks.remove(url);
-            saveBookmarks(bookmarks);
-            Toast.makeText(this, "Bookmark dihapus", Toast.LENGTH_SHORT).show();
-        } else {
-            bookmarks.add(url);
-            saveBookmarks(bookmarks);
-            Toast.makeText(this, "Situs ditambahkan ke bookmark", Toast.LENGTH_SHORT).show();
-        }
-        updateTopActionStates();
-    }
-
-    private void toggleTranslate() {
-        translateEnabled = !translateEnabled;
-        updateTopActionStates();
-
-        if (webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, translateEnabled ? "Mode translate aktif" : "Mode translate nonaktif", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        if (translateEnabled) {
-            currentOriginalUrl = extractOriginalUrl(webView.getUrl());
-            loadTranslatedPage(currentOriginalUrl);
-            Toast.makeText(this, "Translate aktif", Toast.LENGTH_SHORT).show();
-        } else {
-            String raw = extractOriginalUrl(webView.getUrl());
-            if (raw != null && raw.length() > 0) {
-                webView.loadUrl(raw);
-            }
-            Toast.makeText(this, "Translate nonaktif", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void loadTranslatedPage(String originalUrl) {
-        if (originalUrl == null || originalUrl.length() == 0) return;
-        try {
-            String encoded = URLEncoder.encode(originalUrl, "UTF-8");
-            String translateUrl = "https://translate.google.com/translate?sl=auto&tl=id&u=" + encoded;
-            webView.loadUrl(translateUrl);
-        } catch (Exception e) {
-            webView.loadUrl(originalUrl);
-        }
-    }
-
-    private void updateTopActionStates() {
-        if (bookmarkButton != null) {
-            boolean bookmarked = false;
-            String effectiveUrl = getEffectiveCurrentUrl();
-            if (effectiveUrl != null) {
-                bookmarked = getBookmarks().contains(effectiveUrl);
-            }
-            bookmarkButton.setColorFilter(bookmarked ? COLOR_ACCENT : Color.parseColor("#E9EDF5"));
-        }
-        if (translateButton != null) {
-            translateButton.setColorFilter(translateEnabled ? COLOR_ACCENT : Color.parseColor("#E9EDF5"));
-        }
-    }
-
-    private String getEffectiveCurrentUrl() {
-        if (webView != null && webView.getVisibility() == View.VISIBLE) {
-            String raw = extractOriginalUrl(webView.getUrl());
-            if (raw != null && raw.length() > 0) return raw;
-        }
-        String text = addressBar != null ? addressBar.getText().toString().trim() : "";
-        if (text.length() == 0) return null;
-        return normalizeInputToUrl(text);
-    }
-
-    private String normalizeInputToUrl(String text) {
-        if (text == null) return null;
-        text = text.trim();
-        if (text.length() == 0) return null;
-        if (text.startsWith("https://translate.google.com/translate")) {
-            return extractOriginalUrl(text);
-        }
-        if (text.startsWith("http://") || text.startsWith("https://")) {
-            return text;
-        }
-        if (text.contains(".") && !text.contains(" ")) {
-            return "https://" + text;
-        }
-        return null;
-    }
-
-    private String extractOriginalUrl(String url) {
-        if (url == null) return null;
-        if (url.startsWith("https://translate.google.com/translate") || url.startsWith("http://translate.google.com/translate")) {
-            int idx = url.indexOf("&u=");
-            if (idx != -1) {
-                String original = url.substring(idx + 3);
-                return original.replace("%3A", ":").replace("%2F", "/").replace("%3F", "?").replace("%3D", "=").replace("%26", "&");
-            }
-        }
-        return url;
-    }
-
-    private Set<String> getBookmarks() {
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        Set<String> saved = prefs.getStringSet(KEY_BOOKMARKS, new HashSet<>());
-        return new HashSet<>(saved);
-    }
-
-    private void saveBookmarks(Set<String> bookmarks) {
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-                .edit()
-                .putStringSet(KEY_BOOKMARKS, new HashSet<>(bookmarks))
-                .apply();
     }
 
     private void showQuickMenu() {
@@ -479,25 +375,21 @@ public class MainActivity extends Activity {
         menu.setPadding(dp(12), dp(12), dp(12), dp(12));
         menu.setBackground(roundRect(Color.parseColor("#171A20"), dp(24), dp(1), Color.parseColor("#2D333D")));
 
-        menu.addView(menuRow(R.drawable.ic_download, "Unduhan", v -> {
+        menu.addView(menuRow(R.drawable.ic_download_modern, "Unduhan Yield", v -> {
             dialog.dismiss();
-            Toast.makeText(this, "Unduhan akan diaktifkan bersama fitur download manager", Toast.LENGTH_SHORT).show();
+            showDownloadManager();
         }));
         menu.addView(menuRow(R.drawable.ic_bookmark, "Bookmark", v -> {
             dialog.dismiss();
-            Toast.makeText(this, "Daftar bookmark akan dibuat di update berikutnya", Toast.LENGTH_SHORT).show();
+            showBookmarkList();
         }));
         menu.addView(menuRow(R.drawable.ic_private, "Privat", v -> {
             dialog.dismiss();
             Toast.makeText(this, "Mode privat placeholder", Toast.LENGTH_SHORT).show();
         }));
-        menu.addView(menuRow(R.drawable.ic_shield, "Ad Block", v -> {
-            dialog.dismiss();
-            Toast.makeText(this, "Ad Block placeholder", Toast.LENGTH_SHORT).show();
-        }));
         menu.addView(menuRow(R.drawable.ic_settings, "Setelan", v -> {
             dialog.dismiss();
-            Toast.makeText(this, "Setelan placeholder", Toast.LENGTH_SHORT).show();
+            showSettingsPanel();
         }));
         menu.addView(menuRow(R.drawable.ic_customize, "Sesuaikan menu", v -> {
             dialog.dismiss();
@@ -515,13 +407,176 @@ public class MainActivity extends Activity {
             window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams lp = window.getAttributes();
             lp.gravity = Gravity.BOTTOM | Gravity.END;
-            lp.width = dp(280);
+            lp.width = dp(292);
             lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
             lp.x = dp(12);
             lp.y = dp(76);
             window.setAttributes(lp);
         }
         dialog.show();
+    }
+
+    private void showSettingsPanel() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(14), dp(16), dp(14), dp(16));
+        panel.setBackground(roundRect(Color.parseColor("#171A20"), dp(24), dp(1), Color.parseColor("#2D333D")));
+        scroll.addView(panel);
+
+        TextView title = new TextView(this);
+        title.setText("Setelan Yield");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(22);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setPadding(dp(8), 0, 0, dp(8));
+        panel.addView(title);
+
+        TextView hint = new TextView(this);
+        hint.setText("Fitur ala UC tanpa cloud/sync. Semua fitur utama diatur dari sini.");
+        hint.setTextColor(COLOR_SUBTEXT);
+        hint.setTextSize(13);
+        hint.setPadding(dp(8), 0, dp(8), dp(12));
+        panel.addView(hint);
+
+        panel.addView(settingRow(R.drawable.ic_speed, "Mode cepat", "Optimasi cache, gambar, dan resource.", speedMode, v -> {
+            speedMode = !speedMode;
+            applyBrowserSettings();
+            saveSettings();
+            dialog.dismiss();
+            showSettingsPanel();
+        }));
+        panel.addView(settingRow(R.drawable.ic_safe, "Safe browsing", "Blokir URL berisiko sederhana.", safeMode, v -> {
+            safeMode = !safeMode;
+            saveSettings();
+            dialog.dismiss();
+            showSettingsPanel();
+        }));
+        panel.addView(settingRow(R.drawable.ic_night, "Night mode", "Tampilan gelap untuk home dan menu.", nightMode, v -> {
+            nightMode = !nightMode;
+            saveSettings();
+            Toast.makeText(this, "Night mode akan penuh di versi UI berikutnya", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+            showSettingsPanel();
+        }));
+        panel.addView(settingRow(R.drawable.ic_reader, "Reader / novel mode", "Mode baca ringan untuk artikel.", readerMode, v -> {
+            readerMode = !readerMode;
+            saveSettings();
+            Toast.makeText(this, readerMode ? "Reader mode aktif" : "Reader mode nonaktif", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+            showSettingsPanel();
+        }));
+        panel.addView(settingRow(R.drawable.ic_shield, "Ad block", "Filter iklan sederhana berbasis URL.", adBlock, v -> {
+            adBlock = !adBlock;
+            saveSettings();
+            Toast.makeText(this, adBlock ? "Ad block aktif" : "Ad block nonaktif", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+            showSettingsPanel();
+        }));
+        panel.addView(settingRow(R.drawable.ic_data_saver, "Hemat data", "Matikan gambar otomatis saat browsing.", dataSaver, v -> {
+            dataSaver = !dataSaver;
+            applyBrowserSettings();
+            saveSettings();
+            dialog.dismiss();
+            showSettingsPanel();
+        }));
+        panel.addView(settingRow(R.drawable.ic_desktop, "Desktop mode", "Ganti user agent ke desktop.", desktopMode, v -> {
+            desktopMode = !desktopMode;
+            applyBrowserSettings();
+            saveSettings();
+            if (webView != null && webView.getVisibility() == View.VISIBLE) webView.reload();
+            dialog.dismiss();
+            showSettingsPanel();
+        }));
+        panel.addView(actionRow(R.drawable.ic_text_size, "Ukuran teks: " + textZoom + "%", "Ketuk untuk menaikkan 10%, maksimal 150%.", v -> {
+            textZoom += 10;
+            if (textZoom > 150) textZoom = 80;
+            applyBrowserSettings();
+            saveSettings();
+            dialog.dismiss();
+            showSettingsPanel();
+        }));
+        panel.addView(actionRow(R.drawable.ic_clear, "Bersihkan cache", "Hapus cache WebView.", v -> {
+            if (webView != null) webView.clearCache(true);
+            Toast.makeText(this, "Cache dibersihkan", Toast.LENGTH_SHORT).show();
+        }));
+        panel.addView(actionRow(R.drawable.ic_download_modern, "Download manager Yield", "Engine 2 koneksi paralel seperti IDM.", v -> {
+            dialog.dismiss();
+            showDownloadManager();
+        }));
+
+        dialog.setContentView(scroll);
+        if (dialog.getWindow() != null) {
+            Window window = dialog.getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.gravity = Gravity.BOTTOM;
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT;
+            lp.height = (int) (getResources().getDisplayMetrics().heightPixels * 0.78f);
+            window.setAttributes(lp);
+        }
+        dialog.show();
+    }
+
+    private View settingRow(int iconRes, String title, String desc, boolean enabled, View.OnClickListener listener) {
+        LinearLayout row = baseSettingsRow(iconRes, title, desc, listener);
+        TextView status = new TextView(this);
+        status.setText(enabled ? "ON" : "OFF");
+        status.setTextColor(enabled ? COLOR_ON : COLOR_SUBTEXT);
+        status.setTypeface(Typeface.DEFAULT_BOLD);
+        status.setTextSize(12);
+        status.setGravity(Gravity.CENTER);
+        status.setBackground(roundRect(enabled ? Color.parseColor("#15351F") : Color.parseColor("#2A2E36"), dp(12), dp(1), enabled ? COLOR_ON : COLOR_BORDER));
+        row.addView(status, new LinearLayout.LayoutParams(dp(46), dp(28)));
+        return row;
+    }
+
+    private View actionRow(int iconRes, String title, String desc, View.OnClickListener listener) {
+        LinearLayout row = baseSettingsRow(iconRes, title, desc, listener);
+        ImageView arrow = new ImageView(this);
+        arrow.setImageResource(R.drawable.ic_forward);
+        arrow.setColorFilter(COLOR_SUBTEXT);
+        row.addView(arrow, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        return row;
+    }
+
+    private LinearLayout baseSettingsRow(int iconRes, String title, String desc, View.OnClickListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(11), dp(10), dp(11));
+        row.setOnClickListener(listener);
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconRes);
+        icon.setColorFilter(Color.parseColor("#F3F5F8"));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
+
+        LinearLayout textBox = new LinearLayout(this);
+        textBox.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams textBoxParams = new LinearLayout.LayoutParams(0, -2, 1);
+        textBoxParams.setMargins(dp(14), 0, dp(8), 0);
+
+        TextView titleView = new TextView(this);
+        titleView.setText(title);
+        titleView.setTextColor(Color.WHITE);
+        titleView.setTextSize(16);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        textBox.addView(titleView);
+
+        TextView descView = new TextView(this);
+        descView.setText(desc);
+        descView.setTextColor(COLOR_SUBTEXT);
+        descView.setTextSize(12);
+        LinearLayout.LayoutParams descParams = new LinearLayout.LayoutParams(-1, -2);
+        descParams.setMargins(0, dp(3), 0, 0);
+        textBox.addView(descView, descParams);
+
+        row.addView(textBox, textBoxParams);
+        return row;
     }
 
     private View menuRow(int iconRes, String label, View.OnClickListener listener) {
@@ -543,40 +598,297 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
         textParams.setMargins(dp(18), 0, 0, 0);
         row.addView(text, textParams);
-
         return row;
     }
 
-    private ImageButton smallTopIcon(int iconRes, String desc, View.OnClickListener listener) {
-        ImageButton button = new ImageButton(this);
-        button.setImageResource(iconRes);
-        button.setColorFilter(Color.parseColor("#E9EDF5"));
-        button.setBackgroundColor(Color.TRANSPARENT);
-        button.setPadding(dp(4), dp(4), dp(4), dp(4));
-        button.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        button.setContentDescription(desc);
-        button.setOnClickListener(listener);
-        return button;
+    private void showDownloadManager() {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(18), dp(18), dp(18), dp(18));
+        panel.setBackground(roundRect(Color.parseColor("#171A20"), dp(24), dp(1), Color.parseColor("#2D333D")));
+
+        TextView title = new TextView(this);
+        title.setText("Unduhan Yield");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(22);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        panel.addView(title);
+
+        TextView desc = new TextView(this);
+        desc.setText("Download manager internal dengan 2 koneksi paralel. File disimpan di folder Android/data/com.yieldbrowser.install/files/Download.");
+        desc.setTextColor(COLOR_SUBTEXT);
+        desc.setTextSize(13);
+        desc.setPadding(0, dp(8), 0, dp(12));
+        panel.addView(desc);
+
+        EditText urlInput = new EditText(this);
+        urlInput.setSingleLine(false);
+        urlInput.setMinLines(2);
+        urlInput.setTextColor(COLOR_TEXT);
+        urlInput.setHintTextColor(COLOR_SUBTEXT);
+        urlInput.setHint("Tempel URL file di sini");
+        urlInput.setText(webView != null && webView.getVisibility() == View.VISIBLE ? webView.getUrl() : "");
+        urlInput.setBackground(roundRect(Color.parseColor("#101217"), dp(14), dp(1), COLOR_BORDER));
+        urlInput.setPadding(dp(12), dp(8), dp(12), dp(8));
+        panel.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(86)));
+
+        TextView start = new TextView(this);
+        start.setText("Mulai Download 2 Koneksi");
+        start.setTextColor(Color.parseColor("#111111"));
+        start.setTextSize(16);
+        start.setTypeface(Typeface.DEFAULT_BOLD);
+        start.setGravity(Gravity.CENTER);
+        start.setBackground(roundRect(COLOR_ACCENT, dp(20), 0, Color.TRANSPARENT));
+        LinearLayout.LayoutParams startParams = new LinearLayout.LayoutParams(-1, dp(48));
+        startParams.setMargins(0, dp(12), 0, dp(10));
+        panel.addView(start, startParams);
+
+        TextView info = new TextView(this);
+        info.setText(lastDownloadInfo);
+        info.setTextColor(COLOR_SUBTEXT);
+        info.setTextSize(13);
+        panel.addView(info);
+
+        start.setOnClickListener(v -> {
+            String url = urlInput.getText().toString().trim();
+            if (url.length() == 0 || !(url.startsWith("http://") || url.startsWith("https://"))) {
+                Toast.makeText(this, "URL file tidak valid", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            lastDownloadInfo = "Memulai unduhan 2 koneksi...";
+            info.setText(lastDownloadInfo);
+            startTwoConnectionDownload(url, info);
+        });
+
+        dialog.setContentView(panel);
+        if (dialog.getWindow() != null) {
+            Window window = dialog.getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.gravity = Gravity.BOTTOM;
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT;
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            window.setAttributes(lp);
+        }
+        dialog.show();
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    private void startTwoConnectionDownload(String fileUrl, TextView info) {
+        new Thread(() -> {
+            try {
+                URL url = new URL(fileUrl);
+                HttpURLConnection head = (HttpURLConnection) url.openConnection();
+                head.setRequestMethod("GET");
+                head.setRequestProperty("Range", "bytes=0-0");
+                head.connect();
+
+                String fileName = URLUtil.guessFileName(fileUrl, null, null);
+                if (fileName == null || fileName.trim().length() == 0) fileName = "yield_download.bin";
+
+                File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                if (dir == null) dir = getFilesDir();
+                if (!dir.exists()) dir.mkdirs();
+
+                File out = new File(dir, fileName);
+                int response = head.getResponseCode();
+                String contentRange = head.getHeaderField("Content-Range");
+                long total = parseTotalSize(contentRange);
+
+                if (response == 206 && total > 1) {
+                    head.disconnect();
+                    long mid = total / 2;
+                    RandomAccessFile raf = new RandomAccessFile(out, "rw");
+                    raf.setLength(total);
+                    raf.close();
+
+                    long[] done = new long[]{0};
+                    Thread t1 = new Thread(() -> downloadRange(fileUrl, out, 0, mid, done, total, info));
+                    Thread t2 = new Thread(() -> downloadRange(fileUrl, out, mid + 1, total - 1, done, total, info));
+                    t1.start();
+                    t2.start();
+                    t1.join();
+                    t2.join();
+
+                    lastDownloadInfo = "Selesai: " + out.getAbsolutePath();
+                    runOnUiThread(() -> info.setText(lastDownloadInfo));
+                } else {
+                    head.disconnect();
+                    downloadSingle(fileUrl, out, info);
+                }
+            } catch (Exception e) {
+                lastDownloadInfo = "Gagal: " + e.getMessage();
+                runOnUiThread(() -> info.setText(lastDownloadInfo));
+            }
+        }).start();
+    }
+
+    private void downloadRange(String fileUrl, File out, long start, long end, long[] done, long total, TextView info) {
+        try {
+            HttpURLConnection conn = (HttpURLConnection) new URL(fileUrl).openConnection();
+            conn.setRequestProperty("Range", "bytes=" + start + "-" + end);
+            conn.connect();
+
+            InputStream in = conn.getInputStream();
+            RandomAccessFile raf = new RandomAccessFile(out, "rw");
+            raf.seek(start);
+
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = in.read(buffer)) != -1) {
+                raf.write(buffer, 0, len);
+                synchronized (done) {
+                    done[0] += len;
+                    int percent = (int) Math.min(100, (done[0] * 100) / total);
+                    runOnUiThread(() -> info.setText("Mengunduh 2 koneksi... " + percent + "%"));
+                }
+            }
+            raf.close();
+            in.close();
+            conn.disconnect();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void downloadSingle(String fileUrl, File out, TextView info) {
+        try {
+            HttpURLConnection conn = (HttpURLConnection) new URL(fileUrl).openConnection();
+            conn.connect();
+            long total = conn.getContentLengthLong();
+            InputStream in = conn.getInputStream();
+            FileOutputStream fos = new FileOutputStream(out);
+            byte[] buffer = new byte[8192];
+            int len;
+            long done = 0;
+            while ((len = in.read(buffer)) != -1) {
+                fos.write(buffer, 0, len);
+                done += len;
+                if (total > 0) {
+                    int percent = (int) Math.min(100, (done * 100) / total);
+                    runOnUiThread(() -> info.setText("Server tidak support range. Mengunduh 1 koneksi... " + percent + "%"));
+                }
+            }
+            fos.close();
+            in.close();
+            conn.disconnect();
+
+            lastDownloadInfo = "Selesai: " + out.getAbsolutePath();
+            runOnUiThread(() -> info.setText(lastDownloadInfo));
+        } catch (Exception e) {
+            lastDownloadInfo = "Gagal: " + e.getMessage();
+            runOnUiThread(() -> info.setText(lastDownloadInfo));
+        }
+    }
+
+    private long parseTotalSize(String contentRange) {
+        try {
+            if (contentRange == null) return -1;
+            int slash = contentRange.lastIndexOf('/');
+            if (slash == -1) return -1;
+            return Long.parseLong(contentRange.substring(slash + 1).trim());
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private void toggleBookmark() {
+        String url = getEffectiveCurrentUrl();
+        if (url == null || url.length() == 0) {
+            Toast.makeText(this, "Belum ada situs untuk dibookmark", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Set<String> bookmarks = getBookmarks();
+        if (bookmarks.contains(url)) {
+            bookmarks.remove(url);
+            saveBookmarks(bookmarks);
+            Toast.makeText(this, "Bookmark dihapus", Toast.LENGTH_SHORT).show();
+        } else {
+            bookmarks.add(url);
+            saveBookmarks(bookmarks);
+            Toast.makeText(this, "Situs ditambahkan ke bookmark", Toast.LENGTH_SHORT).show();
+        }
+        updateTopActionStates();
+    }
+
+    private void showBookmarkList() {
+        Set<String> bookmarks = getBookmarks();
+        if (bookmarks.isEmpty()) {
+            Toast.makeText(this, "Bookmark masih kosong", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] items = bookmarks.toArray(new String[0]);
+        new AlertDialog.Builder(this)
+                .setTitle("Bookmark")
+                .setItems(items, (dialog, which) -> {
+                    addressBar.setText(items[which]);
+                    openAddressBarUrl();
+                })
+                .setNegativeButton("Tutup", null)
+                .show();
+    }
+
+    private void toggleTranslate() {
+        translateEnabled = !translateEnabled;
+        updateTopActionStates();
+        if (webView.getVisibility() != View.VISIBLE) {
+            Toast.makeText(this, translateEnabled ? "Mode translate aktif" : "Mode translate nonaktif", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String raw = extractOriginalUrl(webView.getUrl());
+        if (translateEnabled) {
+            loadTranslatedPage(raw);
+            Toast.makeText(this, "Translate aktif", Toast.LENGTH_SHORT).show();
+        } else {
+            if (raw != null && raw.length() > 0) webView.loadUrl(raw);
+            Toast.makeText(this, "Translate nonaktif", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void loadTranslatedPage(String originalUrl) {
+        if (originalUrl == null || originalUrl.length() == 0) return;
+        try {
+            String encoded = URLEncoder.encode(originalUrl, "UTF-8");
+            webView.loadUrl("https://translate.google.com/translate?sl=auto&tl=id&u=" + encoded);
+        } catch (Exception e) {
+            webView.loadUrl(originalUrl);
+        }
+    }
+
     private void configureWebView() {
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-        settings.setBuiltInZoomControls(true);
-        settings.setDisplayZoomControls(false);
-        settings.setSupportZoom(true);
-        settings.setDatabaseEnabled(true);
+        applyBrowserSettings();
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
+            lastDownloadInfo = "Terdeteksi file: " + URLUtil.guessFileName(url, contentDisposition, mimeType);
+            showDownloadManagerWithUrl(url);
+        });
 
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String u = request.getUrl().toString();
+                if (safeMode && isUnsafeUrl(u)) {
+                    Toast.makeText(MainActivity.this, "Diblokir Safe Browsing sederhana", Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+                return false;
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                String u = request.getUrl().toString().toLowerCase();
+                if (adBlock && isAdUrl(u)) {
+                    return new WebResourceResponse("text/plain", "utf-8", null);
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 String shownUrl = extractOriginalUrl(url);
                 addressBar.setText(shownUrl != null ? shownUrl : url);
                 progressBar.setVisibility(View.GONE);
+                if (readerMode) injectReaderMode();
                 updateTopActionStates();
             }
         });
@@ -588,6 +900,49 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
             }
         });
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void applyBrowserSettings() {
+        if (webView == null) return;
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        settings.setBuiltInZoomControls(true);
+        settings.setDisplayZoomControls(false);
+        settings.setSupportZoom(true);
+        settings.setDatabaseEnabled(true);
+        settings.setCacheMode(speedMode ? WebSettings.LOAD_CACHE_ELSE_NETWORK : WebSettings.LOAD_DEFAULT);
+        settings.setLoadsImagesAutomatically(!dataSaver);
+        settings.setTextZoom(textZoom);
+
+        if (desktopMode) {
+            settings.setUserAgentString("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36 YieldBrowser");
+        } else {
+            settings.setUserAgentString(null);
+        }
+    }
+
+    private void showDownloadManagerWithUrl(String url) {
+        showDownloadManager();
+        Toast.makeText(this, "Buka Unduhan Yield, URL file sudah bisa ditempel otomatis di versi berikutnya.", Toast.LENGTH_LONG).show();
+        lastDownloadInfo = "URL file: " + url;
+    }
+
+    private boolean isUnsafeUrl(String url) {
+        String u = url.toLowerCase();
+        return u.contains("phishing") || u.contains("malware") || u.contains("virus") || u.contains("scam");
+    }
+
+    private boolean isAdUrl(String url) {
+        return url.contains("doubleclick") || url.contains("googlesyndication") || url.contains("/ads") || url.contains("adservice") || url.contains("tracking");
+    }
+
+    private void injectReaderMode() {
+        String js = "javascript:(function(){document.body.style.maxWidth='720px';document.body.style.margin='auto';document.body.style.lineHeight='1.7';document.body.style.fontSize='18px';document.body.style.background='#111318';document.body.style.color='#F5F7FA';})()";
+        webView.loadUrl(js);
     }
 
     private void openAddressBarUrl() {
@@ -604,14 +959,10 @@ public class MainActivity extends Activity {
         } else {
             url = "https://www.google.com/search?q=" + text.replace(" ", "+");
         }
-        currentOriginalUrl = url;
         webView.setVisibility(View.VISIBLE);
         homeScroll.setVisibility(View.GONE);
-        if (translateEnabled) {
-            loadTranslatedPage(url);
-        } else {
-            webView.loadUrl(url);
-        }
+        if (translateEnabled) loadTranslatedPage(url);
+        else webView.loadUrl(url);
         updateTopActionStates();
     }
 
@@ -621,15 +972,97 @@ public class MainActivity extends Activity {
         updateTopActionStates();
     }
 
+    private void updateTopActionStates() {
+        if (bookmarkButton != null) {
+            String url = getEffectiveCurrentUrl();
+            boolean bookmarked = url != null && getBookmarks().contains(url);
+            bookmarkButton.setColorFilter(bookmarked ? COLOR_ACCENT : Color.parseColor("#E9EDF5"));
+        }
+        if (translateButton != null) {
+            translateButton.setColorFilter(translateEnabled ? COLOR_ACCENT : Color.parseColor("#E9EDF5"));
+        }
+    }
+
+    private String getEffectiveCurrentUrl() {
+        if (webView != null && webView.getVisibility() == View.VISIBLE) {
+            String raw = extractOriginalUrl(webView.getUrl());
+            if (raw != null && raw.length() > 0) return raw;
+        }
+        return normalizeInputToUrl(addressBar != null ? addressBar.getText().toString().trim() : "");
+    }
+
+    private String normalizeInputToUrl(String text) {
+        if (text == null || text.trim().length() == 0) return null;
+        text = text.trim();
+        if (text.startsWith("https://translate.google.com/translate") || text.startsWith("http://translate.google.com/translate")) return extractOriginalUrl(text);
+        if (text.startsWith("http://") || text.startsWith("https://")) return text;
+        if (text.contains(".") && !text.contains(" ")) return "https://" + text;
+        return null;
+    }
+
+    private String extractOriginalUrl(String url) {
+        if (url == null) return null;
+        if (url.startsWith("https://translate.google.com/translate") || url.startsWith("http://translate.google.com/translate")) {
+            int idx = url.indexOf("&u=");
+            if (idx != -1) {
+                return url.substring(idx + 3).replace("%3A", ":").replace("%2F", "/").replace("%3F", "?").replace("%3D", "=").replace("%26", "&");
+            }
+        }
+        return url;
+    }
+
+    private Set<String> getBookmarks() {
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        Set<String> saved = prefs.getStringSet(KEY_BOOKMARKS, new HashSet<>());
+        return new HashSet<>(saved);
+    }
+
+    private void saveBookmarks(Set<String> bookmarks) {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putStringSet(KEY_BOOKMARKS, new HashSet<>(bookmarks)).apply();
+    }
+
+    private void loadSettings() {
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        speedMode = p.getBoolean("speedMode", false);
+        safeMode = p.getBoolean("safeMode", true);
+        nightMode = p.getBoolean("nightMode", true);
+        readerMode = p.getBoolean("readerMode", false);
+        adBlock = p.getBoolean("adBlock", false);
+        dataSaver = p.getBoolean("dataSaver", false);
+        desktopMode = p.getBoolean("desktopMode", false);
+        textZoom = p.getInt("textZoom", 100);
+    }
+
+    private void saveSettings() {
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putBoolean("speedMode", speedMode)
+                .putBoolean("safeMode", safeMode)
+                .putBoolean("nightMode", nightMode)
+                .putBoolean("readerMode", readerMode)
+                .putBoolean("adBlock", adBlock)
+                .putBoolean("dataSaver", dataSaver)
+                .putBoolean("desktopMode", desktopMode)
+                .putInt("textZoom", textZoom)
+                .apply();
+    }
+
+    private ImageButton smallTopIcon(int iconRes, String desc, View.OnClickListener listener) {
+        ImageButton button = new ImageButton(this);
+        button.setImageResource(iconRes);
+        button.setColorFilter(Color.parseColor("#E9EDF5"));
+        button.setBackgroundColor(Color.TRANSPARENT);
+        button.setPadding(dp(4), dp(4), dp(4), dp(4));
+        button.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        button.setContentDescription(desc);
+        button.setOnClickListener(listener);
+        return button;
+    }
+
     @Override
     public void onBackPressed() {
-        if (webView.getVisibility() == View.VISIBLE && webView.canGoBack()) {
-            webView.goBack();
-        } else if (webView.getVisibility() == View.VISIBLE) {
-            showHome();
-        } else {
-            super.onBackPressed();
-        }
+        if (webView.getVisibility() == View.VISIBLE && webView.canGoBack()) webView.goBack();
+        else if (webView.getVisibility() == View.VISIBLE) showHome();
+        else super.onBackPressed();
     }
 
     private View space(int height) {
