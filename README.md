@@ -19,3 +19,22 @@ Update ini memperbaiki dua masalah utama.
 
 ## Catatan
 Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server/file host menolak resume, reload dari awal tetap tersedia lewat tombol **↻**.
+
+
+## v0.5.0
+- Kontrol video tidak muncul otomatis saat halaman hanya memiliki video.
+- Kontrol video baru muncul saat video benar-benar diputar.
+- Saat video pause/selesai, kontrol otomatis sembunyi.
+- Tombol X pada kontrol video hanya menyembunyikan kontrol sesi itu, bukan mematikan fitur permanen.
+- Panel Bookmark/Histori tetap memakai status bar gelap penuh.
+
+
+## v0.5.1
+- Mode Malam dibuat lengkap:
+  - OFF
+  - ON
+  - Auto ikut sistem
+  - Pengecualian per situs
+- Mode malam sekarang juga menginjeksi CSS ke halaman web agar background gelap dan teks tetap terang/terbaca.
+- Gambar, video, canvas, dan SVG tidak ikut dibuat aneh/terbalik.
+- Pengaturan pengecualian situs memakai host/domain halaman aktif.

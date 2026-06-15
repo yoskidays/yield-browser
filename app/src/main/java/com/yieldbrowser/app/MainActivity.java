@@ -19,6 +19,7 @@ import android.content.Intent;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -41,6 +42,7 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.webkit.DownloadListener;
+import android.webkit.JavascriptInterface;
 import android.webkit.CookieManager;
 import android.webkit.MimeTypeMap;
 import android.webkit.URLUtil;
@@ -107,6 +109,7 @@ public class MainActivity extends Activity {
     private static final String KEY_BOOKMARK_FOLDERS = "bookmark_folders";
     private static final String KEY_DOWNLOAD_HISTORY = "download_history";
     private static final String KEY_BROWSER_HISTORY = "browser_history";
+    private static final String KEY_NIGHT_EXCEPTIONS = "night_mode_exceptions";
     private static final String CHANNEL_DOWNLOADS = "yield_downloads";
     private static final String ACTION_OPEN_DOWNLOADS = "com.yieldbrowser.app.OPEN_DOWNLOADS";
     private static final int DOWNLOAD_CONNECTIONS_PREMIUM = 2;
@@ -126,6 +129,7 @@ public class MainActivity extends Activity {
     private View bottomNavView;
     private LinearLayout videoControlsBar;
     private TextView videoSpeedLabel;
+    private boolean videoControlsManualHidden = false;
     private TextView tabsCountText;
 
     private LinearLayout activeDownloadListPanel;
@@ -144,6 +148,8 @@ public class MainActivity extends Activity {
     private boolean speedMode = false;
     private boolean safeMode = true;
     private boolean nightMode = true;
+    private String nightModeOption = "ON";
+    private final Set<String> nightModeExceptions = new HashSet<>();
     private boolean readerMode = false;
     private boolean adBlock = false;
     private boolean dataSaver = false;
@@ -258,6 +264,25 @@ public class MainActivity extends Activity {
             this.title = title;
             this.url = url;
             this.privateTab = privateTab;
+        }
+    }
+
+    private class VideoBridge {
+        @JavascriptInterface
+        public void onVideoPlaying() {
+            runOnUiThread(() -> {
+                if (videoControlsEnabled && !videoControlsManualHidden && webView != null && webView.getVisibility() == View.VISIBLE) {
+                    if (videoControlsBar != null) videoControlsBar.setVisibility(View.VISIBLE);
+                    if (videoSpeedLabel != null) videoSpeedLabel.setText(formatVideoSpeed(videoSpeed));
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void onVideoStopped() {
+            runOnUiThread(() -> {
+                if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
+            });
         }
     }
 
@@ -1683,9 +1708,8 @@ public class MainActivity extends Activity {
         close.setTextSize(22);
         close.setGravity(Gravity.CENTER);
         close.setOnClickListener(v -> {
-            videoControlsEnabled = false;
-            saveSettings();
-            updateVideoControlsVisibility();
+            videoControlsManualHidden = true;
+            if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
             Toast.makeText(this, "Kontrol video disembunyikan", Toast.LENGTH_SHORT).show();
         });
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(34), dp(42));
@@ -1732,8 +1756,11 @@ public class MainActivity extends Activity {
 
     private void updateVideoControlsVisibility() {
         if (videoControlsBar == null) return;
-        boolean show = videoControlsEnabled && webView != null && webView.getVisibility() == View.VISIBLE;
-        videoControlsBar.setVisibility(show ? View.VISIBLE : View.GONE);
+        // Jangan muncul hanya karena halaman punya video.
+        // Kontrol baru muncul setelah JS mendeteksi video benar-benar play/playing.
+        videoControlsBar.setVisibility(View.GONE);
+        videoControlsManualHidden = false;
+        injectVideoPlaybackWatcher();
     }
 
     private void seekVideoBySeconds(int seconds) {
@@ -1780,7 +1807,33 @@ public class MainActivity extends Activity {
         Toast.makeText(this, "Speed video: " + formatVideoSpeed(videoSpeed), Toast.LENGTH_SHORT).show();
     }
 
+    private void injectVideoPlaybackWatcher() {
+        if (webView == null) return;
+        String js = "javascript:(function(){"
+                + "if(window.__yieldVideoWatcherInstalled)return;"
+                + "window.__yieldVideoWatcherInstalled=true;"
+                + "function hook(v){"
+                + " if(!v||v.__yieldHooked)return;"
+                + " v.__yieldHooked=true;"
+                + " var show=function(){try{if(window.YieldVideoBridge)YieldVideoBridge.onVideoPlaying();}catch(e){}};"
+                + " var hide=function(){try{if(window.YieldVideoBridge)YieldVideoBridge.onVideoStopped();}catch(e){}};"
+                + " v.addEventListener('play',show,true);"
+                + " v.addEventListener('playing',show,true);"
+                + " v.addEventListener('pause',hide,true);"
+                + " v.addEventListener('ended',hide,true);"
+                + " if(!v.paused&&!v.ended&&v.readyState>2)show();"
+                + "}"
+                + "function scan(){try{var vs=document.querySelectorAll('video');for(var i=0;i<vs.length;i++){hook(vs[i]);}}catch(e){}}"
+                + "scan();"
+                + "try{new MutationObserver(scan).observe(document.documentElement,{childList:true,subtree:true});}catch(e){}"
+                + "})()";
+        try {
+            webView.loadUrl(js);
+        } catch (Exception ignored) {}
+    }
+
     private void controlVideo(String action) {
+        injectVideoPlaybackWatcher();
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
             Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
             return;
@@ -1892,6 +1945,7 @@ public class MainActivity extends Activity {
 
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         dialog.setContentView(root);
+        applyDarkFullscreenDialog(dialog);
         dialog.show();
     }
 
@@ -1955,6 +2009,24 @@ public class MainActivity extends Activity {
     }
 
 
+    private void applyDarkFullscreenDialog(Dialog dialog) {
+        Window window = dialog.getWindow();
+        if (window == null) return;
+        window.setBackgroundDrawable(new ColorDrawable(COLOR_BG));
+        WindowManager.LayoutParams lp = window.getAttributes();
+        lp.width = WindowManager.LayoutParams.MATCH_PARENT;
+        lp.height = WindowManager.LayoutParams.MATCH_PARENT;
+        lp.gravity = Gravity.TOP;
+        window.setAttributes(lp);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+            window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+            window.setStatusBarColor(COLOR_BG);
+            window.setNavigationBarColor(COLOR_BG);
+        }
+    }
+
     private void showBookmarkHomePanel() {
         Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
         LinearLayout root = new LinearLayout(this);
@@ -2005,6 +2077,7 @@ public class MainActivity extends Activity {
         }
 
         dialog.setContentView(root);
+        applyDarkFullscreenDialog(dialog);
         dialog.show();
     }
 
@@ -2081,6 +2154,7 @@ public class MainActivity extends Activity {
         render.run();
 
         dialog.setContentView(root);
+        applyDarkFullscreenDialog(dialog);
         dialog.show();
     }
 
@@ -2654,6 +2728,7 @@ public class MainActivity extends Activity {
         save.setOnClickListener(v -> {
             textZoom = selectedZoom[0];
             applyBrowserSettings();
+        webView.addJavascriptInterface(new VideoBridge(), "YieldVideoBridge");
             saveSettings();
             Toast.makeText(this, "Ukuran teks: " + textZoom + "%", Toast.LENGTH_SHORT).show();
             dialog.dismiss();
@@ -4447,6 +4522,25 @@ public class MainActivity extends Activity {
         }
     }
 
+    private class VideoBridge {
+        @JavascriptInterface
+        public void onVideoPlaying() {
+            runOnUiThread(() -> {
+                if (videoControlsEnabled && !videoControlsManualHidden && webView != null && webView.getVisibility() == View.VISIBLE) {
+                    if (videoControlsBar != null) videoControlsBar.setVisibility(View.VISIBLE);
+                    if (videoSpeedLabel != null) videoSpeedLabel.setText(formatVideoSpeed(videoSpeed));
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void onVideoStopped() {
+            runOnUiThread(() -> {
+                if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
+            });
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
         applyBrowserSettings();
@@ -4488,6 +4582,9 @@ public class MainActivity extends Activity {
                 if (!currentTab.privateTab) {
                     addBrowserHistory(view.getTitle(), shownUrl != null ? shownUrl : url);
                 }
+                videoControlsManualHidden = false;
+                injectVideoPlaybackWatcher();
+                applyNightModeToWebPage();
                 updateTopActionStates();
             }
         });
@@ -4501,7 +4598,170 @@ public class MainActivity extends Activity {
         });
     }
 
+    private class VideoBridge {
+        @JavascriptInterface
+        public void onVideoPlaying() {
+            runOnUiThread(() -> {
+                if (videoControlsEnabled && !videoControlsManualHidden && webView != null && webView.getVisibility() == View.VISIBLE) {
+                    if (videoControlsBar != null) videoControlsBar.setVisibility(View.VISIBLE);
+                    if (videoSpeedLabel != null) videoSpeedLabel.setText(formatVideoSpeed(videoSpeed));
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void onVideoStopped() {
+            runOnUiThread(() -> {
+                if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
+            });
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
+    private boolean isSystemDarkMode() {
+        try {
+            int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+            return mode == Configuration.UI_MODE_NIGHT_YES;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String getCurrentHostForSettings() {
+        try {
+            String url = getEffectiveCurrentUrl();
+            if (url == null || url.length() == 0) {
+                if (webView != null && webView.getUrl() != null) url = extractOriginalUrl(webView.getUrl());
+            }
+            if (url == null || url.length() == 0) return "";
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            if (host == null) return "";
+            if (host.startsWith("www.")) host = host.substring(4);
+            return host.toLowerCase(Locale.US);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private boolean isNightModeActiveForCurrentSite() {
+        boolean active;
+        if ("OFF".equals(nightModeOption)) {
+            active = false;
+        } else if ("AUTO".equals(nightModeOption)) {
+            active = isSystemDarkMode();
+        } else {
+            active = true;
+        }
+
+        String host = getCurrentHostForSettings();
+        if (host.length() > 0 && nightModeExceptions.contains(host)) {
+            active = false;
+        }
+        return active;
+    }
+
+    private String nightModeLabel() {
+        if ("OFF".equals(nightModeOption)) return "OFF";
+        if ("AUTO".equals(nightModeOption)) return "Auto ikut sistem";
+        return "ON";
+    }
+
+    private void applyNightModeToWebPage() {
+        if (webView == null || webView.getVisibility() != View.VISIBLE) return;
+
+        boolean active = isNightModeActiveForCurrentSite();
+        String js;
+        if (active) {
+            js =
+                    "javascript:(function(){"
+                            + "try{"
+                            + "var id='yield-night-style';"
+                            + "var old=document.getElementById(id);if(old)old.remove();"
+                            + "var s=document.createElement('style');s.id=id;"
+                            + "s.innerHTML="
+                            + "'html,body{background:#0b0d10!important;color:#e8edf5!important;}' + "
+                            + "'body *:not(img):not(video):not(canvas):not(svg):not(path){background-color:transparent!important;color:#e8edf5!important;border-color:#3a404a!important;}' + "
+                            + "'article,section,main,div,header,footer,nav,aside,table,tr,td,th,ul,ol,li{background-color:#0b0d10!important;}' + "
+                            + "'p,span,b,strong,i,em,h1,h2,h3,h4,h5,h6,label,small{color:#e8edf5!important;}' + "
+                            + "'a,a *{color:#8ab4ff!important;}' + "
+                            + "'input,textarea,select,button{background:#1b1f27!important;color:#f5f7fa!important;border-color:#4b5563!important;}' + "
+                            + "'img,video,canvas,svg{filter:none!important;background:transparent!important;}' + "
+                            + "'iframe{background:#0b0d10!important;}' + "
+                            + "'::placeholder{color:#9ca3af!important;}';"
+                            + "document.head.appendChild(s);"
+                            + "document.documentElement.style.background='#0b0d10';"
+                            + "document.body.style.background='#0b0d10';"
+                            + "}catch(e){}"
+                            + "})()";
+        } else {
+            js =
+                    "javascript:(function(){"
+                            + "try{var s=document.getElementById('yield-night-style');if(s)s.remove();}"
+                            + "catch(e){}"
+                            + "})()";
+        }
+
+        try {
+            webView.loadUrl(js);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void showNightModeSettingsDialog() {
+        String[] options = new String[]{"OFF", "ON", "Auto ikut sistem"};
+        int checked = "OFF".equals(nightModeOption) ? 0 : ("AUTO".equals(nightModeOption) ? 2 : 1);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Mode Malam")
+                .setSingleChoiceItems(options, checked, (dialog, which) -> {
+                    if (which == 0) {
+                        nightModeOption = "OFF";
+                    } else if (which == 1) {
+                        nightModeOption = "ON";
+                    } else {
+                        nightModeOption = "AUTO";
+                    }
+                    nightMode = isNightModeActiveForCurrentSite();
+                    saveSettings();
+                    applyBrowserSettings();
+                    applyNightModeToWebPage();
+                    updateTopActionStates();
+                    Toast.makeText(this, "Mode Malam: " + nightModeLabel(), Toast.LENGTH_SHORT).show();
+                    dialog.dismiss();
+                })
+                .setNeutralButton("Pengecualian situs", (dialog, which) -> showNightModeExceptionDialog())
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
+    private void showNightModeExceptionDialog() {
+        String host = getCurrentHostForSettings();
+        if (host.length() == 0) {
+            Toast.makeText(this, "Buka situs dulu untuk mengatur pengecualian", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        boolean excepted = nightModeExceptions.contains(host);
+        String message = excepted
+                ? host + " sedang dikecualikan dari Mode Malam. Hapus pengecualian?"
+                : "Kecualikan " + host + " dari Mode Malam?";
+
+        new AlertDialog.Builder(this)
+                .setTitle("Pengecualian per situs")
+                .setMessage(message)
+                .setPositiveButton(excepted ? "Hapus pengecualian" : "Kecualikan situs", (d, w) -> {
+                    if (excepted) nightModeExceptions.remove(host);
+                    else nightModeExceptions.add(host);
+                    saveSettings();
+                    applyBrowserSettings();
+                    applyNightModeToWebPage();
+                    Toast.makeText(this, excepted ? "Pengecualian dihapus" : "Situs dikecualikan", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
     private void applyBrowserSettings() {
         if (webView == null) return;
         WebSettings settings = webView.getSettings();
@@ -4520,6 +4780,13 @@ public class MainActivity extends Activity {
             settings.setUserAgentString("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36 YieldBrowser");
         } else {
             settings.setUserAgentString(null);
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                settings.setForceDark(isNightModeActiveForCurrentSite() ? WebSettings.FORCE_DARK_ON : WebSettings.FORCE_DARK_OFF);
+            }
+        } catch (Exception ignored) {
         }
     }
 
@@ -4869,6 +5136,9 @@ public class MainActivity extends Activity {
         speedMode = p.getBoolean("speedMode", false);
         safeMode = p.getBoolean("safeMode", true);
         nightMode = p.getBoolean("nightMode", true);
+        nightModeOption = p.getString("nightModeOption", nightMode ? "ON" : "OFF");
+        nightModeExceptions.clear();
+        nightModeExceptions.addAll(p.getStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>()));
         readerMode = p.getBoolean("readerMode", false);
         adBlock = p.getBoolean("adBlock", false);
         dataSaver = p.getBoolean("dataSaver", false);
@@ -4927,7 +5197,9 @@ public class MainActivity extends Activity {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putBoolean("speedMode", speedMode)
                 .putBoolean("safeMode", safeMode)
-                .putBoolean("nightMode", nightMode)
+                .putBoolean("nightMode", isNightModeActiveForCurrentSite())
+                .putString("nightModeOption", nightModeOption)
+                .putStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>(nightModeExceptions))
                 .putBoolean("readerMode", readerMode)
                 .putBoolean("adBlock", adBlock)
                 .putBoolean("dataSaver", dataSaver)
