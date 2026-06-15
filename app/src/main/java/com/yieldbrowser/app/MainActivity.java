@@ -97,9 +97,9 @@ import com.google.zxing.Result;
 import com.google.zxing.common.HybridBinarizer;
 
 public class MainActivity extends Activity {
-    private static final int COLOR_BG = Color.parseColor("#0C0D10");
-    private static final int COLOR_SURFACE_2 = Color.parseColor("#20232A");
-    private static final int COLOR_BORDER = Color.parseColor("#2A2E36");
+    private static final int COLOR_BG = Color.parseColor("#15171C");
+    private static final int COLOR_SURFACE_2 = Color.parseColor("#2A2D33");
+    private static final int COLOR_BORDER = Color.parseColor("#3A3D45");
     private static final int COLOR_TEXT = Color.parseColor("#F5F7FA");
     private static final int COLOR_SUBTEXT = Color.parseColor("#B7BDC8");
     private static final int COLOR_ACCENT = Color.parseColor("#F39A22");
@@ -443,7 +443,7 @@ public class MainActivity extends Activity {
         content.setPadding(dp(16), dp(10), dp(16), dp(24));
         content.setMinimumHeight(getResources().getDisplayMetrics().heightPixels - dp(120));
         content.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{Color.parseColor("#111318"), Color.parseColor("#0A0B0E")}));
+                new int[]{Color.parseColor("#20232A"), Color.parseColor("#15171C")}));
 
         content.addView(space(dp(16)));
 
@@ -466,7 +466,7 @@ public class MainActivity extends Activity {
         searchCard.setOrientation(LinearLayout.HORIZONTAL);
         searchCard.setGravity(Gravity.CENTER_VERTICAL);
         searchCard.setPadding(dp(16), dp(10), dp(10), dp(10));
-        searchCard.setBackground(roundRect(Color.parseColor("#11141A"), dp(26), dp(1), Color.parseColor("#232730")));
+        searchCard.setBackground(roundRect(Color.parseColor("#252830"), dp(26), dp(1), Color.parseColor("#232730")));
 
         homeSearchInput = new EditText(this);
         homeSearchInput.setBackgroundColor(Color.TRANSPARENT);
@@ -528,14 +528,7 @@ public class MainActivity extends Activity {
         content.addView(shortcutScroll, new LinearLayout.LayoutParams(-1, -2));
 
         content.addView(space(dp(28)));
-
-        TextView more = new TextView(this);
-        more.setText("Download langsung berjalan saat tombol unduh ditekan. Detail ada di Menu > Unduhan Yield.");
-        more.setTextColor(COLOR_SUBTEXT);
-        more.setTextSize(14);
-        content.addView(more);
-
-        content.addView(space(dp(36)));
+content.addView(space(dp(36)));
 
         TextView footer = new TextView(this);
         footer.setText("Yield Browser • Modern download manager");
@@ -960,7 +953,7 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(18), dp(18), dp(14));
-        root.setBackgroundColor(Color.parseColor("#0C0D10"));
+        root.setBackgroundColor(COLOR_BG);
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
@@ -1118,7 +1111,7 @@ public class MainActivity extends Activity {
         LinearLayout menu = new LinearLayout(this);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setPadding(dp(12), dp(12), dp(12), dp(12));
-        menu.setBackground(roundRect(Color.parseColor("#171A20"), dp(24), dp(1), Color.parseColor("#2D333D")));
+        menu.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(24), dp(1), Color.parseColor("#2D333D")));
 
         if (shortcutDownload) {
             menu.addView(menuRow(R.drawable.ic_download_modern, "Unduhan Yield", v -> {
@@ -1243,7 +1236,7 @@ public class MainActivity extends Activity {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(14), dp(16), dp(14), dp(16));
-        panel.setBackground(roundRect(Color.parseColor("#171A20"), dp(24), dp(1), Color.parseColor("#2D333D")));
+        panel.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(24), dp(1), Color.parseColor("#3A3D45")));
         scroll.addView(panel);
 
         TextView title = new TextView(this);
@@ -1322,15 +1315,15 @@ public class MainActivity extends Activity {
         }));
 
         panel.addView(sectionTitle("Fitur browsing"));
-        panel.addView(settingRow(R.drawable.ic_speed, "Mode cepat", "Optimasi cache, gambar, dan resource.", speedMode, v -> { speedMode = !speedMode; applyBrowserSettings(); saveSettings(); dialog.dismiss(); showSettingsPanel(); }));
-        panel.addView(settingRow(R.drawable.ic_safe, "Safe browsing", "Blokir URL berisiko sederhana.", safeMode, v -> { safeMode = !safeMode; saveSettings(); dialog.dismiss(); showSettingsPanel(); }));
+        panel.addView(settingRow(R.drawable.ic_speed, "Mode cepat", "Optimasi cache, gambar, dan resource.", speedMode, v -> { speedMode = !speedMode; applyBrowserSettings(); saveSettings(); }));
+        panel.addView(settingRow(R.drawable.ic_safe, "Safe browsing", "Blokir URL berisiko sederhana.", safeMode, v -> { safeMode = !safeMode; saveSettings(); }));
         panel.addView(actionRow(R.drawable.ic_night, "Mode Malam: " + nightModeLabel(), "OFF, ON, Auto ikut sistem, dan pengecualian situs. Tidak menutup menu setelan.", v -> {
             showNightModeSettingsDialog();
         }));
-        panel.addView(settingRow(R.drawable.ic_reader, "Reader / novel mode", "Mode baca ringan untuk artikel.", readerMode, v -> { readerMode = !readerMode; saveSettings(); dialog.dismiss(); showSettingsPanel(); }));
-        panel.addView(settingRow(R.drawable.ic_shield, "Ad block", "Filter iklan sederhana berbasis URL.", adBlock, v -> { adBlock = !adBlock; saveSettings(); dialog.dismiss(); showSettingsPanel(); }));
-        panel.addView(settingRow(R.drawable.ic_data_saver, "Hemat data", "Matikan gambar otomatis saat browsing.", dataSaver, v -> { dataSaver = !dataSaver; applyBrowserSettings(); saveSettings(); dialog.dismiss(); showSettingsPanel(); }));
-        panel.addView(settingRow(R.drawable.ic_desktop, "Desktop mode", "Ganti user agent ke desktop.", desktopMode, v -> { desktopMode = !desktopMode; applyBrowserSettings(); saveSettings(); if (webView != null && webView.getVisibility() == View.VISIBLE) webView.reload(); dialog.dismiss(); showSettingsPanel(); }));
+        panel.addView(settingRow(R.drawable.ic_reader, "Reader / novel mode", "Mode baca ringan untuk artikel.", readerMode, v -> { readerMode = !readerMode; saveSettings(); }));
+        panel.addView(settingRow(R.drawable.ic_shield, "Ad block", "Filter iklan sederhana berbasis URL.", adBlock, v -> { adBlock = !adBlock; saveSettings(); }));
+        panel.addView(settingRow(R.drawable.ic_data_saver, "Hemat data", "Matikan gambar otomatis saat browsing.", dataSaver, v -> { dataSaver = !dataSaver; applyBrowserSettings(); saveSettings(); }));
+        panel.addView(settingRow(R.drawable.ic_desktop, "Desktop mode", "Ganti user agent ke desktop.", desktopMode, v -> { desktopMode = !desktopMode; applyBrowserSettings(); saveSettings(); if (webView != null && webView.getVisibility() == View.VISIBLE) webView.reload(); }));
         panel.addView(actionRow(R.drawable.ic_text_size, "Ukuran teks: " + textZoom + "%", "Atur ukuran teks dengan slider persentase.", v -> {
             showTextZoomDialog(dialog);
         }));
@@ -1376,7 +1369,7 @@ public class MainActivity extends Activity {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(14), dp(14), dp(14), dp(14));
-        panel.setBackground(roundRect(Color.parseColor("#171A20"), dp(24), dp(1), Color.parseColor("#2D333D")));
+        panel.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(24), dp(1), Color.parseColor("#3A3D45")));
 
         TextView title = new TextView(this);
         title.setText("Pindai QR Code");
@@ -1633,7 +1626,7 @@ public class MainActivity extends Activity {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(16), dp(16), dp(16), dp(18));
-        panel.setBackground(roundRect(Color.parseColor("#171A20"), dp(24), dp(1), Color.parseColor("#2D333D")));
+        panel.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(24), dp(1), Color.parseColor("#3A3D45")));
 
         TextView title = new TextView(this);
         title.setText("Pengaturan Unduhan");
@@ -1983,7 +1976,7 @@ public class MainActivity extends Activity {
         ImageView favicon = new ImageView(this);
         favicon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         favicon.setPadding(dp(9), dp(9), dp(9), dp(9));
-        favicon.setBackground(roundRect(Color.parseColor("#1D2128"), dp(21), 0, Color.TRANSPARENT));
+        favicon.setBackground(roundRect(Color.parseColor("#2A2D33"), dp(21), 0, Color.TRANSPARENT));
         favicon.setVisibility(View.GONE);
         iconWrap.addView(favicon, new FrameLayout.LayoutParams(-1, -1));
         loadFavicon(item.url, favicon, fallback);
@@ -2032,7 +2025,7 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
                 getWindow().setStatusBarColor(COLOR_BG);
-                getWindow().setNavigationBarColor(Color.BLACK);
+                getWindow().setNavigationBarColor(Color.parseColor("#15171C"));
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 int activityFlags = getWindow().getDecorView().getSystemUiVisibility();
@@ -2065,7 +2058,7 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
             window.setStatusBarColor(COLOR_BG);
-            window.setNavigationBarColor(Color.BLACK);
+            window.setNavigationBarColor(Color.parseColor("#15171C"));
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -2250,7 +2243,7 @@ public class MainActivity extends Activity {
         ImageView favicon = new ImageView(this);
         favicon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         favicon.setPadding(dp(9), dp(9), dp(9), dp(9));
-        favicon.setBackground(roundRect(Color.parseColor("#1D2128"), dp(23), 0, Color.TRANSPARENT));
+        favicon.setBackground(roundRect(Color.parseColor("#2A2D33"), dp(23), 0, Color.TRANSPARENT));
         favicon.setVisibility(View.GONE);
         iconWrap.addView(favicon, new FrameLayout.LayoutParams(-1, -1));
         loadFavicon(item.url, favicon, fallback);
@@ -2667,7 +2660,7 @@ public class MainActivity extends Activity {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(18), dp(18), dp(18), dp(18));
-        panel.setBackground(roundRect(Color.parseColor("#171A20"), dp(24), dp(1), Color.parseColor("#2D333D")));
+        panel.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(24), dp(1), Color.parseColor("#3A3D45")));
 
         TextView title = new TextView(this);
         title.setText("Ukuran teks");
@@ -2806,7 +2799,7 @@ public class MainActivity extends Activity {
         input.setText(downloadSubfolder);
         input.setSingleLine(true);
         input.setHint("Nama subfolder");
-        input.setTextColor(Color.BLACK);
+        input.setTextColor(Color.parseColor("#15171C"));
 
         new AlertDialog.Builder(this)
                 .setTitle("Subfolder unduhan")
@@ -2917,15 +2910,24 @@ public class MainActivity extends Activity {
     }
 
     private View settingRow(int iconRes, String title, String desc, boolean enabled, View.OnClickListener listener) {
-        LinearLayout row = baseSettingsRow(iconRes, title, desc, listener);
+        LinearLayout row = baseSettingsRow(iconRes, title, desc, null);
         TextView status = new TextView(this);
-        status.setText(enabled ? "ON" : "OFF");
-        status.setTextColor(enabled ? COLOR_ON : COLOR_SUBTEXT);
+        final boolean[] current = new boolean[]{enabled};
+        status.setText(current[0] ? "ON" : "OFF");
+        status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
         status.setTypeface(Typeface.DEFAULT_BOLD);
         status.setTextSize(12);
         status.setGravity(Gravity.CENTER);
-        status.setBackground(roundRect(enabled ? Color.parseColor("#15351F") : Color.parseColor("#2A2E36"), dp(12), dp(1), enabled ? COLOR_ON : COLOR_BORDER));
+        status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
         row.addView(status, new LinearLayout.LayoutParams(dp(46), dp(28)));
+
+        row.setOnClickListener(v -> {
+            if (listener != null) listener.onClick(v);
+            current[0] = !current[0];
+            status.setText(current[0] ? "ON" : "OFF");
+            status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
+            status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
+        });
         return row;
     }
 
@@ -3004,7 +3006,7 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18), dp(18), dp(18), dp(10));
-        root.setBackgroundColor(Color.parseColor("#0C0D10"));
+        root.setBackgroundColor(COLOR_BG);
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
@@ -4682,37 +4684,13 @@ public class MainActivity extends Activity {
                         + "var old=document.getElementById(id);if(old)old.remove();"
                         + "var s=document.createElement('style');s.id=id;"
                         + "s.innerHTML="
-                        // Sembunyikan semua layer/bar Google Translate yang sering menutup klik halaman.
-                        + "'iframe.skiptranslate,.skiptranslate,body>.skiptranslate,#goog-gt-tt,.goog-te-banner-frame,.goog-te-balloon-frame,.VIpgJd-ZVi9od-ORHb-OEVmcd,.VIpgJd-ZVi9od-aZ2wEe-wOHMyf,.VIpgJd-yAWNEb-L7lbkb,.goog-tooltip,.goog-tooltip:hover{display:none!important;visibility:hidden!important;height:0!important;max-height:0!important;overflow:hidden!important;pointer-events:none!important;z-index:-2147483648!important;opacity:0!important;}' + "
-                        + "'#gt-appbar,#gt-src-wrap,#gt-res-wrap,#gt-text-top,#google_translate_element{display:none!important;visibility:hidden!important;height:0!important;max-height:0!important;pointer-events:none!important;z-index:-2147483648!important;opacity:0!important;}' + "
-                        // Hapus highlight translate yang kadang membuat elemen terasa tidak bisa disentuh.
+                        + "'iframe.skiptranslate,.skiptranslate,body>.skiptranslate,#goog-gt-tt,.goog-te-banner-frame,.goog-te-balloon-frame,#google_translate_element,#gt-appbar{display:none!important;visibility:hidden!important;height:0!important;max-height:0!important;overflow:hidden!important;pointer-events:none!important;opacity:0!important;}' + "
                         + "'.goog-text-highlight{background:transparent!important;box-shadow:none!important;border:none!important;}' + "
-                        // Kembalikan halaman ke posisi normal dan pastikan website bisa menerima klik/touch.
-                        + "'body,html{top:0!important;margin-top:0!important;padding-top:0!important;pointer-events:auto!important;touch-action:auto!important;}' + "
-                        + "'body *:not(iframe.skiptranslate):not(.skiptranslate):not(#goog-gt-tt){pointer-events:auto!important;touch-action:auto!important;}' + "
-                        + "'a,button,input,select,textarea,label,summary,[onclick],[role=button],[tabindex],li,nav,menu{pointer-events:auto!important;touch-action:auto!important;}' + "
-                        + "'*[style*=\\\\\"z-index: 2147483647\\\\\"],*[style*=\\\\\"z-index:2147483647\\\\\"]{pointer-events:none!important;}';"
+                        + "'body{top:0!important;margin-top:0!important;padding-top:0!important;}' + "
+                        + "'html{margin-top:0!important;padding-top:0!important;}';"
                         + "document.head.appendChild(s);"
-
-                        + "function unblock(){try{"
-                        + "document.documentElement.style.marginTop='0px';"
-                        + "document.documentElement.style.paddingTop='0px';"
-                        + "document.documentElement.style.pointerEvents='auto';"
-                        + "if(document.body){document.body.style.top='0px';document.body.style.marginTop='0px';document.body.style.paddingTop='0px';document.body.style.pointerEvents='auto';document.body.style.touchAction='auto';}"
-                        + "var bad=['iframe.skiptranslate','.skiptranslate','body>.skiptranslate','#goog-gt-tt','.goog-te-banner-frame','.goog-te-balloon-frame','.VIpgJd-ZVi9od-ORHb-OEVmcd','.VIpgJd-ZVi9od-aZ2wEe-wOHMyf','.VIpgJd-yAWNEb-L7lbkb','.goog-tooltip','#gt-appbar','#google_translate_element'];"
-                        + "for(var b=0;b<bad.length;b++){var els=document.querySelectorAll(bad[b]);for(var i=0;i<els.length;i++){try{els[i].style.display='none';els[i].style.visibility='hidden';els[i].style.height='0';els[i].style.maxHeight='0';els[i].style.pointerEvents='none';els[i].style.zIndex='-2147483648';els[i].style.opacity='0';}catch(e){}}}"
-                        + "var frames=document.querySelectorAll('iframe');for(var f=0;f<frames.length;f++){try{var src=frames[f].src||'';var cls=frames[f].className||'';var idf=frames[f].id||'';if(src.indexOf('translate')>-1||String(cls).indexOf('skiptranslate')>-1||String(idf).indexOf('translate')>-1){frames[f].style.display='none';frames[f].style.visibility='hidden';frames[f].style.height='0';frames[f].style.pointerEvents='none';frames[f].style.zIndex='-2147483648';}}catch(e){}}"
-                        + "var clickable=document.querySelectorAll('a,button,input,select,textarea,label,summary,[onclick],[role=button],[tabindex],li,nav,menu');"
-                        + "for(var c=0;c<clickable.length;c++){try{clickable[c].style.pointerEvents='auto';clickable[c].style.touchAction='auto';}catch(e){}}"
-                        + "}catch(e){}}"
-                        + "unblock();setTimeout(unblock,300);setTimeout(unblock,1000);setTimeout(unblock,2500);"
-
-                        // Kalau Google Translate menaruh overlay click-catcher, jangan biarkan overlay itu menangkap event.
-                        + "if(!window.__yieldTranslateClickFix){window.__yieldTranslateClickFix=true;"
-                        + "document.addEventListener('touchstart',function(e){try{var t=e.target;if(t&&t.closest){var bad=t.closest('.skiptranslate,#goog-gt-tt,.goog-tooltip,.VIpgJd-yAWNEb-L7lbkb');if(bad){bad.style.pointerEvents='none';bad.style.display='none';}}}catch(x){}},true);"
-                        + "document.addEventListener('click',function(e){try{var t=e.target;if(t&&t.closest){var bad=t.closest('.skiptranslate,#goog-gt-tt,.goog-tooltip,.VIpgJd-yAWNEb-L7lbkb');if(bad){bad.style.pointerEvents='none';bad.style.display='none';}}}catch(x){}},true);"
-                        + "try{new MutationObserver(unblock).observe(document.documentElement,{childList:true,subtree:true,attributes:true});}catch(x){}"
-                        + "}"
+                        + "if(document.body){document.body.style.top='0px';document.body.style.marginTop='0px';document.body.style.paddingTop='0px';}"
+                        + "var frames=document.querySelectorAll('iframe');for(var i=0;i<frames.length;i++){try{var src=frames[i].src||'';var cls=frames[i].className||'';if(src.indexOf('translate')>-1||String(cls).indexOf('skiptranslate')>-1){frames[i].style.display='none';frames[i].style.height='0';frames[i].style.pointerEvents='none';}}catch(e){}}"
                         + "}catch(e){}"
                         + "})()";
         try {
@@ -4842,11 +4820,11 @@ public class MainActivity extends Activity {
                 injectVideoPlaybackWatcher();
                 applyNightModeToWebPage();
                 if (hideGoogleTranslateBar && isGoogleTranslatedUrl(url)) {
-                    mainHandler.postDelayed(() -> unblockTranslatedPageClicks(), 250);
-                    mainHandler.postDelayed(() -> unblockTranslatedPageClicks(), 800);
-                    mainHandler.postDelayed(() -> unblockTranslatedPageClicks(), 1800);
-                    mainHandler.postDelayed(() -> unblockTranslatedPageClicks(), 3500);
-                    mainHandler.postDelayed(() -> unblockTranslatedPageClicks(), 6000);
+                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 250);
+                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 800);
+                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 1800);
+                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 3500);
+                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 6000);
                 }
                 updateTopActionStates();
             }
@@ -4995,36 +4973,132 @@ public class MainActivity extends Activity {
     }
 
     private void showNightModeSettingsDialog() {
-        String[] options = new String[]{"OFF", "ON", "Auto ikut sistem", "Bersihkan style gelap halaman ini"};
-        int checked = "OFF".equals(nightModeOption) ? 0 : ("AUTO".equals(nightModeOption) ? 2 : 1);
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
-        new AlertDialog.Builder(this)
-                .setTitle("Mode Malam")
-                .setSingleChoiceItems(options, checked, (dialog, which) -> {
-                    if (which == 0) {
-                        disableNightModeCompletely(false);
-                    } else if (which == 1) {
-                        nightModeOption = "ON";
-                        nightMode = isNightModeActiveForCurrentSite();
-                        saveSettings();
-                        applyBrowserSettings();
-                        applyNightModeToWebPage();
-                    } else if (which == 2) {
-                        nightModeOption = "AUTO";
-                        nightMode = isNightModeActiveForCurrentSite();
-                        saveSettings();
-                        applyBrowserSettings();
-                        applyNightModeToWebPage();
-                    } else {
-                        disableNightModeCompletely(false);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(18), dp(20), dp(12));
+        box.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(18), 0, Color.TRANSPARENT));
+
+        TextView title = new TextView(this);
+        title.setText("Mode Malam");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(22);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setPadding(0, 0, 0, dp(12));
+        box.addView(title);
+
+        box.addView(nightChoiceRow("OFF", "OFF".equals(nightModeOption), v -> {
+            disableNightModeCompletely(false);
+            updateTopActionStates();
+            Toast.makeText(this, "Mode Malam: OFF", Toast.LENGTH_SHORT).show();
+        }));
+        box.addView(nightChoiceRow("ON", "ON".equals(nightModeOption), v -> {
+            nightModeOption = "ON";
+            nightMode = isNightModeActiveForCurrentSite();
+            saveSettings();
+            applyBrowserSettings();
+            applyNightModeToWebPage();
+            updateTopActionStates();
+            Toast.makeText(this, "Mode Malam: ON", Toast.LENGTH_SHORT).show();
+        }));
+        box.addView(nightChoiceRow("Auto ikut sistem", "AUTO".equals(nightModeOption), v -> {
+            nightModeOption = "AUTO";
+            nightMode = isNightModeActiveForCurrentSite();
+            saveSettings();
+            applyBrowserSettings();
+            applyNightModeToWebPage();
+            updateTopActionStates();
+            Toast.makeText(this, "Mode Malam: Auto ikut sistem", Toast.LENGTH_SHORT).show();
+        }));
+        box.addView(nightChoiceRow("Bersihkan style gelap halaman ini", false, v -> {
+            disableNightModeCompletely(false);
+            updateTopActionStates();
+            Toast.makeText(this, "Style gelap dibersihkan", Toast.LENGTH_SHORT).show();
+        }));
+
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setGravity(Gravity.END);
+        buttons.setPadding(0, dp(10), 0, 0);
+
+        TextView exception = dialogTextButton("PENGECUALIAN SITUS");
+        exception.setOnClickListener(v -> showNightModeExceptionDialog());
+        buttons.addView(exception);
+
+        TextView cancel = dialogTextButton("TUTUP");
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        buttons.addView(cancel);
+
+        box.addView(buttons);
+
+        dialog.setContentView(box);
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            Window window = dialog.getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.86f);
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            window.setAttributes(lp);
+        }
+    }
+
+    private View nightChoiceRow(String label, boolean checked, View.OnClickListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(4), dp(12), dp(4), dp(12));
+
+        TextView radio = new TextView(this);
+        radio.setText(checked ? "◉" : "○");
+        radio.setTextColor(checked ? COLOR_ACCENT : COLOR_SUBTEXT);
+        radio.setTextSize(24);
+        radio.setGravity(Gravity.CENTER);
+        row.addView(radio, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        TextView text = new TextView(this);
+        text.setText(label);
+        text.setTextColor(Color.WHITE);
+        text.setTextSize(18);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1);
+        tp.setMargins(dp(10), 0, 0, 0);
+        row.addView(text, tp);
+
+        row.setOnClickListener(v -> {
+            if (listener != null) listener.onClick(v);
+            View parent = (View) row.getParent();
+            if (parent instanceof LinearLayout) {
+                LinearLayout list = (LinearLayout) parent;
+                for (int i = 0; i < list.getChildCount(); i++) {
+                    View child = list.getChildAt(i);
+                    if (child instanceof LinearLayout) {
+                        LinearLayout childRow = (LinearLayout) child;
+                        if (childRow.getChildCount() > 0 && childRow.getChildAt(0) instanceof TextView) {
+                            TextView r = (TextView) childRow.getChildAt(0);
+                            if ("◉".contentEquals(r.getText()) || "○".contentEquals(r.getText())) {
+                                r.setText("○");
+                                r.setTextColor(COLOR_SUBTEXT);
+                            }
+                        }
                     }
-                    updateTopActionStates();
-                    Toast.makeText(this, "Mode Malam: " + nightModeLabel(), Toast.LENGTH_SHORT).show();
-                    dialog.dismiss();
-                })
-                .setNeutralButton("Pengecualian situs", (dialog, which) -> showNightModeExceptionDialog())
-                .setNegativeButton("Batal", null)
-                .show();
+                }
+            }
+            radio.setText("◉");
+            radio.setTextColor(COLOR_ACCENT);
+        });
+        return row;
+    }
+
+    private TextView dialogTextButton(String text) {
+        TextView btn = new TextView(this);
+        btn.setText(text);
+        btn.setTextColor(COLOR_ACCENT);
+        btn.setTextSize(13);
+        btn.setTypeface(Typeface.DEFAULT_BOLD);
+        btn.setGravity(Gravity.CENTER);
+        btn.setPadding(dp(12), dp(10), dp(12), dp(10));
+        return btn;
     }
 
     private void showNightModeExceptionDialog() {

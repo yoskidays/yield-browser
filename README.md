@@ -151,3 +151,18 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Mengubah Mode Malam dari Setelan tidak menutup panel Setelan lagi.
 - Mode Malam OFF tidak langsung reload/pindah Home; hanya membersihkan CSS gelap di halaman aktif.
 - Ditambahkan opsi `Bersihkan style gelap halaman ini` untuk membersihkan sisa style gelap tanpa keluar dari menu.
+
+
+## v0.6.5
+- Translate hide bar dibuat soft supaya tidak merusak layout web hasil translate.
+- Opsi `Aktifkan klik menu website` tetap ada untuk situs yang kliknya masih tertahan.
+- Toggle ON/OFF di Setelan tidak lagi menutup dan membuka ulang panel.
+- Status ON/OFF di Setelan berubah langsung di baris yang sama.
+- Dialog Mode Malam dibuat dark, bukan putih.
+- Warna hitam UI diganti menjadi dark gray seperti style Brave, tidak hitam pekat.
+
+
+## v0.6.6
+- Menghapus tulisan info di Home:
+  `Download langsung berjalan saat tombol unduh ditekan. Detail ada di Menu > Unduhan Yield.`
+- Tampilan Home dibuat lebih bersih.
