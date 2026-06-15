@@ -88,3 +88,33 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - tidak lagi memaksa semua `div`, `span`, `p`, dan card menjadi warna tertentu
   - hanya memakai `color-scheme: dark` + background dasar
   - gambar/video/canvas tetap normal
+
+
+## v0.5.8
+- Translate dibuat memakai menu pilihan:
+  - Terjemahkan halaman ke Indonesia
+  - Sembunyikan/Tampilkan bar Google Translate
+  - Terjemahkan teks halaman saja
+  - Reload website
+  - Matikan translate/buka halaman asli
+- Bar Google Translate bisa di-hide supaya tampilan web lebih bersih.
+- Translate teks halaman ditambahkan sebagai fallback untuk situs yang menolak Google Translate proxy.
+- Fitur Reload website ditambahkan ke quick menu.
+
+
+## v0.5.9
+- Jika download/file/riwayat download dihapus, notifikasi download ikut dibatalkan.
+- Thread download yang itemnya dihapus diberi status `removed` dan `pauseRequested=true`.
+- Hide bar Google Translate diperkuat:
+  - overlay/iframe Google Translate tidak lagi menangkap klik
+  - `pointer-events` untuk elemen website dikembalikan aktif
+  - hide toolbar dijalankan beberapa kali karena Google sering inject toolbar terlambat
+- Menu website tetap bisa diklik ketika translate aktif.
+
+
+## v0.6.0
+- Tombol Home sekarang hanya menyembunyikan halaman web, bukan menghapus state halaman/tab.
+- Kalau tidak sengaja kepencet Home, halaman terakhir bisa dibuka lagi dengan gesture.
+- Swipe kiri: kembali ke aktivitas/halaman sebelumnya.
+- Swipe kanan: maju ke aktivitas/halaman berikutnya jika tersedia.
+- Saat berada di Home, gesture bisa mengembalikan halaman web terakhir yang masih tersimpan di WebView/tab.

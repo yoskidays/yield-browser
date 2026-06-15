@@ -37,6 +37,7 @@ import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -131,6 +132,9 @@ public class MainActivity extends Activity {
     private TextView videoSpeedLabel;
     private boolean videoControlsManualHidden = false;
     private TextView tabsCountText;
+    private float swipeStartX = 0f;
+    private float swipeStartY = 0f;
+    private long swipeStartTime = 0L;
 
     private LinearLayout activeDownloadListPanel;
     private Dialog activeDownloadDialog;
@@ -145,6 +149,8 @@ public class MainActivity extends Activity {
     private int tabCount = 1;
     private int nextDownloadId = 1000;
     private boolean translateEnabled = false;
+    private boolean hideGoogleTranslateBar = true;
+    private String lastTranslateOriginalUrl = "";
     private boolean speedMode = false;
     private boolean safeMode = true;
     private boolean nightMode = true;
@@ -334,6 +340,7 @@ public class MainActivity extends Activity {
         root.addView(bottomNavView, new LinearLayout.LayoutParams(-1, dp(64)));
 
         setContentView(root);
+        installSwipeNavigation(root);
         updateTopActionStates();
         handleOpenDownloadsIntent(getIntent());
 
@@ -1195,6 +1202,11 @@ public class MainActivity extends Activity {
             }));
         }
 
+        menu.addView(menuRow(R.drawable.ic_refresh, "Reload website", v -> {
+            dialog.dismiss();
+            reloadCurrentWebsite();
+        }));
+
         menu.addView(menuDivider());
         menu.addView(menuRow(R.drawable.ic_settings, "Setelan", v -> {
             dialog.dismiss();
@@ -1250,6 +1262,10 @@ public class MainActivity extends Activity {
         hint.setTextSize(13);
         hint.setPadding(dp(8), 0, dp(8), dp(12));
         panel.addView(hint);
+
+        panel.addView(actionRow(R.drawable.ic_translate, "Translate", "Pilihan translate, hide bar Google Translate, dan translate teks halaman.", v -> {
+            showTranslateOptionsDialog();
+        }));
 
         panel.addView(sectionTitle("Pusat fitur"));
         panel.addView(actionRow(R.drawable.ic_download_modern, "Unduhan Yield", "Riwayat, progress, lokasi penyimpanan, dan engine 2 koneksi.", v -> {
@@ -3800,15 +3816,25 @@ public class MainActivity extends Activity {
     }
 
     private void removeDownloadItem(DownloadItem item, boolean deleteFile) {
+        if (item == null) return;
+
+        // Kalau item download dihapus, notifikasi harus ikut hilang.
+        // Untuk download berjalan/paused, minta thread berhenti juga.
+        item.pauseRequested = true;
+        item.status = "removed";
+        cancelDownloadNotification(item);
+
         synchronized (downloadItems) {
             downloadItems.remove(item);
         }
+
         if (deleteFile && item.path != null) {
             try {
                 File f = new File(item.path);
                 if (f.exists()) f.delete();
             } catch (Exception ignored) {}
         }
+
         selectedDownloadIds.remove(item.id);
         saveDownloadHistory();
         renderDownloadList();
@@ -4396,6 +4422,17 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void cancelDownloadNotification(DownloadItem item) {
+        if (item == null) return;
+        try {
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager != null) {
+                manager.cancel(item.id);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     private void showDownloadNotification(DownloadItem item, String text, boolean ongoing) {
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
@@ -4487,6 +4524,14 @@ public class MainActivity extends Activity {
                             item.speedBytesPerSecond = 0;
                             item.engineInfo = "Dijeda";
                         }
+                        try {
+                            if (item.path != null && item.path.length() > 0) {
+                                File savedFile = new File(item.path);
+                                if (!savedFile.exists() && ("completed".equals(item.status) || "paused".equals(item.status) || "failed".equals(item.status))) {
+                                    cancelDownloadNotification(item);
+                                }
+                            }
+                        } catch (Exception ignored) {}
                         if (item.categoryHint == null || item.categoryHint.length() == 0) {
                             item.categoryHint = inferDownloadCategoryFromData(item.fileName, item.url, "");
                         }
@@ -4532,29 +4577,185 @@ public class MainActivity extends Activity {
     }
 
     private void toggleTranslate() {
-        translateEnabled = !translateEnabled;
-        updateTopActionStates();
-        if (webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, translateEnabled ? "Mode translate aktif" : "Mode translate nonaktif", Toast.LENGTH_SHORT).show();
-            return;
+        showTranslateOptionsDialog();
+    }
+
+    private void showTranslateOptionsDialog() {
+        String current = getEffectiveCurrentUrl();
+        String original = getOriginalForTranslate(current);
+
+        ArrayList<String> options = new ArrayList<>();
+        options.add("Terjemahkan halaman ke Indonesia");
+        options.add(hideGoogleTranslateBar ? "Tampilkan bar Google Translate" : "Sembunyikan bar Google Translate");
+        options.add("Terjemahkan teks halaman saja");
+        options.add("Reload website");
+        if (translateEnabled || isGoogleTranslatedUrl(webView != null ? webView.getUrl() : "")) {
+            options.add("Matikan translate / buka halaman asli");
         }
-        String raw = extractOriginalUrl(webView.getUrl());
-        if (translateEnabled) {
-            loadTranslatedPage(raw);
-            Toast.makeText(this, "Translate aktif", Toast.LENGTH_SHORT).show();
-        } else {
-            if (raw != null && raw.length() > 0) webView.loadUrl(raw);
-            Toast.makeText(this, "Translate nonaktif", Toast.LENGTH_SHORT).show();
+
+        String[] items = options.toArray(new String[0]);
+        new AlertDialog.Builder(this)
+                .setTitle("Translate")
+                .setItems(items, (dialog, which) -> {
+                    String selected = items[which];
+                    if (selected.startsWith("Terjemahkan halaman")) {
+                        if (original == null || original.length() == 0) {
+                            Toast.makeText(this, "Buka website dulu untuk translate", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        translateEnabled = true;
+                        lastTranslateOriginalUrl = original;
+                        loadTranslatedPage(original);
+                    } else if (selected.startsWith("Tampilkan bar")) {
+                        hideGoogleTranslateBar = false;
+                        saveSettings();
+                        showGoogleTranslateBar();
+                        Toast.makeText(this, "Bar Google Translate ditampilkan", Toast.LENGTH_SHORT).show();
+                    } else if (selected.startsWith("Sembunyikan bar")) {
+                        hideGoogleTranslateBar = true;
+                        saveSettings();
+                        hideGoogleTranslateToolbar();
+                        Toast.makeText(this, "Bar Google Translate disembunyikan", Toast.LENGTH_SHORT).show();
+                    } else if (selected.startsWith("Terjemahkan teks")) {
+                        translatePageTextOnly();
+                    } else if (selected.startsWith("Reload")) {
+                        reloadCurrentWebsite();
+                    } else if (selected.startsWith("Matikan")) {
+                        translateEnabled = false;
+                        updateTopActionStates();
+                        String raw = getOriginalForTranslate(current);
+                        if ((raw == null || raw.length() == 0) && lastTranslateOriginalUrl.length() > 0) raw = lastTranslateOriginalUrl;
+                        if (raw != null && raw.length() > 0) webView.loadUrl(raw);
+                        Toast.makeText(this, "Translate dimatikan", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("Tutup", null)
+                .show();
+    }
+
+    private String getOriginalForTranslate(String maybeUrl) {
+        try {
+            String url = maybeUrl;
+            if ((url == null || url.length() == 0) && webView != null) url = webView.getUrl();
+            if (url == null || url.length() == 0) return "";
+
+            String extracted = extractOriginalUrl(url);
+            if (extracted != null && extracted.length() > 0 && !isGoogleTranslatedUrl(extracted)) return extracted;
+
+            if (isGoogleTranslatedUrl(url) && lastTranslateOriginalUrl != null && lastTranslateOriginalUrl.length() > 0) {
+                return lastTranslateOriginalUrl;
+            }
+            return url;
+        } catch (Exception e) {
+            return "";
         }
+    }
+
+    private boolean isGoogleTranslatedUrl(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase(Locale.US);
+        return lower.contains("translate.google.") || lower.contains(".translate.goog") || lower.contains("_x_tr_sl=");
     }
 
     private void loadTranslatedPage(String originalUrl) {
         if (originalUrl == null || originalUrl.length() == 0) return;
         try {
+            lastTranslateOriginalUrl = originalUrl;
             String encoded = URLEncoder.encode(originalUrl, "UTF-8");
             webView.loadUrl("https://translate.google.com/translate?sl=auto&tl=id&u=" + encoded);
+            Toast.makeText(this, "Membuka Google Translate", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             webView.loadUrl(originalUrl);
+        }
+    }
+
+    private void hideGoogleTranslateToolbar() {
+        if (webView == null) return;
+        String js =
+                "javascript:(function(){"
+                        + "try{"
+                        + "var id='yield-hide-translate-bar';"
+                        + "var old=document.getElementById(id);if(old)old.remove();"
+                        + "var s=document.createElement('style');s.id=id;"
+                        + "s.innerHTML="
+                        + "'iframe.skiptranslate,.skiptranslate,body>.skiptranslate,#goog-gt-tt,.goog-te-banner-frame,.goog-te-balloon-frame,.VIpgJd-ZVi9od-ORHb-OEVmcd,.VIpgJd-ZVi9od-aZ2wEe-wOHMyf{display:none!important;visibility:hidden!important;height:0!important;max-height:0!important;overflow:hidden!important;pointer-events:none!important;z-index:-1!important;}' + "
+                        + "'#gt-appbar,#gt-src-wrap,#gt-res-wrap,#gt-text-top,.gb_aa,.gb_ab,.gb_ac,.gb_ad,.gb_ae,.gb_af,.gb_ag,.gb_ah,.gb_ai,.gb_aj{display:none!important;visibility:hidden!important;height:0!important;max-height:0!important;pointer-events:none!important;z-index:-1!important;}' + "
+                        + "'body{top:0!important;margin-top:0!important;padding-top:0!important;pointer-events:auto!important;}' + "
+                        + "'html{margin-top:0!important;padding-top:0!important;pointer-events:auto!important;}' + "
+                        + "'#google_translate_element{display:none!important;pointer-events:none!important;}' + "
+                        + "'a,button,input,select,textarea,[onclick],[role=button]{pointer-events:auto!important;}';"
+                        + "document.head.appendChild(s);"
+                        + "document.documentElement.style.marginTop='0px';"
+                        + "document.documentElement.style.paddingTop='0px';"
+                        + "document.documentElement.style.pointerEvents='auto';"
+                        + "if(document.body){document.body.style.top='0px';document.body.style.marginTop='0px';document.body.style.paddingTop='0px';document.body.style.pointerEvents='auto';}"
+                        + "var sel=['iframe.skiptranslate','.skiptranslate','body>.skiptranslate','#goog-gt-tt','.goog-te-banner-frame','.goog-te-balloon-frame','.VIpgJd-ZVi9od-ORHb-OEVmcd','.VIpgJd-ZVi9od-aZ2wEe-wOHMyf','#gt-appbar','#google_translate_element'];"
+                        + "for(var si=0;si<sel.length;si++){var els=document.querySelectorAll(sel[si]);for(var i=0;i<els.length;i++){try{els[i].style.display='none';els[i].style.visibility='hidden';els[i].style.height='0';els[i].style.pointerEvents='none';els[i].style.zIndex='-1';}catch(e){}}}"
+                        + "var frames=document.querySelectorAll('iframe');for(var f=0;f<frames.length;f++){try{var src=frames[f].src||'';var cls=frames[f].className||'';if(src.indexOf('translate')>-1||String(cls).indexOf('skiptranslate')>-1){frames[f].style.display='none';frames[f].style.height='0';frames[f].style.pointerEvents='none';frames[f].style.zIndex='-1';}}catch(e){}}"
+                        + "}catch(e){}"
+                        + "})()";
+        try {
+            webView.loadUrl(js);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void showGoogleTranslateBar() {
+        if (webView == null) return;
+        String js =
+                "javascript:(function(){"
+                        + "try{var s=document.getElementById('yield-hide-translate-bar');if(s)s.remove();document.body.style.top='';}"
+                        + "catch(e){}"
+                        + "})()";
+        try {
+            webView.loadUrl(js);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void translatePageTextOnly() {
+        if (webView == null || webView.getVisibility() != View.VISIBLE) {
+            Toast.makeText(this, "Buka halaman dulu", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            webView.evaluateJavascript("(function(){return (document.body&&document.body.innerText?document.body.innerText:'').slice(0,3500);})()", value -> {
+                try {
+                    String text = value == null ? "" : value;
+                    if (text.startsWith("\"") && text.endsWith("\"")) text = text.substring(1, text.length() - 1);
+                    text = text.replace("\\n", "\n").replace("\\\"", "\"").replace("\\u003C", "<");
+                    if (text.trim().length() == 0) {
+                        Toast.makeText(this, "Teks halaman tidak terbaca", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    String encoded = URLEncoder.encode(text, "UTF-8");
+                    webView.loadUrl("https://translate.google.com/?sl=auto&tl=id&op=translate&text=" + encoded);
+                    Toast.makeText(this, "Menerjemahkan teks halaman", Toast.LENGTH_SHORT).show();
+                } catch (Exception e) {
+                    Toast.makeText(this, "Gagal ambil teks halaman", Toast.LENGTH_SHORT).show();
+                }
+            });
+        } catch (Exception e) {
+            Toast.makeText(this, "Translate teks tidak didukung di halaman ini", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void reloadCurrentWebsite() {
+        try {
+            if (webView != null && webView.getVisibility() == View.VISIBLE) {
+                webView.reload();
+                Toast.makeText(this, "Website dimuat ulang", Toast.LENGTH_SHORT).show();
+            } else {
+                String url = getEffectiveCurrentUrl();
+                if (url != null && url.length() > 0) {
+                    addressBar.setText(url);
+                    openAddressBarUrl();
+                } else {
+                    Toast.makeText(this, "Belum ada website untuk reload", Toast.LENGTH_SHORT).show();
+                }
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "Gagal reload website", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -4602,6 +4803,12 @@ public class MainActivity extends Activity {
                 videoControlsManualHidden = false;
                 injectVideoPlaybackWatcher();
                 applyNightModeToWebPage();
+                if (hideGoogleTranslateBar && isGoogleTranslatedUrl(url)) {
+                    mainHandler.postDelayed(this::hideGoogleTranslateToolbar, 250);
+                    mainHandler.postDelayed(this::hideGoogleTranslateToolbar, 800);
+                    mainHandler.postDelayed(this::hideGoogleTranslateToolbar, 1800);
+                    mainHandler.postDelayed(this::hideGoogleTranslateToolbar, 3500);
+                }
                 updateTopActionStates();
             }
         });
@@ -4984,16 +5191,125 @@ public class MainActivity extends Activity {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("shortcuts", sb.toString()).apply();
     }
 
+    private void installSwipeNavigation(View root) {
+        View.OnTouchListener listener = (v, event) -> handleSwipeTouch(event);
+        try {
+            if (root != null) root.setOnTouchListener(listener);
+            if (homeScroll != null) homeScroll.setOnTouchListener(listener);
+            if (webView != null) webView.setOnTouchListener(listener);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private boolean handleSwipeTouch(MotionEvent event) {
+        if (event == null) return false;
+
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                swipeStartX = event.getX();
+                swipeStartY = event.getY();
+                swipeStartTime = System.currentTimeMillis();
+                return false;
+
+            case MotionEvent.ACTION_UP:
+                float dx = event.getX() - swipeStartX;
+                float dy = event.getY() - swipeStartY;
+                long duration = System.currentTimeMillis() - swipeStartTime;
+
+                if (duration > 900) return false;
+                if (Math.abs(dx) < dp(90)) return false;
+                if (Math.abs(dy) > dp(120)) return false;
+
+                if (dx < 0) {
+                    navigateSwipeBack();
+                } else {
+                    navigateSwipeForward();
+                }
+                return false;
+        }
+        return false;
+    }
+
+    private void navigateSwipeBack() {
+        try {
+            if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) {
+                restoreHiddenWebPage();
+                return;
+            }
+
+            if (webView != null && webView.getVisibility() == View.VISIBLE && webView.canGoBack()) {
+                webView.goBack();
+                return;
+            }
+
+            showHome();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void navigateSwipeForward() {
+        try {
+            if (webView != null && webView.getVisibility() == View.VISIBLE && webView.canGoForward()) {
+                webView.goForward();
+                return;
+            }
+
+            if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) {
+                if (webView != null && webView.canGoForward()) {
+                    restoreHiddenWebPage();
+                    webView.goForward();
+                } else {
+                    restoreHiddenWebPage();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void restoreHiddenWebPage() {
+        try {
+            TabInfo tab = getCurrentTab();
+            String tabUrl = tab.url == null ? "" : tab.url;
+            String currentWebUrl = webView != null ? webView.getUrl() : "";
+
+            if ((currentWebUrl == null || currentWebUrl.length() == 0) && tabUrl.length() == 0) {
+                Toast.makeText(this, "Belum ada halaman sebelumnya", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            homeScroll.setVisibility(View.GONE);
+            webView.setVisibility(View.VISIBLE);
+
+            String restoreUrl = currentWebUrl != null && currentWebUrl.length() > 0 ? extractOriginalUrl(currentWebUrl) : tabUrl;
+            if (restoreUrl != null && restoreUrl.length() > 0) {
+                addressBar.setText(restoreUrl);
+            }
+
+            if ((currentWebUrl == null || currentWebUrl.length() == 0) && tabUrl.length() > 0) {
+                if (translateEnabled) loadTranslatedPage(tabUrl);
+                else webView.loadUrl(tabUrl);
+            }
+
+            updateVideoControlsVisibility();
+            updateTopActionStates();
+            Toast.makeText(this, "Halaman terakhir dibuka lagi", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Tidak ada halaman untuk dibuka", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void showHome() {
+        // Home hanya menyembunyikan halaman web, bukan menghapus state halaman.
+        // Jadi kalau tidak sengaja kepencet Home, halaman terakhir masih bisa dikembalikan lewat gesture.
+        try {
+            saveCurrentTabState();
+        } catch (Exception ignored) {}
+
         homeScroll.setVisibility(View.VISIBLE);
         webView.setVisibility(View.GONE);
         if (addressBar != null) addressBar.setText("");
         if (homeSearchInput != null) homeSearchInput.setText("");
-        try {
-            TabInfo tab = getCurrentTab();
-            tab.url = "";
-            tab.title = tab.privateTab ? "Tab privat" : "Tab baru";
-        } catch (Exception ignored) {}
+
         updateVideoControlsVisibility();
         updateTopActionStates();
         updateTabsCountUi();
@@ -5135,6 +5451,7 @@ public class MainActivity extends Activity {
         safeMode = p.getBoolean("safeMode", true);
         nightMode = p.getBoolean("nightMode", true);
         nightModeOption = p.getString("nightModeOption", nightMode ? "ON" : "OFF");
+        hideGoogleTranslateBar = p.getBoolean("hideGoogleTranslateBar", true);
         nightModeExceptions.clear();
         nightModeExceptions.addAll(p.getStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>()));
         readerMode = p.getBoolean("readerMode", false);
@@ -5195,6 +5512,7 @@ public class MainActivity extends Activity {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putBoolean("speedMode", speedMode)
                 .putBoolean("safeMode", safeMode)
+                .putBoolean("hideGoogleTranslateBar", hideGoogleTranslateBar)
                 .putBoolean("nightMode", isNightModeActiveForCurrentSite())
                 .putString("nightModeOption", nightModeOption)
                 .putStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>(nightModeExceptions))
