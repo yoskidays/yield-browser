@@ -1,0 +1,14 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.yieldbrowser.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.yieldbrowser.install'
+        minSdk 23
+        targetSdk 30
+        versionCode 4
+        versionName '0.1.4-ui-android11'
+    }
+}
