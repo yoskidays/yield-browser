@@ -2820,6 +2820,11 @@ public class MainActivity extends Activity {
         return "";
     }
 
+
+    private void beginDownloadFromWeb(String url, String contentDisposition, String mimeType) {
+        beginDownloadFromWeb(url, contentDisposition, mimeType, webView != null ? webView.getSettings().getUserAgentString() : "");
+    }
+
     private void beginDownloadFromWeb(String url, String contentDisposition, String mimeType, String userAgent) {
         String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
         beginDownload(url, fileName, userAgent, getCurrentPageForReferer());
@@ -3441,7 +3446,7 @@ public class MainActivity extends Activity {
     private void configureWebView() {
         applyBrowserSettings();
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
-            beginDownloadFromWeb(url, contentDisposition, mimeType);
+            beginDownloadFromWeb(url, contentDisposition, mimeType, userAgent);
         });
 
         webView.setWebViewClient(new WebViewClient() {
