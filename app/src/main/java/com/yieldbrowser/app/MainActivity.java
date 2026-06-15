@@ -45,6 +45,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
@@ -147,6 +148,10 @@ public class MainActivity extends Activity {
     private TextView videoQualityLabel;
     private String selectedVideoQuality = "Auto";
     private boolean videoControlsManualHidden = false;
+    private ViewGroup videoControlsOriginalParent;
+    private ViewGroup.LayoutParams videoControlsOriginalLayoutParams;
+    private int videoControlsOriginalIndex = -1;
+    private boolean videoControlsInFullscreen = false;
     private View fullscreenVideoView;
     private WebChromeClient.CustomViewCallback fullscreenVideoCallback;
     private int originalSystemUiVisibility = 0;
@@ -1349,7 +1354,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.8.0";
+        return "0.8.3";
     }
 
     private void showAboutYieldDialog() {
@@ -1918,24 +1923,31 @@ private void showDownloadSettingsPanel() {
         Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        scroll.setBackground(roundRect(Color.parseColor("#26292F"), dp(24), dp(1), COLOR_BORDER));
+
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(22), dp(20), dp(22), dp(16));
-        box.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(22), dp(1), COLOR_BORDER));
+        box.setPadding(dp(20), dp(18), dp(20), dp(14));
+        scroll.addView(box, new ScrollView.LayoutParams(-1, -2));
 
         TextView title = new TextView(this);
         title.setText("Fitur UC Download");
         title.setTextColor(Color.WHITE);
         title.setTextSize(22);
         title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setIncludeFontPadding(false);
         box.addView(title);
 
         TextView info = new TextView(this);
-        info.setText("Fitur yang sudah kuat tidak digandakan; yang kurang dimaksimalkan di engine Yield.");
+        info.setText("Pengaturan download lanjutan Yield.");
         info.setTextColor(COLOR_SUBTEXT);
         info.setTextSize(13);
+        info.setLineSpacing(0, 1.05f);
         LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(-1, -2);
-        infoLp.setMargins(0, dp(8), 0, dp(10));
+        infoLp.setMargins(0, dp(8), 0, dp(12));
         box.addView(info, infoLp);
 
         box.addView(advancedSwitchRow("Dynamic 2/4 koneksi", "File besar otomatis pakai 4 koneksi jika server support Range.", downloadDynamic4Connections, v -> {
@@ -1953,14 +1965,16 @@ private void showDownloadSettingsPanel() {
             saveSettings();
         }));
 
-        box.addView(advancedInfoRow("Smart resume", "Sudah aktif: pause/resume melanjutkan data yang sudah masuk."));
-        box.addView(advancedInfoRow("Auto detect video file", "Sudah aktif: video/HLS diberi kategori Video dan nama file dirapikan."));
-        box.addView(advancedInfoRow("Auto rename file", "Sudah aktif: nama dari server dipakai otomatis dan duplikat dibuat unik."));
-        box.addView(advancedInfoRow("Real-time speed graph", "Aktif di item download berjalan: MB/s + mini graph."));
+        box.addView(advancedInfoRow("Smart resume"));
+        box.addView(advancedInfoRow("Auto detect video file"));
+        box.addView(advancedInfoRow("Auto rename file"));
+        box.addView(advancedInfoRow("Real-time speed graph"));
 
         TextView limiter = darkDialogActionButton("SPEED LIMITER: " + (downloadSpeedLimitKBps > 0 ? downloadSpeedLimitKBps + " KB/s" : "OFF"));
         limiter.setOnClickListener(v -> showSpeedLimiterDialog(dialog, parentDialog));
-        box.addView(limiter);
+        LinearLayout.LayoutParams limiterLp = new LinearLayout.LayoutParams(-1, dp(46));
+        limiterLp.setMargins(0, dp(2), 0, 0);
+        box.addView(limiter, limiterLp);
 
         LinearLayout bottom = new LinearLayout(this);
         bottom.setGravity(Gravity.END);
@@ -1977,14 +1991,14 @@ private void showDownloadSettingsPanel() {
         bottom.addView(close);
         box.addView(bottom);
 
-        dialog.setContentView(box);
+        dialog.setContentView(scroll);
         dialog.show();
         if (dialog.getWindow() != null) {
             Window window = dialog.getWindow();
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             WindowManager.LayoutParams lp = window.getAttributes();
             lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.9f);
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            lp.height = (int) (getResources().getDisplayMetrics().heightPixels * 0.78f);
             window.setAttributes(lp);
         }
     }
@@ -1993,10 +2007,10 @@ private void showDownloadSettingsPanel() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(10), dp(12), dp(10));
-        row.setBackground(roundRect(Color.parseColor("#343740"), dp(14), dp(1), COLOR_BORDER));
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setBackground(roundRect(Color.parseColor("#30333A"), dp(18), dp(1), Color.parseColor("#3A3D45")));
         LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
-        rowLp.setMargins(0, dp(6), 0, 0);
+        rowLp.setMargins(0, 0, 0, dp(8));
         row.setLayoutParams(rowLp);
 
         LinearLayout texts = new LinearLayout(this);
@@ -2004,16 +2018,18 @@ private void showDownloadSettingsPanel() {
 
         TextView t = new TextView(this);
         t.setText(title);
-        t.setTextColor(Color.WHITE);
+        t.setTextColor(Color.parseColor("#F5F6F8"));
         t.setTextSize(15);
         t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setIncludeFontPadding(false);
         texts.addView(t);
 
         TextView d = new TextView(this);
         d.setText(desc);
-        d.setTextColor(COLOR_SUBTEXT);
+        d.setTextColor(Color.parseColor("#AEB4BF"));
         d.setTextSize(12);
-        d.setPadding(0, dp(3), dp(8), 0);
+        d.setLineSpacing(0, 1.03f);
+        d.setPadding(0, dp(6), dp(8), 0);
         texts.addView(d);
 
         row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
@@ -2021,45 +2037,81 @@ private void showDownloadSettingsPanel() {
         TextView status = new TextView(this);
         final boolean[] current = new boolean[]{enabled};
         status.setText(current[0] ? "ON" : "OFF");
-        status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
+        status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
         status.setTypeface(Typeface.DEFAULT_BOLD);
         status.setTextSize(12);
         status.setGravity(Gravity.CENTER);
-        status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
-        row.addView(status, new LinearLayout.LayoutParams(dp(48), dp(30)));
+        status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
+        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(dp(58), dp(32));
+        statusLp.setMargins(dp(12), 0, 0, 0);
+        row.addView(status, statusLp);
 
         row.setOnClickListener(v -> {
             if (listener != null) listener.onClick(v);
             current[0] = !current[0];
             status.setText(current[0] ? "ON" : "OFF");
-            status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
-            status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
+            status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
+            status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
         });
+        return row;
+    }
+
+    private View advancedInfoRow(String title) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setBackground(roundRect(Color.parseColor("#2C2F36"), dp(16), dp(1), Color.parseColor("#373B43")));
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, dp(52));
+        rowLp.setMargins(0, 0, 0, dp(8));
+        row.setLayoutParams(rowLp);
+
+        TextView check = new TextView(this);
+        check.setText("✓");
+        check.setTextColor(Color.parseColor("#65D889"));
+        check.setTextSize(16);
+        check.setTypeface(Typeface.DEFAULT_BOLD);
+        check.setGravity(Gravity.CENTER);
+        check.setBackground(roundRect(Color.parseColor("#173A25"), dp(14), 0, Color.TRANSPARENT));
+        row.addView(check, new LinearLayout.LayoutParams(dp(30), dp(30)));
+
+        TextView t = new TextView(this);
+        t.setText(title);
+        t.setTextColor(Color.parseColor("#F5F6F8"));
+        t.setTextSize(15);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setIncludeFontPadding(false);
+        LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(0, -2, 1);
+        tLp.setMargins(dp(12), 0, 0, 0);
+        row.addView(t, tLp);
         return row;
     }
 
     private View advancedInfoRow(String title, String desc) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(dp(12), dp(10), dp(12), dp(10));
-        row.setBackground(roundRect(Color.parseColor("#2F3239"), dp(14), dp(1), Color.parseColor("#3A3D45")));
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setBackground(roundRect(Color.parseColor("#2C2F36"), dp(16), dp(1), Color.parseColor("#373B43")));
         LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
-        rowLp.setMargins(0, dp(6), 0, 0);
+        rowLp.setMargins(0, 0, 0, dp(8));
         row.setLayoutParams(rowLp);
 
         TextView t = new TextView(this);
         t.setText(title);
-        t.setTextColor(Color.WHITE);
+        t.setTextColor(Color.parseColor("#F5F6F8"));
         t.setTextSize(15);
         t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setIncludeFontPadding(false);
         row.addView(t);
 
-        TextView d = new TextView(this);
-        d.setText(desc);
-        d.setTextColor(COLOR_SUBTEXT);
-        d.setTextSize(12);
-        d.setPadding(0, dp(3), 0, 0);
-        row.addView(d);
+        if (desc != null && desc.length() > 0) {
+            TextView d = new TextView(this);
+            d.setText(desc);
+            d.setTextColor(Color.parseColor("#AEB4BF"));
+            d.setTextSize(12);
+            d.setPadding(0, dp(6), 0, 0);
+            row.addView(d);
+        }
         return row;
     }
 
@@ -2291,7 +2343,8 @@ private void showDownloadSettingsPanel() {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
             if (topBarView != null) topBarView.setVisibility(View.GONE);
             if (bottomNavView != null) bottomNavView.setVisibility(View.GONE);
-            if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
+            videoControlsManualHidden = false;
+            checkAndShowVideoControls();
             Toast.makeText(this, "Mode layar penuh aktif. Tekan Back untuk keluar.", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Mode fullscreen tidak didukung di halaman ini", Toast.LENGTH_SHORT).show();
@@ -2303,9 +2356,66 @@ private void showDownloadSettingsPanel() {
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
             getWindow().getDecorView().setSystemUiVisibility(originalSystemUiVisibility);
             setRequestedOrientation(originalRequestedOrientation);
+            restoreVideoControlsFromFullscreenOverlay();
             if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
             if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
             checkAndShowVideoControls();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void moveVideoControlsToFullscreenOverlay() {
+        try {
+            if (videoControlsBar == null || videoControlsInFullscreen) return;
+
+            ViewGroup parent = (ViewGroup) videoControlsBar.getParent();
+            if (parent != null) {
+                videoControlsOriginalParent = parent;
+                videoControlsOriginalLayoutParams = videoControlsBar.getLayoutParams();
+                videoControlsOriginalIndex = parent.indexOfChild(videoControlsBar);
+                parent.removeView(videoControlsBar);
+            }
+
+            FrameLayout decor = (FrameLayout) getWindow().getDecorView();
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.BOTTOM
+            );
+            lp.setMargins(0, 0, 0, 0);
+            decor.addView(videoControlsBar, lp);
+
+            videoControlsInFullscreen = true;
+            videoControlsManualHidden = false;
+            videoControlsBar.bringToFront();
+            videoControlsBar.setVisibility(View.VISIBLE);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void restoreVideoControlsFromFullscreenOverlay() {
+        try {
+            if (videoControlsBar == null || !videoControlsInFullscreen) return;
+
+            ViewGroup currentParent = (ViewGroup) videoControlsBar.getParent();
+            if (currentParent != null) currentParent.removeView(videoControlsBar);
+
+            if (videoControlsOriginalParent != null) {
+                int index = videoControlsOriginalIndex;
+                if (index < 0 || index > videoControlsOriginalParent.getChildCount()) {
+                    index = videoControlsOriginalParent.getChildCount();
+                }
+                if (videoControlsOriginalLayoutParams != null) {
+                    videoControlsOriginalParent.addView(videoControlsBar, index, videoControlsOriginalLayoutParams);
+                } else {
+                    videoControlsOriginalParent.addView(videoControlsBar, index);
+                }
+            }
+
+            videoControlsInFullscreen = false;
+            videoControlsOriginalParent = null;
+            videoControlsOriginalLayoutParams = null;
+            videoControlsOriginalIndex = -1;
         } catch (Exception ignored) {
         }
     }
@@ -4109,7 +4219,7 @@ private void showDownloadSettingsPanel() {
             textWrap.addView(bar, barParams);
 
             TextView percent = new TextView(this);
-            percent.setText(item.progress + "% • " + readableSpeed(item.speedBytesPerSecond) + " • " + speedGraph(item));
+            percent.setText(item.progress + "% • " + readableSpeed(item.speedBytesPerSecond));
             percent.setTextColor(Color.parseColor("#C9CDD4"));
             percent.setTextSize(11);
             percent.setPadding(0, dp(4), 0, 0);
@@ -4967,8 +5077,7 @@ private void showDownloadSettingsPanel() {
                     return;
                 }
 
-                final long totalFinal = total;
-                item.totalBytes = totalFinal;
+                item.totalBytes = total;
                 item.connectionCount = connections;
                 item.engineInfo = connections + " koneksi sukses";
                 item.downloadedBytes = 0;
@@ -4977,7 +5086,7 @@ private void showDownloadSettingsPanel() {
 
                 try {
                     RandomAccessFile raf = new RandomAccessFile(outRef[0], "rw");
-                    raf.setLength(totalFinal);
+                    raf.setLength(total);
                     raf.close();
                 } catch (Exception ignored) {}
 
@@ -4985,7 +5094,7 @@ private void showDownloadSettingsPanel() {
                 refreshDownloadPanel();
                 showDownloadNotification(item, connections + " koneksi", true);
 
-                long chunk = totalFinal / connections;
+                long chunk = total / connections;
                 long[] done = new long[]{0};
                 boolean[] ok = new boolean[]{true};
                 ArrayList<Thread> threads = new ArrayList<>();
@@ -4993,8 +5102,8 @@ private void showDownloadSettingsPanel() {
                 for (int i = 0; i < connections; i++) {
                     final int part = i + 1;
                     final long start = i * chunk;
-                    final long end = i == connections - 1 ? totalFinal - 1 : ((i + 1) * chunk) - 1;
-                    Thread t = new Thread(() -> downloadRangeDynamic(item, outRef[0], start, end, done, totalFinal, ok, part, connections));
+                    final long end = i == connections - 1 ? total - 1 : ((i + 1) * chunk) - 1;
+                    Thread t = new Thread(() -> downloadRangeDynamic(item, outRef[0], start, end, done, total, ok, part, connections));
                     threads.add(t);
                     t.start();
                 }
@@ -6309,7 +6418,8 @@ private void showDownloadSettingsPanel() {
 
                 if (topBarView != null) topBarView.setVisibility(View.GONE);
                 if (bottomNavView != null) bottomNavView.setVisibility(View.GONE);
-                if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
+                moveVideoControlsToFullscreenOverlay();
+                checkAndShowVideoControls();
             }
 
             @Override
@@ -6329,6 +6439,7 @@ private void showDownloadSettingsPanel() {
                 getWindow().getDecorView().setSystemUiVisibility(originalSystemUiVisibility);
                 setRequestedOrientation(originalRequestedOrientation);
 
+                restoreVideoControlsFromFullscreenOverlay();
                 if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
                 if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
                 checkAndShowVideoControls();
@@ -6663,9 +6774,33 @@ private void showDownloadSettingsPanel() {
         return u.contains("phishing") || u.contains("malware") || u.contains("virus") || u.contains("scam");
     }
 
+    private boolean isMediaResourceUrl(String url) {
+        if (url == null) return false;
+        String u = url.toLowerCase(Locale.US);
+        return u.contains("googlevideo.com/videoplayback")
+                || u.contains("youtube.com/videoplayback")
+                || u.contains("/videoplayback")
+                || u.contains(".mp4")
+                || u.contains(".m3u8")
+                || u.contains(".mpd")
+                || u.contains(".webm")
+                || u.contains(".mkv")
+                || u.contains(".mov")
+                || u.contains(".avi")
+                || u.contains(".ts")
+                || u.contains(".m4s")
+                || u.contains("mime=video")
+                || u.contains("mime%3dvideo")
+                || u.contains("content-type=video")
+                || u.contains("application/vnd.apple.mpegurl")
+                || u.contains("application/x-mpegurl");
+    }
+
     private boolean isAdUrl(String url) {
         if (!adBlock || url == null) return false;
-        String u = url.toLowerCase();
+        String u = url.toLowerCase(Locale.US);
+
+        if (isMediaResourceUrl(u)) return false;
 
         String[] blocked = new String[]{
                 "doubleclick.net",
@@ -6723,7 +6858,6 @@ private void showDownloadSettingsPanel() {
                 || u.contains("youtube.com/youtubei/v1/log_event")
                 || u.contains("youtube.com/youtubei/v1/player/ad_break")
                 || u.contains("youtube.com/youtubei/v1/ad")
-                || u.contains("googlevideo.com/initplayback")
                 || (u.contains("googlevideo.com/videoplayback") && (u.contains("oad=") || u.contains("ctier=") || u.contains("oad=1")));
     }
 
@@ -7254,6 +7388,7 @@ private void showDownloadSettingsPanel() {
                 decor.removeView(fullscreenVideoView);
             } catch (Exception ignored) {}
             fullscreenVideoView = null;
+            restoreVideoControlsFromFullscreenOverlay();
             if (fullscreenVideoCallback != null) {
                 fullscreenVideoCallback.onCustomViewHidden();
                 fullscreenVideoCallback = null;

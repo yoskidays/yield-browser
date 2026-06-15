@@ -304,3 +304,30 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Speed limiter: OFF, 256 KB/s, 512 KB/s, 1024 KB/s, 2048 KB/s.
 - Real-time speed graph: item download berjalan menampilkan MB/s + mini grafik speed.
 - Auto rename file diperkuat untuk video/HLS dan nama duplikat.
+
+
+## v0.8.1
+- Menghapus mini grafik speed di bawah progress bar orange agar item download lebih rapi.
+- Speed tetap tampil sebagai teks, tetapi graph blok tidak ditampilkan.
+- Fullscreen video diperbaiki:
+  - kontrol video tidak hilang permanen saat fullscreen.
+  - kontrol video dipindahkan sebagai overlay di atas custom fullscreen player.
+  - fallback fullscreen tetap memunculkan kontrol video.
+- AdBlock dibuat lebih aman untuk video:
+  - URL media seperti mp4, m3u8, mpd, webm, ts, m4s, dan googlevideo/videoplayback tidak diblok.
+  - mengurangi risiko video ikut keblok saat AdBlock aktif.
+
+
+## v0.8.2
+- Dialog "Fitur UC Download" dirapikan.
+- Deskripsi tambahan pada item Smart resume, Auto detect video file, Auto rename file, dan Real-time speed graph dihapus.
+- Sekarang bagian itu hanya menampilkan nama fungsi agar tampilan lebih bersih dan rapi.
+
+
+## v0.8.3
+- Merapikan dialog `Fitur UC Download`.
+- Dialog dibuat scrollable agar tidak penuh di layar kecil.
+- Card toggle dibuat lebih compact dan premium.
+- Item fungsi aktif dibuat lebih bersih dengan ikon centang.
+- Jarak antar item dan tinggi card diperbaiki.
+- Tombol ON/OFF dibuat lebih rapi.
