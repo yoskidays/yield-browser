@@ -753,3 +753,7 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
     - `YieldBrowser-v0.9.31-installable-debug`
     - `YieldBrowser-v0.9.31-release-unsigned`
 - Ditambahkan `RELEASE_NOTES_v0.9.31.md` untuk panduan artifact APK.
+
+
+## v0.9.33
+Fix Translate Kompatibel agar tidak reload loop dan tombol matikan translate benar-benar menghentikan translate.

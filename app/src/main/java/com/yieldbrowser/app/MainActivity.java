@@ -195,6 +195,9 @@ public class MainActivity extends Activity {
     private boolean hideGoogleTranslateBar = true;
     private String lastTranslateOriginalUrl = "";
     private boolean compatibleTranslateActive = false;
+    private boolean translateManuallyDisabled = true;
+    private int translateSessionToken = 0;
+    private long lastCompatibleTranslateStartedAt = 0L;
     private String translateTargetLang = "id";
     private String translateTargetLabel = "Indonesia";
 
@@ -372,17 +375,26 @@ public class MainActivity extends Activity {
             if (text == null) return;
             final String clean = text.trim();
             if (clean.length() < 2 || clean.length() > 450) return;
+            final int token = translateSessionToken;
+            if (!isCompatibleTranslateAllowed(token)) return;
 
             new Thread(() -> {
                 String translated = translateTextViaGoogle(clean);
                 if (translated == null || translated.trim().length() == 0) return;
-                runOnUiThread(() -> applyCompatibleTranslation(index, translated));
+                runOnUiThread(() -> {
+                    if (isCompatibleTranslateAllowed(token)) applyCompatibleTranslation(index, translated);
+                });
             }).start();
         }
 
         @JavascriptInterface
         public void onCollected(int count) {
-            runOnUiThread(() -> Toast.makeText(MainActivity.this, "Translate kompatibel berjalan: " + count + " teks", Toast.LENGTH_SHORT).show());
+            final int token = translateSessionToken;
+            runOnUiThread(() -> {
+                if (isCompatibleTranslateAllowed(token)) {
+                    Toast.makeText(MainActivity.this, "Translate kompatibel berjalan: " + count + " teks", Toast.LENGTH_SHORT).show();
+                }
+            });
         }
     }
 
@@ -1140,7 +1152,7 @@ content.addView(space(dp(36)));
             webView.setVisibility(View.VISIBLE);
             homeScroll.setVisibility(View.GONE);
             updateVideoControlsVisibility();
-            if (translateEnabled) loadTranslatedPage(tab.url);
+            if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(tab.url);
             else webView.loadUrl(tab.url);
         }
 
@@ -7363,10 +7375,11 @@ private void showDownloadSettingsPanel() {
                     saveSettings();
                     Toast.makeText(this, "Bahasa translate: " + translateTargetLabel, Toast.LENGTH_SHORT).show();
 
-                    if (translateEnabled && compatibleTranslateActive) {
+                    if (translateEnabled && compatibleTranslateActive && !translateManuallyDisabled) {
                         clearCompatibleTranslationMarks();
-                        mainHandler.postDelayed(() -> translatePageCompatible(), 250);
-                    } else if (translateEnabled && isGoogleTranslatedUrl(webView != null ? webView.getUrl() : "")) {
+                        final int token = translateSessionToken;
+                        mainHandler.postDelayed(() -> translatePageCompatible(token), 250);
+                    } else if (translateEnabled && !translateManuallyDisabled && isGoogleTranslatedUrl(webView != null ? webView.getUrl() : "")) {
                         String raw = lastTranslateOriginalUrl != null && lastTranslateOriginalUrl.length() > 0 ? lastTranslateOriginalUrl : getOriginalForTranslate(webView.getUrl());
                         if (raw != null && raw.length() > 0) loadTranslatedPage(raw);
                     }
@@ -7391,7 +7404,7 @@ private void showDownloadSettingsPanel() {
         options.add("Terjemahkan teks halaman saja");
         options.add("Reload website");
         options.add("Aktifkan klik menu website");
-        if (translateEnabled || isGoogleTranslatedUrl(webView != null ? webView.getUrl() : "")) {
+        if (translateEnabled || compatibleTranslateActive || isGoogleTranslatedUrl(webView != null ? webView.getUrl() : "")) {
             options.add("Matikan translate / buka halaman asli");
         }
 
@@ -7407,24 +7420,17 @@ private void showDownloadSettingsPanel() {
                             Toast.makeText(this, "Buka website dulu untuk translate", Toast.LENGTH_SHORT).show();
                             return;
                         }
-                        translateEnabled = true;
-                        compatibleTranslateActive = true;
-                        lastTranslateOriginalUrl = original;
+                        startCompatibleTranslateSession(original);
                         updateTopActionStates();
                         translatePageCompatible();
                     } else if (selected.startsWith("Lanjutkan translate")) {
-                        translateEnabled = true;
-                        compatibleTranslateActive = true;
-                        updateTopActionStates();
                         continueCompatibleTranslation();
                     } else if (selected.startsWith("Google Translate proxy")) {
                         if (original == null || original.length() == 0) {
                             Toast.makeText(this, "Buka website dulu untuk translate", Toast.LENGTH_SHORT).show();
                             return;
                         }
-                        translateEnabled = true;
-                        compatibleTranslateActive = false;
-                        lastTranslateOriginalUrl = original;
+                        startGoogleTranslateSession(original);
                         updateTopActionStates();
                         loadTranslatedPage(original);
                     } else if (selected.startsWith("Tampilkan bar")) {
@@ -7445,16 +7451,7 @@ private void showDownloadSettingsPanel() {
                         unblockTranslatedPageClicks();
                         Toast.makeText(this, "Klik menu website diaktifkan", Toast.LENGTH_SHORT).show();
                     } else if (selected.startsWith("Matikan")) {
-                        translateEnabled = false;
-                        compatibleTranslateActive = false;
-                        clearCompatibleTranslationMarks();
-                        updateTopActionStates();
-                        String raw = getOriginalForTranslate(current);
-                        if ((raw == null || raw.length() == 0) && lastTranslateOriginalUrl.length() > 0) raw = lastTranslateOriginalUrl;
-                        if (raw != null && raw.length() > 0 && isGoogleTranslatedUrl(webView != null ? webView.getUrl() : "")) {
-                            webView.loadUrl(raw);
-                        }
-                        Toast.makeText(this, "Translate dimatikan", Toast.LENGTH_SHORT).show();
+                        disableTranslateAndRestore(current);
                     }
                 })
                 .setNegativeButton("Tutup", null)
@@ -7490,12 +7487,14 @@ private void showDownloadSettingsPanel() {
         try {
             webView.evaluateJavascript("(function(){var t=(document.body&&document.body.innerText?document.body.innerText:'').toLowerCase();return t.indexOf('aku bukan robot')>-1||t.indexOf('not a robot')>-1||t.indexOf('captcha')>-1||t.indexOf('verify')>-1;})()", value -> {
                 if ("true".equals(value)) {
+                    if (!translateEnabled || translateManuallyDisabled) return;
                     Toast.makeText(this, "Website menolak Google Translate. Beralih ke mode kompatibel.", Toast.LENGTH_LONG).show();
                     String raw = lastTranslateOriginalUrl != null && lastTranslateOriginalUrl.length() > 0 ? lastTranslateOriginalUrl : getOriginalForTranslate(url);
                     if (raw != null && raw.length() > 0) {
-                        compatibleTranslateActive = true;
+                        startCompatibleTranslateSession(raw);
+                        final int token = translateSessionToken;
                         webView.loadUrl(raw);
-                        mainHandler.postDelayed(() -> translatePageCompatible(), 1800);
+                        mainHandler.postDelayed(() -> translatePageCompatible(token), 1800);
                     }
                 }
             });
@@ -7503,7 +7502,62 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+    private void startCompatibleTranslateSession(String originalUrl) {
+        translateEnabled = true;
+        compatibleTranslateActive = true;
+        translateManuallyDisabled = false;
+        translateSessionToken++;
+        if (originalUrl != null && originalUrl.length() > 0) lastTranslateOriginalUrl = originalUrl;
+    }
+
+    private void startGoogleTranslateSession(String originalUrl) {
+        translateEnabled = true;
+        compatibleTranslateActive = false;
+        translateManuallyDisabled = false;
+        translateSessionToken++;
+        if (originalUrl != null && originalUrl.length() > 0) lastTranslateOriginalUrl = originalUrl;
+    }
+
+    private void disableTranslateAndRestore(String currentUrl) {
+        translateSessionToken++;
+        translateEnabled = false;
+        compatibleTranslateActive = false;
+        translateManuallyDisabled = true;
+        lastCompatibleTranslateStartedAt = 0L;
+        clearCompatibleTranslationMarks();
+        updateTopActionStates();
+        String raw = getOriginalForTranslate(currentUrl);
+        if ((raw == null || raw.length() == 0) && lastTranslateOriginalUrl != null && lastTranslateOriginalUrl.length() > 0) raw = lastTranslateOriginalUrl;
+        if (raw != null && raw.length() > 0 && isGoogleTranslatedUrl(webView != null ? webView.getUrl() : "")) {
+            webView.loadUrl(raw);
+        }
+        lastTranslateOriginalUrl = "";
+        Toast.makeText(this, "Translate dimatikan", Toast.LENGTH_SHORT).show();
+    }
+
+    private boolean isCompatibleTranslateAllowed(int token) {
+        return token == translateSessionToken && translateEnabled && compatibleTranslateActive && !translateManuallyDisabled;
+    }
+
+    private void runJsOnCurrentPage(String script) {
+        if (webView == null || script == null || script.length() == 0) return;
+        try {
+            String code = script;
+            if (code.startsWith("javascript:")) code = code.substring("javascript:".length());
+            webView.evaluateJavascript(code, null);
+        } catch (Exception ignored) {
+        }
+    }
+
     private void translatePageCompatible() {
+        translatePageCompatible(translateSessionToken);
+    }
+
+    private void translatePageCompatible(int token) {
+        if (!isCompatibleTranslateAllowed(token)) return;
+        long now = System.currentTimeMillis();
+        if (lastCompatibleTranslateStartedAt > 0 && now - lastCompatibleTranslateStartedAt < 900) return;
+        lastCompatibleTranslateStartedAt = now;
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
             Toast.makeText(this, "Buka website dulu untuk translate kompatibel", Toast.LENGTH_SHORT).show();
             return;
@@ -7543,9 +7597,8 @@ private void showDownloadSettingsPanel() {
                         + "}catch(e){try{YieldTranslateBridge.onCollected(0);}catch(x){}}"
                         + "})()";
         try {
-            webView.loadUrl(js);
-            translateEnabled = true;
-            compatibleTranslateActive = true;
+            if (!isCompatibleTranslateAllowed(token)) return;
+            runJsOnCurrentPage(js);
             updateTopActionStates();
             Toast.makeText(this, "Translate kompatibel aktif ke " + translateTargetLabel, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
@@ -7558,8 +7611,7 @@ private void showDownloadSettingsPanel() {
             Toast.makeText(this, "Buka website dulu", Toast.LENGTH_SHORT).show();
             return;
         }
-        compatibleTranslateActive = true;
-        translateEnabled = true;
+        startCompatibleTranslateSession(getOriginalForTranslate(getEffectiveCurrentUrl()));
         updateTopActionStates();
         translatePageCompatible();
     }
@@ -7575,7 +7627,7 @@ private void showDownloadSettingsPanel() {
                         + "}catch(e){}"
                         + "})()";
         try {
-            webView.loadUrl(js);
+            runJsOnCurrentPage(js);
         } catch (Exception ignored) {
         }
     }
@@ -7583,9 +7635,10 @@ private void showDownloadSettingsPanel() {
     private void applyCompatibleTranslation(int index, String translated) {
         if (webView == null) return;
         try {
+            if (!isCompatibleTranslateAllowed(translateSessionToken)) return;
             String js = "javascript:(function(){try{if(window.__yieldApplyTranslation)window.__yieldApplyTranslation("
                     + index + "," + org.json.JSONObject.quote(translated) + ");}catch(e){}})()";
-            webView.loadUrl(js);
+            runJsOnCurrentPage(js);
         } catch (Exception ignored) {
         }
     }
@@ -7629,6 +7682,7 @@ private void showDownloadSettingsPanel() {
     private void loadTranslatedPage(String originalUrl) {
         if (originalUrl == null || originalUrl.length() == 0) return;
         try {
+            if (!translateEnabled || translateManuallyDisabled) startGoogleTranslateSession(originalUrl);
             compatibleTranslateActive = false;
             lastTranslateOriginalUrl = originalUrl;
             String encoded = URLEncoder.encode(originalUrl, "UTF-8");
@@ -7659,7 +7713,7 @@ private void showDownloadSettingsPanel() {
                         + "}catch(e){}"
                         + "})()";
         try {
-            webView.loadUrl(js);
+            runJsOnCurrentPage(js);
         } catch (Exception ignored) {
         }
     }
@@ -7676,7 +7730,7 @@ private void showDownloadSettingsPanel() {
                             + "if(document.body){document.body.style.pointerEvents='auto';document.body.style.touchAction='auto';}"
                             + "}catch(e){}"
                             + "})()";
-            webView.loadUrl(js);
+            runJsOnCurrentPage(js);
         } catch (Exception ignored) {
         }
     }
@@ -7689,7 +7743,7 @@ private void showDownloadSettingsPanel() {
                         + "catch(e){}"
                         + "})()";
         try {
-            webView.loadUrl(js);
+            runJsOnCurrentPage(js);
         } catch (Exception ignored) {
         }
     }
@@ -7709,7 +7763,7 @@ private void showDownloadSettingsPanel() {
                         Toast.makeText(this, "Teks halaman tidak terbaca", Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    translateEnabled = true;
+                    startGoogleTranslateSession(getOriginalForTranslate(getEffectiveCurrentUrl()));
                     compatibleTranslateActive = false;
                     updateTopActionStates();
                     String encoded = URLEncoder.encode(text, "UTF-8");
@@ -8003,9 +8057,10 @@ private void showDownloadSettingsPanel() {
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 3500);
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 6000);
                 }
-                if (compatibleTranslateActive && !isGoogleTranslatedUrl(url)) {
-                    mainHandler.postDelayed(() -> translatePageCompatible(), 600);
-                    mainHandler.postDelayed(() -> translatePageCompatible(), 2200);
+                if (translateEnabled && compatibleTranslateActive && !translateManuallyDisabled && !isGoogleTranslatedUrl(url)) {
+                    final int token = translateSessionToken;
+                    mainHandler.postDelayed(() -> translatePageCompatible(token), 600);
+                    mainHandler.postDelayed(() -> translatePageCompatible(token), 2200);
                 }
                 if (pendingHideKeyboardAfterNavigation) {
                     blurWebInputsAndHideKeyboard();
@@ -8961,7 +9016,7 @@ private void showDownloadSettingsPanel() {
         }
         updateVideoControlsVisibility();
         if (shouldRecordHistoryUrl(url)) addBrowserHistory(url, url);
-        if (translateEnabled) loadTranslatedPage(url);
+        if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(url);
         else webView.loadUrl(url);
         if (fromHomeSearch) {
             mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 1400);
@@ -9139,7 +9194,7 @@ private void showDownloadSettingsPanel() {
             }
 
             if ((currentWebUrl == null || currentWebUrl.length() == 0) && tabUrl.length() > 0) {
-                if (translateEnabled) loadTranslatedPage(tabUrl);
+                if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(tabUrl);
                 else webView.loadUrl(tabUrl);
             }
 
