@@ -8088,6 +8088,10 @@ private void showDownloadSettingsPanel() {
 
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                if (!desktopMode) {
+                    applyBrowserSettings();
+                    mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 250);
+                }
                 super.onPageStarted(view, url, favicon);
                 if (pendingHideKeyboardAfterNavigation) {
                     blurWebInputsAndHideKeyboard();
@@ -8529,6 +8533,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private void toggleDesktopModeSafely() {
+        boolean previousDesktopMode = desktopMode;
         try {
             String targetUrl = getSafeReloadUrlForModeChange();
             desktopMode = !desktopMode;
@@ -8539,23 +8544,47 @@ private void showDownloadSettingsPanel() {
                 try { webView.stopLoading(); } catch (Exception ignored) {}
                 if (targetUrl != null && targetUrl.length() > 0) {
                     addressBar.setText(targetUrl);
-                    webView.loadUrl(targetUrl);
+                    if (!desktopMode && previousDesktopMode) {
+                        loadUrlAfterHardMobileReset(targetUrl);
+                    } else {
+                        webView.loadUrl(targetUrl);
+                    }
                 } else {
                     showHome();
                 }
             }
             if (!desktopMode) {
                 applyMobileViewportIfNeeded();
-                mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 300);
-                mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 1200);
+                mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 250);
+                mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 800);
+                mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 1800);
             }
             Toast.makeText(this, desktopMode ? "Desktop mode aktif" : "Mode mobile aktif", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
+            desktopMode = previousDesktopMode;
             try {
-                desktopMode = !desktopMode;
                 applyBrowserSettings();
                 saveSettings();
             } catch (Exception ignored) {}
+        }
+    }
+
+    private void loadUrlAfterHardMobileReset(String targetUrl) {
+        if (webView == null || targetUrl == null || targetUrl.trim().length() == 0) return;
+        try {
+            applyBrowserSettings();
+            webView.stopLoading();
+            webView.loadUrl("about:blank");
+            mainHandler.postDelayed(() -> {
+                try {
+                    if (desktopMode) return;
+                    applyBrowserSettings();
+                    webView.loadUrl(targetUrl);
+                } catch (Exception ignored) {
+                }
+            }, 180);
+        } catch (Exception ignored) {
+            try { webView.loadUrl(targetUrl); } catch (Exception ignored2) {}
         }
     }
 
@@ -8631,27 +8660,8 @@ private void showDownloadSettingsPanel() {
     }
 
     private String getMobileUserAgent() {
-        try {
-            if (mobileUserAgent == null || mobileUserAgent.trim().length() == 0) {
-                mobileUserAgent = WebSettings.getDefaultUserAgent(this);
-            }
-        } catch (Exception ignored) {
-        }
-        if (mobileUserAgent == null || mobileUserAgent.trim().length() == 0) {
-            mobileUserAgent = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36";
-        }
-        String ua = mobileUserAgent;
-        String low = ua.toLowerCase(Locale.US);
-        if (!low.contains("mobile")) {
-            ua = ua.replace("Safari/", "Mobile Safari/");
-            if (!ua.toLowerCase(Locale.US).contains("mobile")) {
-                ua = ua + " Mobile";
-            }
-        }
-        if (ua.toLowerCase(Locale.US).contains("windows nt") || ua.toLowerCase(Locale.US).contains("macintosh")) {
-            ua = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36";
-        }
-        return ua;
+        // UA mobile eksplisit: mencegah halaman tetap terdeteksi desktop/tablet setelah toggle mode.
+        return "Mozilla/5.0 (Linux; Android 10; Mobile; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.0.0 Mobile Safari/537.36";
     }
 
     private String getDesktopUserAgent() {
@@ -8666,18 +8676,31 @@ private void showDownloadSettingsPanel() {
     private void applyMobileViewportIfNeeded() {
         if (desktopMode || webView == null || webView.getVisibility() != View.VISIBLE) return;
         try {
+            WebSettings settings = webView.getSettings();
+            settings.setLoadWithOverviewMode(false);
+            settings.setUseWideViewPort(false);
+            settings.setUserAgentString(getMobileUserAgent());
+            settings.setTextZoom(textZoom <= 0 ? 100 : textZoom);
+            try { webView.setInitialScale(100); } catch (Exception ignored) {}
+            try { webView.setHorizontalScrollBarEnabled(false); } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
+        try {
             String js = "(function(){"
                     + "try{"
                     + "var m=document.querySelector('meta[name=viewport]');"
                     + "if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}"
-                    + "m.setAttribute('content','width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes');"
+                    + "m.setAttribute('content','width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover');"
                     + "document.documentElement.style.minWidth='';"
-                    + "document.documentElement.style.width='';"
-                    + "document.documentElement.style.overflowX='';"
-                    + "if(document.body){document.body.style.minWidth='';document.body.style.width='';document.body.style.overflowX='';}"
+                    + "document.documentElement.style.width='100%';"
+                    + "document.documentElement.style.maxWidth='100%';"
+                    + "document.documentElement.style.overflowX='hidden';"
+                    + "document.documentElement.style.zoom='';"
+                    + "document.documentElement.style.transform='';"
+                    + "if(document.body){document.body.style.minWidth='';document.body.style.width='100%';document.body.style.maxWidth='100%';document.body.style.overflowX='hidden';document.body.style.zoom='';document.body.style.transform='';}"
                     + "var desktop=document.querySelectorAll('.desktop-view');"
                     + "for(var i=0;i<desktop.length&&i<80;i++){try{desktop[i].className=(desktop[i].className+'').replace(/\\s?desktop-view/g,'');}catch(e){}}"
-                    + "return 'mobile_viewport_reset';"
+                    + "return 'mobile_viewport_reset_'+window.innerWidth;"
                     + "}catch(e){return 'mobile_viewport_error';}"
                     + "})()";
             webView.evaluateJavascript(js, null);
@@ -8698,8 +8721,6 @@ private void showDownloadSettingsPanel() {
                     + "m.setAttribute('content','width='+w+', initial-scale='+scale+', minimum-scale=0.25, maximum-scale=5.0, user-scalable=yes');"
                     + "document.documentElement.style.minWidth=w+'px';"
                     + "if(document.body){document.body.style.minWidth=w+'px';document.body.style.overflowX='auto';}"
-                    + "var mobile=document.querySelectorAll('[class*=mobile],[id*=mobile]');"
-                    + "for(var i=0;i<mobile.length&&i<80;i++){mobile[i].className=(mobile[i].className+' desktop-view').replace(/\bmobile\b/g,'desktop');}"
                     + "return 'desktop_viewport_'+w;"
                     + "}catch(e){return 'desktop_error';}"
                     + "})()";
@@ -9168,8 +9189,13 @@ private void showDownloadSettingsPanel() {
         }
         updateVideoControlsVisibility();
         if (shouldRecordHistoryUrl(url)) addBrowserHistory(url, url);
+        applyBrowserSettings();
         if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(url);
         else webView.loadUrl(url);
+        if (!desktopMode) {
+            mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 300);
+            mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 1200);
+        }
         if (fromHomeSearch) {
             mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 1400);
         }
