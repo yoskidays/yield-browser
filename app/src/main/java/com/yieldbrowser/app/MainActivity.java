@@ -260,6 +260,7 @@ public class MainActivity extends Activity {
     private String searchEngine = "Google";
     private String lastSafeHttpUrl = "";
     private boolean pendingHideKeyboardAfterNavigation = false;
+    private boolean historyClearLock = false;
 
 
     // ===== Data models =====
@@ -911,6 +912,12 @@ content.addView(space(dp(36)));
                     }
                     String label = nameInput.getText().toString().trim();
                     if (label.length() == 0) label = guessLabelFromUrl(url);
+                    for (int i = shortcutsData.size() - 1; i >= 0; i--) {
+                        ShortcutItemData oldItem = shortcutsData.get(i);
+                        if (oldItem != null && url.equals(normalizeShortcutUrl(oldItem.url))) {
+                            shortcutsData.remove(i);
+                        }
+                    }
                     shortcutsData.add(new ShortcutItemData(label, url));
                     saveShortcuts();
                     renderShortcuts();
@@ -1650,7 +1657,9 @@ content.addView(space(dp(36)));
             showAdBlockSettingsDialog();
         }));
         panel.addView(settingRow(R.drawable.ic_data_saver, "Hemat data", "Matikan gambar otomatis saat browsing.", dataSaver, v -> { dataSaver = !dataSaver; applyBrowserSettings(); saveSettings(); }));
-        panel.addView(settingRow(R.drawable.ic_desktop, "Desktop mode", "Paksa tampilan lebar seperti PC/laptop.", desktopMode, v -> { desktopMode = !desktopMode; applyBrowserSettings(); saveSettings(); if (webView != null && webView.getVisibility() == View.VISIBLE) webView.reload(); }));
+        panel.addView(settingRow(R.drawable.ic_desktop, "Desktop mode", "Paksa tampilan lebar seperti PC/laptop.", desktopMode, v -> {
+            toggleDesktopModeSafely();
+        }));
         panel.addView(actionRow(R.drawable.ic_text_size, "Ukuran teks: " + textZoom + "%", "Atur ukuran teks dengan slider persentase.", v -> {
             showTextZoomDialog(dialog);
         }));
@@ -4182,6 +4191,7 @@ private void showDownloadSettingsPanel() {
 
     private void recordWebViewBackForwardHistory() {
         try {
+            if (historyClearLock) return;
             if (webView == null) return;
             WebBackForwardList list = webView.copyBackForwardList();
             if (list == null) return;
@@ -4200,6 +4210,7 @@ private void showDownloadSettingsPanel() {
 
     private void recordCurrentPageToHistory() {
         try {
+            if (historyClearLock) return;
             if (webView == null) return;
             String url = webView.getUrl();
             if (shouldRecordHistoryUrl(url)) {
@@ -4241,10 +4252,10 @@ private void showDownloadSettingsPanel() {
         mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY, ""), loaded);
         mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY_BACKUP, ""), loaded);
 
+        historyData.clear();
         if (!loaded.isEmpty()) {
             Collections.sort(loaded, (a, b) -> Long.compare(b.time, a.time));
             while (loaded.size() > 500) loaded.remove(loaded.size() - 1);
-            historyData.clear();
             historyData.addAll(loaded);
             persistHistoryEverywhere();
         }
@@ -4255,7 +4266,10 @@ private void showDownloadSettingsPanel() {
     }
 
     private void clearBrowserHistoryManually() {
+        historyClearLock = true;
         historyData.clear();
+        lastSafeHttpUrl = "";
+
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putString(KEY_BROWSER_HISTORY, "")
                 .putString(KEY_BROWSER_HISTORY_BACKUP, "")
@@ -4279,6 +4293,35 @@ private void showDownloadSettingsPanel() {
         try {
             File f = historyV3ExternalFile();
             if (f != null && f.exists()) f.delete();
+        } catch (Exception ignored) {
+        }
+
+        try {
+            if (webView != null) {
+                webView.stopLoading();
+                webView.clearHistory();
+                webView.clearFormData();
+                webView.loadUrl("about:blank");
+                mainHandler.postDelayed(() -> {
+                    try { if (webView != null) webView.clearHistory(); } catch (Exception ignored) {}
+                }, 350);
+            }
+        } catch (Exception ignored) {
+        }
+
+        try {
+            TabInfo currentTab = getCurrentTab();
+            if (currentTab != null) {
+                currentTab.url = "";
+                currentTab.title = "Tab utama";
+                currentTab.adTab = false;
+            }
+        } catch (Exception ignored) {
+        }
+
+        try {
+            if (addressBar != null) addressBar.setText("");
+            showHome();
         } catch (Exception ignored) {
         }
     }
@@ -7875,7 +7918,11 @@ private void showDownloadSettingsPanel() {
                     if (request != null && request.isForMainFrame()
                             && (isExternalSchemeUrl(failedUrl)
                             || errorCode == WebViewClient.ERROR_UNSUPPORTED_SCHEME
-                            || errorText.contains("unknown_url_scheme"))) {
+                            || errorText.contains("unknown_url_scheme")
+                            || (adBlock && (isKnownPopupHost(failedUrl)
+                            || isLikelyAdClickUrl(failedUrl)
+                            || isAdUrl(failedUrl)
+                            || isSuspiciousPopupNavigation(failedUrl, lastSafeHttpUrl))))) {
                         restoreAfterBlockedNavigation(view, failedUrl, "Iklan/direct link");
                         return;
                     }
@@ -7895,7 +7942,10 @@ private void showDownloadSettingsPanel() {
                     if (smoothSearchTransitionActive && navigationLoadingOverlay != null) {
                         navigationLoadingOverlay.bringToFront();
                     }
-                    if (shouldRecordHistoryUrl(url)) addBrowserHistory(url, url);
+                    if (shouldRecordHistoryUrl(url)) {
+                        historyClearLock = false;
+                        addBrowserHistory(url, url);
+                    }
                     String currentUrl = getEffectiveCurrentUrl();
                     if (isDirectImageMainFrameNavigation(url, currentUrl)) {
                         restoreAfterBlockedNavigation(view, url, "Gambar/direct link dibuka di tab baru");
@@ -8329,13 +8379,64 @@ private void showDownloadSettingsPanel() {
                 .show();
     }
 
+    private void toggleDesktopModeSafely() {
+        try {
+            String targetUrl = getSafeReloadUrlForModeChange();
+            desktopMode = !desktopMode;
+            applyBrowserSettings();
+            saveSettings();
+
+            if (webView != null && webView.getVisibility() == View.VISIBLE) {
+                try { webView.stopLoading(); } catch (Exception ignored) {}
+                if (targetUrl != null && targetUrl.length() > 0) {
+                    addressBar.setText(targetUrl);
+                    webView.loadUrl(targetUrl);
+                } else {
+                    showHome();
+                }
+            }
+            Toast.makeText(this, desktopMode ? "Desktop mode aktif" : "Mode mobile aktif", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            try {
+                desktopMode = !desktopMode;
+                applyBrowserSettings();
+                saveSettings();
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private String getSafeReloadUrlForModeChange() {
+        String[] candidates = new String[]{
+                webView != null ? webView.getUrl() : "",
+                addressBar != null ? addressBar.getText().toString() : "",
+                lastSafeHttpUrl
+        };
+
+        for (String candidate : candidates) {
+            String clean = extractOriginalUrl(candidate);
+            if (clean == null || clean.trim().length() == 0) clean = candidate;
+            if (isSafeUrlForModeReload(clean)) return clean;
+        }
+        return null;
+    }
+
+    private boolean isSafeUrlForModeReload(String url) {
+        if (!isHttpOrHttpsUrl(url)) return false;
+        if (isExternalSchemeUrl(url)) return false;
+        if (isMediaResourceUrl(url)) return true;
+        if (isLikelyAdClickUrl(url)) return false;
+        if (isKnownPopupHost(url)) return false;
+        if (isAdUrl(url)) return false;
+        return true;
+    }
+
     private void applyBrowserSettings() {
         if (webView == null) return;
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(desktopMode);
+        settings.setUseWideViewPort(desktopMode);
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
         settings.setSupportZoom(true);
@@ -8431,7 +8532,7 @@ private void showDownloadSettingsPanel() {
         String[] exactOrContains = new String[]{
                 "hotterydiseur", "sewarsremeets", "sewarsremeet", "onclickads", "clickadu", "popads", "popcash",
                 "popunder", "adsterra", "propellerads", "hilltopads", "exoclick", "trafficjunky", "juicyads",
-                "admaven", "pushpush", "pushengage", "pushwoosh", "realsrv", "highperformanceformat",
+                "admaven", "pushpush", "pushengage", "pushwoosh", "realsrv", "invest-tracing", "highperformanceformat",
                 "highperformancedisplayformat", "xmladfeed", "rotator", "smartlink", "adnxs", "rubiconproject",
                 "taboola", "outbrain", "mgid", "revcontent", "doubleclick", "googlesyndication", "googleadservices"
         };
@@ -8757,7 +8858,7 @@ private void showDownloadSettingsPanel() {
                 + "function hostOf(u){try{var a=document.createElement('a');a.href=u;return (a.hostname||'').replace(/^www\\./,'').toLowerCase();}catch(e){return '';}}"
                 + "function media(u){try{var s=(u||'').toLowerCase();return s.indexOf('googlevideo.com/videoplayback')>-1||s.indexOf('/videoplayback')>-1||s.indexOf('.mp4')>-1||s.indexOf('.m3u8')>-1||s.indexOf('.mpd')>-1||s.indexOf('.webm')>-1||s.indexOf('.m4s')>-1||s.indexOf('.ts')>-1||s.indexOf('mime=video')>-1||s.indexOf('mime%3dvideo')>-1;}catch(e){return false;}}"
                 + "function safeVideoHost(h){return h.indexOf('youtube.com')>-1||h.indexOf('youtu.be')>-1||h.indexOf('googlevideo.com')>-1||h.indexOf('ytimg.com')>-1||h.indexOf('ggpht.com')>-1;}"
-                + "function bad(u){try{if(!u||media(u))return false;var s=(u||'').toLowerCase();if(/^[a-z][a-z0-9+.-]*:/.test(s)&&s.indexOf('http://')!==0&&s.indexOf('https://')!==0&&s.indexOf('javascript:')!==0&&s.indexOf('data:')!==0&&s.indexOf('blob:')!==0)return true;if(/(utm_medium=affiliates|deep_and_deferred|navigate_url=|reactpath|click_id|adclick|ad_click|adurl=|af_click|tracking_id|campaign_id)/.test(s))return true;var h=hostOf(u);var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||h===cur||h.endsWith('.'+cur))return false;if(safeVideoHost(h))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|realsrv|doubleclick|googlesyndication|googleadservices)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;if(/\\.(shop|xyz|top|site|space|online|live|fun|lol)$/.test(h)&&/[\\/][a-z0-9_-]{8,}/.test(s))return true;if(/(popunder|popup|redirect|adclick|clickunder|interstitial|push)/.test(s))return true;return false;}catch(e){return false;}}"
+                + "function bad(u){try{if(!u||media(u))return false;var s=(u||'').toLowerCase();if(/^[a-z][a-z0-9+.-]*:/.test(s)&&s.indexOf('http://')!==0&&s.indexOf('https://')!==0&&s.indexOf('javascript:')!==0&&s.indexOf('data:')!==0&&s.indexOf('blob:')!==0)return true;if(/(utm_medium=affiliates|deep_and_deferred|navigate_url=|reactpath|click_id|adclick|ad_click|adurl=|af_click|tracking_id|campaign_id)/.test(s))return true;var h=hostOf(u);var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||h===cur||h.endsWith('.'+cur))return false;if(safeVideoHost(h))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|realsrv|invest-tracing|doubleclick|googlesyndication|googleadservices)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;if(/\\.(shop|xyz|top|site|space|online|live|fun|lol)$/.test(h)&&/[\\/][a-z0-9_-]{8,}/.test(s))return true;if(/(popunder|popup|redirect|adclick|clickunder|interstitial|push)/.test(s))return true;return false;}catch(e){return false;}}"
                 + "if(Y_POPUP&&!window.__yieldOpenPatched){window.__yieldOpenPatched=true;var oldOpen=window.open;window.open=function(u,n,f){if(bad(u)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(u));}catch(e){}return {closed:true,focus:function(){},close:function(){}};}try{return oldOpen.call(window,u,n,f);}catch(e){return {closed:true,focus:function(){},close:function(){}};}};}"
                 + "if(Y_CLICK&&!window.__yieldClickPatched){window.__yieldClickPatched=true;document.addEventListener('click',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);document.addEventListener('auxclick',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);}"
                 + "function softHide(s){try{document.querySelectorAll(s).forEach(function(e){if(!e||e.tagName==='VIDEO')return;e.style.setProperty('display','none','important');e.style.setProperty('visibility','hidden','important');e.style.setProperty('height','0px','important');e.style.setProperty('min-height','0px','important');e.style.setProperty('overflow','hidden','important');});}catch(x){}}"
@@ -8887,31 +8988,60 @@ private void showDownloadSettingsPanel() {
     private void loadShortcuts() {
         shortcutsData.clear();
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String saved = p.getString("shortcuts", "");
-        if (saved == null || saved.trim().length() == 0) {
+
+        if (!p.contains("shortcuts")) {
             shortcutsData.add(new ShortcutItemData("Google", "https://www.google.com"));
             shortcutsData.add(new ShortcutItemData("GitHub", "https://github.com"));
             shortcutsData.add(new ShortcutItemData("YouTube", "https://m.youtube.com"));
+            saveShortcuts();
             return;
         }
-        String[] lines = saved.split("\\n");
+
+        String saved = p.getString("shortcuts", "");
+        saved = normalizeStoredRows(saved);
+        if (saved.length() == 0) return;
+
+        HashSet<String> seenUrls = new HashSet<>();
+        String[] lines = saved.split("\n");
         for (String line : lines) {
+            if (line == null) continue;
+            line = line.trim();
+            if (line.length() == 0) continue;
             String[] parts = line.split("\\|", 2);
             if (parts.length == 2) {
-                shortcutsData.add(new ShortcutItemData(decode(parts[0]), decode(parts[1])));
+                String label = decode(parts[0]).trim();
+                String url = normalizeShortcutUrl(decode(parts[1]).trim());
+                if (url == null || seenUrls.contains(url)) continue;
+                if (label.length() == 0) label = guessLabelFromUrl(url);
+                shortcutsData.add(new ShortcutItemData(label, url));
+                seenUrls.add(url);
             }
         }
-        if (shortcutsData.isEmpty()) {
-            shortcutsData.add(new ShortcutItemData("Google", "https://www.google.com"));
-        }
+
+        saveShortcuts();
+    }
+
+    private String normalizeStoredRows(String saved) {
+        if (saved == null || saved.length() == 0) return "";
+        return saved.replace("\\r\\n", "\n")
+                .replace("\\n", "\n")
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+                .trim();
     }
 
     private void saveShortcuts() {
         StringBuilder sb = new StringBuilder();
+        HashSet<String> seenUrls = new HashSet<>();
         for (ShortcutItemData item : shortcutsData) {
-            sb.append(encode(item.label)).append("|").append(encode(item.url)).append("\\n");
+            if (item == null) continue;
+            String url = normalizeShortcutUrl(item.url);
+            if (url == null || seenUrls.contains(url)) continue;
+            String label = item.label == null || item.label.trim().length() == 0 ? guessLabelFromUrl(url) : item.label.trim();
+            sb.append(encode(label)).append("|").append(encode(url)).append('\n');
+            seenUrls.add(url);
         }
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("shortcuts", sb.toString()).apply();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("shortcuts", sb.toString()).commit();
     }
 
     private void installSwipeNavigation(View root) {
@@ -9113,7 +9243,7 @@ private void showDownloadSettingsPanel() {
         // Home hanya menyembunyikan halaman web, bukan menghapus state halaman.
         // Jadi kalau tidak sengaja kepencet Home, halaman terakhir masih bisa dikembalikan lewat gesture.
         try {
-            saveCurrentTabState();
+            if (!historyClearLock) saveCurrentTabState();
         } catch (Exception ignored) {}
 
         homeScroll.setVisibility(View.VISIBLE);
