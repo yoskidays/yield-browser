@@ -600,3 +600,10 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - seek iklan dinaikkan bertahap 16–28 detik.
   - jika iklan pendek masih aktif beberapa tick, Yield lompat mendekati akhir iklan.
   - resource video YouTube/GoogleVideo tetap tidak di-hard-block agar player tidak stuck.
+
+
+## v0.9.18
+- Fix compile error v0.9.17:
+  - `this::blurWebInputsAndHideKeyboard` diganti menjadi `() -> blurWebInputsAndHideKeyboard()`.
+  - Penyebabnya: kode berada di dalam anonymous `WebViewClient`, sehingga `this` mengarah ke `WebViewClient`, bukan `MainActivity`.
+- Fitur keyboard auto-hide dan YouTube faster ad-skip dari v0.9.17 tetap dipertahankan.

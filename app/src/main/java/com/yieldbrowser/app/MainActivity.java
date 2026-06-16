@@ -1421,7 +1421,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.17";
+        return "0.9.18";
     }
 
     private void showAboutYieldDialog() {
@@ -7699,7 +7699,7 @@ private void showDownloadSettingsPanel() {
                 }
                 if (pendingHideKeyboardAfterNavigation) {
                     blurWebInputsAndHideKeyboard();
-                    mainHandler.postDelayed(this::blurWebInputsAndHideKeyboard, 250);
+                    mainHandler.postDelayed(() -> blurWebInputsAndHideKeyboard(), 250);
                     mainHandler.postDelayed(() -> {
                         blurWebInputsAndHideKeyboard();
                         pendingHideKeyboardAfterNavigation = false;
