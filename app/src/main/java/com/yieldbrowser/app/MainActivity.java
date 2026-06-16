@@ -284,6 +284,9 @@ public class MainActivity extends Activity {
     private String reloadLoopGuardKey = "";
     private long reloadLoopGuardUntilMs = 0L;
     private long reloadLoopToastLastMs = 0L;
+    // v0.9.46: situs yang sensitif/anti-adblock/anti-redirect butuh mode WebView polos.
+    // Mode ini tidak mengirim header buatan, tidak melakukan inject, dan tidak intercept resource.
+    private static final String STRICT_COMPAT_HOST_LORDBORG = "lordborg.com";
     // v0.9.42: navigasi klik user/search result tidak boleh dianggap redirect iklan.
     private String trustedMainFrameHost = "";
     private long trustedMainFrameUntilMs = 0L;
@@ -8151,6 +8154,26 @@ private void showDownloadSettingsPanel() {
                     return true;
                 }
 
+                // v0.9.46: strict compatibility navigation. Host utama dibiarkan jalan polos,
+                // tetapi popup/redirect iklan lintas-domain tetap dipindah ke tab sementara.
+                if (mainFrame && (isStrictSiteCompatibilityUrl(u) || isStrictSiteCompatibilityUrl(currentUrl))) {
+                    String targetHost = normalizeHostForAdBlock(u);
+                    String currentHost = normalizeHostForAdBlock(currentUrl);
+                    boolean sameSite = currentHost.length() > 0 && targetHost.length() > 0 && sameOrSubDomain(targetHost, currentHost);
+                    boolean fromSearch = isSearchEngineResultNavigation(u, currentUrl);
+                    if (isExternalSchemeUrl(u)) {
+                        restoreAfterBlockedNavigation(view, u, "Iklan/direct link");
+                        return true;
+                    }
+                    if (!sameSite && !fromSearch && (isKnownPopupHost(u) || isLikelyAdClickUrl(u) || isSuspiciousPopupNavigation(u, currentUrl))) {
+                        restoreAfterBlockedNavigation(view, u, "Iklan/direct link");
+                        return true;
+                    }
+                    markTrustedMainFrameNavigation(u);
+                    if (isStrictSiteCompatibilityUrl(u)) enableSiteCompatibilityModeForUrl(u, "strict-navigation");
+                    return false;
+                }
+
                 // v0.9.44: kalau domain sedang dalam compatibility mode, jangan blokir navigasi
                 // main-frame. Situs anti-adblock sering memakai redirect internal/menu yang kalau
                 // ditahan akan membuat halaman blank atau balik ke home.
@@ -8187,7 +8210,7 @@ private void showDownloadSettingsPanel() {
                 // v0.9.44: compatibility mode bersifat universal per-domain. Jika aktif, jangan
                 // intercept resource sama sekali untuk halaman itu. Ini menyelesaikan situs yang
                 // reload/blank karena mendeteksi resource diblokir walau user sedang mencoba masuk.
-                if (isSiteCompatibilityModeActiveForUrl(pageUrl)) {
+                if (isStrictSiteCompatibilityUrl(pageUrl) || isStrictSiteCompatibilityUrl(u) || isSiteCompatibilityModeActiveForUrl(pageUrl)) {
                     return super.shouldInterceptRequest(view, request);
                 }
                 // v0.9.42: kalau suatu host masuk compatibility/reload-loop guard, jangan blokir
@@ -8240,10 +8263,17 @@ private void showDownloadSettingsPanel() {
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 String safeBeforePageStarted = lastSafeHttpUrl;
                 currentPageUrlForRequest = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
+                boolean strictCompatibilityActive = isStrictSiteCompatibilityUrl(url);
                 boolean reloadLoopGuarded = registerNavigationLoopGuard(url);
                 boolean siteCompatibilityActive = isSiteCompatibilityModeActiveForUrl(url);
-                applyBrowserSettings();
-                if (!reloadLoopGuarded && !siteCompatibilityActive) {
+                if (strictCompatibilityActive) {
+                    enableSiteCompatibilityModeForUrl(url, "strict-start");
+                    applyPlainCompatibilitySettingsForUrl(url);
+                    scheduleCompatibilityLoadFallback(url);
+                } else {
+                    applyBrowserSettings();
+                }
+                if (!strictCompatibilityActive && !reloadLoopGuarded && !siteCompatibilityActive) {
                     if (desktopMode) {
                         mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 250);
                     } else {
@@ -8302,7 +8332,11 @@ private void showDownloadSettingsPanel() {
                     addressBar.setText(finalUrl);
                 }
                 progressBar.setVisibility(View.GONE);
-                boolean pageReloadGuarded = isReloadLoopGuardActiveForUrl(finalUrl) || isSiteCompatibilityModeActiveForUrl(finalUrl);
+                boolean pageReloadGuarded = isStrictSiteCompatibilityUrl(finalUrl) || isReloadLoopGuardActiveForUrl(finalUrl) || isSiteCompatibilityModeActiveForUrl(finalUrl);
+                if (isStrictSiteCompatibilityUrl(finalUrl)) {
+                    applyPlainCompatibilitySettingsForUrl(finalUrl);
+                    cancelSmoothSearchTransition();
+                }
                 if (!pageReloadGuarded) {
                     applyViewportForCurrentMode();
                     mainHandler.postDelayed(() -> applyViewportForCurrentMode(), 600);
@@ -8728,6 +8762,18 @@ private void showDownloadSettingsPanel() {
         try {
             currentPageUrlForRequest = cleanUrl;
             markTrustedMainFrameNavigation(cleanUrl);
+
+            // v0.9.46: untuk situs sensitif seperti lordborg.com, jangan pakai header buatan
+            // dan jangan inject/restore agresif. Beberapa situs anti-security menganggap custom
+            // Sec-CH/User-Agent header sebagai request tidak normal lalu loading/blank terus.
+            if (isStrictSiteCompatibilityUrl(cleanUrl)) {
+                enableSiteCompatibilityModeForUrl(cleanUrl, "strict-site");
+                applyPlainCompatibilitySettingsForUrl(cleanUrl);
+                webView.loadUrl(cleanUrl);
+                scheduleCompatibilityLoadFallback(cleanUrl);
+                return;
+            }
+
             applyBrowserSettings();
             Map<String, String> headers = new LinkedHashMap<>();
             if (desktopMode) {
@@ -8952,6 +8998,66 @@ private void showDownloadSettingsPanel() {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private boolean isStrictSiteCompatibilityUrl(String url) {
+        try {
+            String host = hostOfUrl(url);
+            if (host == null || host.length() == 0) return false;
+            if (host.equals(STRICT_COMPAT_HOST_LORDBORG) || host.endsWith("." + STRICT_COMPAT_HOST_LORDBORG)) return true;
+            return isSiteCompatibilityModeActiveForUrl(url);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void applyPlainCompatibilitySettingsForUrl(String url) {
+        if (webView == null) return;
+        try {
+            WebSettings settings = webView.getSettings();
+            settings.setJavaScriptEnabled(true);
+            settings.setDomStorageEnabled(true);
+            settings.setDatabaseEnabled(true);
+            settings.setLoadsImagesAutomatically(true);
+            settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+            settings.setJavaScriptCanOpenWindowsAutomatically(true);
+            settings.setSupportMultipleWindows(false);
+            settings.setBuiltInZoomControls(true);
+            settings.setDisplayZoomControls(false);
+            settings.setSupportZoom(true);
+            settings.setTextZoom(textZoom <= 0 ? 100 : textZoom);
+            if (Build.VERSION.SDK_INT >= 21) {
+                settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            }
+            if (desktopMode) applyDesktopProfile(settings);
+            else applyMobileProfile(settings);
+            CookieManager cm = CookieManager.getInstance();
+            cm.setAcceptCookie(true);
+            if (Build.VERSION.SDK_INT >= 21) cm.setAcceptThirdPartyCookies(webView, true);
+            try { webView.setBackgroundColor(Color.WHITE); } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void scheduleCompatibilityLoadFallback(String url) {
+        final String expectedHost = hostOfUrl(url);
+        mainHandler.postDelayed(() -> {
+            try {
+                if (webView == null) return;
+                String active = getEffectiveCurrentUrl();
+                String activeHost = hostOfUrl(active);
+                if (expectedHost.length() > 0 && activeHost.length() > 0 && sameOrSubDomain(activeHost, expectedHost)) {
+                    // Jangan biarkan overlay transisi/search menutup halaman terlalu lama.
+                    cancelSmoothSearchTransition();
+                    if (progressBar != null) progressBar.setVisibility(View.GONE);
+                    if (webView.getVisibility() != View.VISIBLE) {
+                        if (homeScroll != null) homeScroll.setVisibility(View.GONE);
+                        webView.setVisibility(View.VISIBLE);
+                    }
+                    webView.setAlpha(1f);
+                }
+            } catch (Exception ignored) {}
+        }, 3500);
     }
 
     private boolean isReloadLoopGuardActiveForUrl(String url) {
@@ -9213,10 +9319,12 @@ private void showDownloadSettingsPanel() {
             if (isTrustedMainFrameNavigation(blockedUrl)) {
                 return;
             }
-            if (isSiteCompatibilityModeActiveForUrl(blockedUrl) || isSiteCompatibilityModeActiveForUrl(lastSafeHttpUrl)
-                    || isReloadLoopGuardActiveForUrl(blockedUrl) || isReloadLoopGuardActiveForUrl(lastSafeHttpUrl)) {
-                // v0.9.44: jangan stopLoading/goBack pada host kompatibel. Stop loading inilah
-                // yang sering membuat halaman blank/hitam dan URL tetap menempel di Home.
+            boolean blockedIsAdLike = isExternalSchemeUrl(blockedUrl) || isKnownPopupHost(blockedUrl)
+                    || isLikelyAdClickUrl(blockedUrl) || isSuspiciousPopupNavigation(blockedUrl, lastSafeHttpUrl);
+            if (!blockedIsAdLike && (isSiteCompatibilityModeActiveForUrl(blockedUrl) || isSiteCompatibilityModeActiveForUrl(lastSafeHttpUrl)
+                    || isReloadLoopGuardActiveForUrl(blockedUrl) || isReloadLoopGuardActiveForUrl(lastSafeHttpUrl))) {
+                // v0.9.44/v0.9.46: jangan stopLoading/goBack pada host kompatibel jika targetnya
+                // memang halaman situs utama. Popup iklan tetap boleh dipindahkan ke tab sementara.
                 return;
             }
             String currentBefore = view != null ? view.getUrl() : "";
