@@ -1157,7 +1157,7 @@ content.addView(space(dp(36)));
             homeScroll.setVisibility(View.GONE);
             updateVideoControlsVisibility();
             if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(tab.url);
-            else webView.loadUrl(tab.url);
+            else loadBrowserUrl(tab.url);
         }
 
         Toast.makeText(this, tab.privateTab ? "Tab privat" : "Tab aktif", Toast.LENGTH_SHORT).show();
@@ -7593,7 +7593,7 @@ private void showDownloadSettingsPanel() {
                     if (raw != null && raw.length() > 0) {
                         startCompatibleTranslateSession(raw);
                         final int token = translateSessionToken;
-                        webView.loadUrl(raw);
+                        loadBrowserUrl(raw);
                         mainHandler.postDelayed(() -> translatePageCompatible(token), 1800);
                     }
                 }
@@ -7629,7 +7629,7 @@ private void showDownloadSettingsPanel() {
         String raw = getOriginalForTranslate(currentUrl);
         if ((raw == null || raw.length() == 0) && lastTranslateOriginalUrl != null && lastTranslateOriginalUrl.length() > 0) raw = lastTranslateOriginalUrl;
         if (raw != null && raw.length() > 0 && isGoogleTranslatedUrl(webView != null ? webView.getUrl() : "")) {
-            webView.loadUrl(raw);
+            loadBrowserUrl(raw);
         }
         lastTranslateOriginalUrl = "";
         Toast.makeText(this, "Translate dimatikan", Toast.LENGTH_SHORT).show();
@@ -7786,11 +7786,11 @@ private void showDownloadSettingsPanel() {
             compatibleTranslateActive = false;
             lastTranslateOriginalUrl = originalUrl;
             String encoded = URLEncoder.encode(originalUrl, "UTF-8");
-            webView.loadUrl("https://translate.google.com/translate?sl=auto&tl=" + translateTargetLang + "&u=" + encoded);
+            loadBrowserUrl("https://translate.google.com/translate?sl=auto&tl=" + translateTargetLang + "&u=" + encoded);
             updateTopActionStates();
             Toast.makeText(this, "Membuka Google Translate ke " + translateTargetLabel, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            webView.loadUrl(originalUrl);
+            loadBrowserUrl(originalUrl);
         }
     }
 
@@ -7867,7 +7867,7 @@ private void showDownloadSettingsPanel() {
                     compatibleTranslateActive = false;
                     updateTopActionStates();
                     String encoded = URLEncoder.encode(text, "UTF-8");
-                    webView.loadUrl("https://translate.google.com/?sl=auto&tl=" + translateTargetLang + "&op=translate&text=" + encoded);
+                    loadBrowserUrl("https://translate.google.com/?sl=auto&tl=" + translateTargetLang + "&op=translate&text=" + encoded);
                     Toast.makeText(this, "Menerjemahkan teks halaman ke " + translateTargetLabel, Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
                     Toast.makeText(this, "Gagal ambil teks halaman", Toast.LENGTH_SHORT).show();
@@ -7959,7 +7959,7 @@ private void showDownloadSettingsPanel() {
                         addressBar.setText(tab.url);
                         webView.setVisibility(View.VISIBLE);
                         homeScroll.setVisibility(View.GONE);
-                        webView.loadUrl(tab.url);
+                        loadBrowserUrl(tab.url);
                     }
                 }
             }
@@ -8532,6 +8532,51 @@ private void showDownloadSettingsPanel() {
                 .show();
     }
 
+    private void loadBrowserUrl(String url) {
+        if (webView == null || url == null) return;
+        String cleanUrl = url.trim();
+        if (cleanUrl.length() == 0) return;
+
+        // JavaScript/about:blank tidak boleh diberi header browser mode.
+        String lower = cleanUrl.toLowerCase(Locale.US);
+        if (lower.startsWith("javascript:") || lower.startsWith("about:") || lower.startsWith("data:")) {
+            webView.loadUrl(cleanUrl);
+            return;
+        }
+
+        try {
+            applyBrowserSettings();
+            Map<String, String> headers = new LinkedHashMap<>();
+            headers.put("User-Agent", desktopMode ? getDesktopUserAgent() : getMobileUserAgent());
+            headers.put("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7");
+            webView.loadUrl(cleanUrl, headers);
+            if (!desktopMode) scheduleMobileViewportReset();
+        } catch (Exception e) {
+            try { webView.loadUrl(cleanUrl); } catch (Exception ignored) {}
+        }
+    }
+
+    private void scheduleMobileViewportReset() {
+        if (desktopMode) return;
+        mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 120);
+        mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 500);
+        mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 1200);
+        mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 2500);
+    }
+
+    private void forceMobileModeAfterUpdateIfNeeded(SharedPreferences p) {
+        try {
+            if (!p.getBoolean("forceMobileModeV0937", false)) {
+                desktopMode = false;
+                p.edit()
+                        .putBoolean("desktopMode", false)
+                        .putBoolean("forceMobileModeV0937", true)
+                        .apply();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     private void toggleDesktopModeSafely() {
         boolean previousDesktopMode = desktopMode;
         try {
@@ -8547,7 +8592,7 @@ private void showDownloadSettingsPanel() {
                     if (!desktopMode && previousDesktopMode) {
                         loadUrlAfterHardMobileReset(targetUrl);
                     } else {
-                        webView.loadUrl(targetUrl);
+                        loadBrowserUrl(targetUrl);
                     }
                 } else {
                     showHome();
@@ -8572,19 +8617,22 @@ private void showDownloadSettingsPanel() {
     private void loadUrlAfterHardMobileReset(String targetUrl) {
         if (webView == null || targetUrl == null || targetUrl.trim().length() == 0) return;
         try {
+            desktopMode = false;
             applyBrowserSettings();
             webView.stopLoading();
+            try { webView.clearCache(false); } catch (Exception ignored) {}
             webView.loadUrl("about:blank");
             mainHandler.postDelayed(() -> {
                 try {
                     if (desktopMode) return;
                     applyBrowserSettings();
-                    webView.loadUrl(targetUrl);
+                    loadBrowserUrl(targetUrl);
+                    scheduleMobileViewportReset();
                 } catch (Exception ignored) {
                 }
             }, 180);
         } catch (Exception ignored) {
-            try { webView.loadUrl(targetUrl); } catch (Exception ignored2) {}
+            try { loadBrowserUrl(targetUrl); } catch (Exception ignored2) {}
         }
     }
 
@@ -8660,8 +8708,9 @@ private void showDownloadSettingsPanel() {
     }
 
     private String getMobileUserAgent() {
-        // UA mobile eksplisit: mencegah halaman tetap terdeteksi desktop/tablet setelah toggle mode.
-        return "Mozilla/5.0 (Linux; Android 10; Mobile; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.0.0 Mobile Safari/537.36";
+        // UA mobile murni tanpa marker WebView/desktop. Ini penting supaya Google dan situs lain
+        // tidak tetap mengirim layout desktop setelah Desktop Mode dimatikan.
+        return "Mozilla/5.0 (Linux; Android 11; RMX1971) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
     }
 
     private String getDesktopUserAgent() {
@@ -8863,7 +8912,7 @@ private void showDownloadSettingsPanel() {
                         if (webView.canGoBack()) {
                             webView.goBack();
                         } else if (lastSafeHttpUrl != null && lastSafeHttpUrl.length() > 0) {
-                            webView.loadUrl(lastSafeHttpUrl);
+                            loadBrowserUrl(lastSafeHttpUrl);
                         }
                     }
 
@@ -9191,7 +9240,7 @@ private void showDownloadSettingsPanel() {
         if (shouldRecordHistoryUrl(url)) addBrowserHistory(url, url);
         applyBrowserSettings();
         if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(url);
-        else webView.loadUrl(url);
+        else loadBrowserUrl(url);
         if (!desktopMode) {
             mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 300);
             mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 1200);
@@ -9373,7 +9422,7 @@ private void showDownloadSettingsPanel() {
 
             if ((currentWebUrl == null || currentWebUrl.length() == 0) && tabUrl.length() > 0) {
                 if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(tabUrl);
-                else webView.loadUrl(tabUrl);
+                else loadBrowserUrl(tabUrl);
             }
 
             updateVideoControlsVisibility();
@@ -9658,6 +9707,7 @@ private void showDownloadSettingsPanel() {
         adBlockAutoCloseAdTabs = p.getBoolean("adBlockAutoCloseAdTabs", true);
         dataSaver = p.getBoolean("dataSaver", false);
         desktopMode = p.getBoolean("desktopMode", false);
+        forceMobileModeAfterUpdateIfNeeded(p);
         textZoom = p.getInt("textZoom", 100);
         shortcutDownload = p.getBoolean("shortcutDownload", true);
         shortcutReloadWebsite = p.getBoolean("shortcutReloadWebsite", true);
