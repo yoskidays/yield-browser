@@ -705,3 +705,37 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - lifecycle pause/stop/destroy dan menu Keluar juga menyimpan current page + WebView history list.
   - manual clear menghapus semua store dan file History V3.
 - Icon final v0.9.26 tetap dipertahankan.
+
+
+## v0.9.28
+- Fix utama Histori:
+  - memperbaiki bug delimiter histori: versi lama menyimpan pemisah sebagai teks `\n`, sehingga saat app dibuka ulang data gagal dibaca.
+  - serializer histori sekarang memakai newline asli.
+  - loader histori sekarang bisa membaca dua format: newline asli dan teks `\n` lama.
+- Ditambahkan folder bawaan Yield untuk histori:
+  - internal app: `Yield Browser/History/history.txt`
+  - external app folder: `Android/data/com.yieldbrowser.install/files/Yield Browser/History/history.txt`
+  - legacy file lama tetap dibaca sebagai fallback.
+- Manual clear histori sekarang menghapus prefs + file internal + file external app.
+- Fitur v0.9.27 dan icon final tetap dipertahankan.
+
+
+## v0.9.29
+- Perbaikan efek kedip saat berpindah/refresh menu:
+  - ditambahkan `switchDialogSmooth()` agar dialog baru dibuka dulu, lalu dialog lama ditutup setelah delay singkat.
+  - pola lama `dialog.dismiss(); showMenu...()` diganti agar tidak flash ke Home.
+- Bookmark dibuat lebih halus:
+  - hapus bookmark tetap berada di folder bookmark yang sedang dibuka.
+  - pindah ke atas tetap refresh list di dialog yang sama.
+  - edit dan pindah folder tidak lagi menutup ke Home terlebih dahulu.
+- Efek ini juga diterapkan ke transisi panel lain yang sebelumnya dismiss dulu lalu show panel baru.
+- Fitur histori v0.9.28 dan icon final tetap dipertahankan.
+
+
+## v0.9.30
+- Perbaikan transisi pencarian dari Home ke Google:
+  - ditambahkan overlay loading gelap sementara agar proses WebView render awal tidak terlihat.
+  - WebView dibuat fade-in setelah halaman mulai siap.
+  - efek halaman terlihat seperti desktop lalu berubah ke mobile ditutupi agar lebih smooth.
+  - overlay otomatis hilang saat page finished, page error, atau maksimal fallback delay.
+- Menu flicker fix v0.9.29, histori v0.9.28, dan icon final tetap dipertahankan.

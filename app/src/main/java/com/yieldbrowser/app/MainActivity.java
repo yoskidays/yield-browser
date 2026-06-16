@@ -133,6 +133,8 @@ public class MainActivity extends Activity {
     private static final String KEY_BROWSER_HISTORY_V2 = "browser_history_v2";
     private static final String KEY_BROWSER_HISTORY_V3 = "browser_history_v3";
     private static final String HISTORY_V3_FILE = "yield_browser_history_v3.txt";
+    private static final String HISTORY_V3_FOLDER = "Yield Browser/History";
+    private static final String HISTORY_V3_PUBLIC_FILE = "history.txt";
     private static final String PREFS_HISTORY_V2 = "yield_browser_history_store";
     private static final String KEY_NIGHT_EXCEPTIONS = "night_mode_exceptions";
     private static final String CHANNEL_DOWNLOADS = "yield_downloads";
@@ -152,6 +154,8 @@ public class MainActivity extends Activity {
     private ProgressBar progressBar;
     private WebView webView;
     private ScrollView homeScroll;
+    private FrameLayout navigationLoadingOverlay;
+    private boolean smoothSearchTransitionActive = false;
     private ImageButton reloadButton;
     private ImageButton bookmarkButton;
     private ImageButton translateButton;
@@ -450,6 +454,10 @@ public class MainActivity extends Activity {
         webView.setVisibility(View.GONE);
         configureWebView();
         contentFrame.addView(webView, new FrameLayout.LayoutParams(-1, -1));
+
+        navigationLoadingOverlay = createNavigationLoadingOverlay();
+        navigationLoadingOverlay.setVisibility(View.GONE);
+        contentFrame.addView(navigationLoadingOverlay, new FrameLayout.LayoutParams(-1, -1));
 
         root.addView(contentFrame);
 
@@ -1121,6 +1129,7 @@ content.addView(space(dp(36)));
             showHome();
         } else {
             addressBar.setText(tab.url);
+            webView.setAlpha(1f);
             webView.setVisibility(View.VISIBLE);
             homeScroll.setVisibility(View.GONE);
             updateVideoControlsVisibility();
@@ -1306,8 +1315,7 @@ content.addView(space(dp(36)));
         close.setGravity(Gravity.CENTER);
         close.setOnClickListener(v -> {
             closeTab(index);
-            dialog.dismiss();
-            showTabsPanel();
+            switchDialogSmooth(dialog, () -> showTabsPanel());
         });
         row.addView(close, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
@@ -1334,14 +1342,12 @@ content.addView(space(dp(36)));
 
         if (shortcutDownload) {
             menu.addView(menuRow(R.drawable.ic_download_modern, "Unduhan Yield", v -> {
-                dialog.dismiss();
-                showDownloadManager();
+                switchDialogSmooth(dialog, () -> showDownloadManager());
             }));
         }
         if (shortcutBookmark) {
             menu.addView(menuRow(R.drawable.ic_bookmark, "Bookmark", v -> {
-                dialog.dismiss();
-                showBookmarkList();
+                switchDialogSmooth(dialog, () -> showBookmarkList());
             }));
         }
         if (shortcutPrivate) {
@@ -1368,8 +1374,7 @@ content.addView(space(dp(36)));
         }
         if (shortcutNightMode) {
             menu.addView(menuRow(R.drawable.ic_night, "Mode Malam: " + nightModeLabel(), v -> {
-                dialog.dismiss();
-                showNightModeSettingsDialog();
+                switchDialogSmooth(dialog, () -> showNightModeSettingsDialog());
             }));
         }
         if (shortcutQrScan) {
@@ -1380,14 +1385,12 @@ content.addView(space(dp(36)));
         }
         if (shortcutHistory) {
             menu.addView(menuRow(R.drawable.ic_history, "Riwayat", v -> {
-                dialog.dismiss();
-                showHistoryPanel();
+                switchDialogSmooth(dialog, () -> showHistoryPanel());
             }));
         }
         if (shortcutFindPage) {
             menu.addView(menuRow(R.drawable.ic_find_page, "Cari di halaman", v -> {
-                dialog.dismiss();
-                showFindInPageDialog();
+                switchDialogSmooth(dialog, () -> showFindInPageDialog());
             }));
         }
         if (shortcutShare) {
@@ -1421,12 +1424,10 @@ content.addView(space(dp(36)));
 
         menu.addView(menuDivider());
         menu.addView(menuRow(R.drawable.ic_settings, "Setelan", v -> {
-            dialog.dismiss();
-            showSettingsPanel();
+            switchDialogSmooth(dialog, () -> showSettingsPanel());
         }));
         menu.addView(menuRow(R.drawable.ic_customize, "Sesuaikan menu", v -> {
-            dialog.dismiss();
-            showCustomizeMenuPanel();
+            switchDialogSmooth(dialog, () -> showCustomizeMenuPanel());
         }));
         menu.addView(menuRow(R.drawable.ic_exit, "Keluar", v -> {
             try {
@@ -1462,7 +1463,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.27";
+        return "0.9.30";
     }
 
     private void showAboutYieldDialog() {
@@ -1586,20 +1587,17 @@ content.addView(space(dp(36)));
 
         panel.addView(sectionTitle("Pusat fitur"));
         panel.addView(actionRow(R.drawable.ic_download_modern, "Unduhan Yield", "Riwayat, progress, lokasi penyimpanan, dan engine 2 koneksi.", v -> {
-            dialog.dismiss();
-            showDownloadSettingsPanel();
+            switchDialogSmooth(dialog, () -> showDownloadSettingsPanel());
         }));
         panel.addView(actionRow(R.drawable.ic_bookmark, "Bookmark", "Buka daftar bookmark yang tersimpan.", v -> {
-            dialog.dismiss();
-            showBookmarkList();
+            switchDialogSmooth(dialog, () -> showBookmarkList());
         }));
         panel.addView(actionRow(R.drawable.ic_private, "Privat", "Buka tab privat tanpa menyimpan riwayat.", v -> {
             dialog.dismiss();
             newPrivateTab();
         }));
         panel.addView(actionRow(R.drawable.ic_customize, "Sesuaikan menu", "Atur shortcut yang muncul di menu utama.", v -> {
-            dialog.dismiss();
-            showCustomizeMenuPanel();
+            switchDialogSmooth(dialog, () -> showCustomizeMenuPanel());
         }));
         panel.addView(actionRow(R.drawable.ic_qr_scan, "Pindai QR Code", "Scan QR untuk membuka link atau mencari teks.", v -> {
             dialog.dismiss();
@@ -1611,8 +1609,7 @@ content.addView(space(dp(36)));
 
         panel.addView(sectionTitle("Alat halaman"));
         panel.addView(actionRow(R.drawable.ic_history, "Riwayat browsing", "Lihat dan buka kembali halaman yang pernah dikunjungi.", v -> {
-            dialog.dismiss();
-            showHistoryPanel();
+            switchDialogSmooth(dialog, () -> showHistoryPanel());
         }));
         panel.addView(actionRow(R.drawable.ic_find_page, "Cari di halaman", "Cari teks pada halaman web yang sedang terbuka.", v -> {
             showFindInPageDialog();
@@ -1633,8 +1630,7 @@ content.addView(space(dp(36)));
             videoControlsEnabled = !videoControlsEnabled;
             updateVideoControlsVisibility();
             saveSettings();
-            dialog.dismiss();
-            showSettingsPanel();
+            switchDialogSmooth(dialog, () -> showSettingsPanel());
         }));
         panel.addView(actionRow(R.drawable.ic_video_control, "Optimasi video online", "Buffer booster, HLS prefetch, kualitas, floating player, dan background play.", v -> {
             showVideoOptimizationDialog();
@@ -2158,8 +2154,7 @@ private void showDownloadSettingsPanel() {
         panel.addView(path);
 
         panel.addView(actionRow(R.drawable.ic_download_modern, "Buka riwayat unduhan", "Lihat file, progress, open, hapus riwayat/file.", v -> {
-            dialog.dismiss();
-            showDownloadManager();
+            switchDialogSmooth(dialog, () -> showDownloadManager());
         }));
         panel.addView(actionRow(R.drawable.ic_folder, "Lokasi / folder unduhan", "Default: Download/Yield Browser, atau pilih folder HP.", v -> {
             showDownloadFolderDialog(dialog);
@@ -2174,8 +2169,7 @@ private void showDownloadSettingsPanel() {
             }
             saveDownloadHistory();
             Toast.makeText(this, "Riwayat unduhan selesai dibersihkan", Toast.LENGTH_SHORT).show();
-            dialog.dismiss();
-            showDownloadSettingsPanel();
+            switchDialogSmooth(dialog, () -> showDownloadSettingsPanel());
         }));
 
         panel.addView(actionRow(R.drawable.ic_settings, "Yield Fast Download", getAdvancedDownloadSummary(), v -> {
@@ -3315,8 +3309,7 @@ private void showDownloadSettingsPanel() {
                     .setMessage("Riwayat tidak dihapus otomatis. Hapus semua riwayat browsing?")
                     .setPositiveButton("Hapus", (d, w) -> {
                         clearBrowserHistoryManually();
-                        dialog.dismiss();
-                        showHistoryPanel();
+                        switchDialogSmooth(dialog, () -> showHistoryPanel());
                     })
                     .setNegativeButton("Batal", null)
                     .show();
@@ -3410,8 +3403,7 @@ private void showDownloadSettingsPanel() {
         delete.setOnClickListener(v -> {
             historyData.remove(item);
             saveBrowserHistory();
-            dialog.dismiss();
-            showHistoryPanel();
+            switchDialogSmooth(dialog, () -> showHistoryPanel());
         });
         row.addView(delete, new LinearLayout.LayoutParams(dp(36), dp(36)));
         return row;
@@ -3497,7 +3489,7 @@ private void showDownloadSettingsPanel() {
 
         ImageButton filter = plainIconButton(R.drawable.ic_customize, v -> showBookmarkSortMenu(v));
         top.addView(filter, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        ImageButton addFolder = plainIconButton(R.drawable.ic_add_tab, v -> showCreateBookmarkFolderDialog(() -> { dialog.dismiss(); showBookmarkHomePanel(); }));
+        ImageButton addFolder = plainIconButton(R.drawable.ic_add_tab, v -> showCreateBookmarkFolderDialog(() -> switchDialogSmooth(dialog, () -> showBookmarkHomePanel())));
         top.addView(addFolder, new LinearLayout.LayoutParams(dp(40), dp(40)));
         ImageButton close = plainIconButton(R.drawable.ic_exit, v -> dialog.dismiss());
         top.addView(close, new LinearLayout.LayoutParams(dp(40), dp(40)));
@@ -3537,7 +3529,7 @@ private void showDownloadSettingsPanel() {
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
 
-        ImageButton back = plainIconButton(R.drawable.ic_back, v -> { dialog.dismiss(); showBookmarkHomePanel(); });
+        ImageButton back = plainIconButton(R.drawable.ic_back, v -> switchDialogSmooth(dialog, () -> showBookmarkHomePanel()));
         top.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
 
         TextView title = new TextView(this);
@@ -3551,7 +3543,7 @@ private void showDownloadSettingsPanel() {
 
         ImageButton filter = plainIconButton(R.drawable.ic_customize, v -> showBookmarkSortMenu(v));
         top.addView(filter, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        ImageButton addFolder = plainIconButton(R.drawable.ic_add_tab, v -> showCreateBookmarkFolderDialog(() -> { dialog.dismiss(); showBookmarkHomePanel(); }));
+        ImageButton addFolder = plainIconButton(R.drawable.ic_add_tab, v -> showCreateBookmarkFolderDialog(() -> switchDialogSmooth(dialog, () -> showBookmarkHomePanel())));
         top.addView(addFolder, new LinearLayout.LayoutParams(dp(40), dp(40)));
         ImageButton close = plainIconButton(R.drawable.ic_exit, v -> dialog.dismiss());
         top.addView(close, new LinearLayout.LayoutParams(dp(40), dp(40)));
@@ -3570,7 +3562,8 @@ private void showDownloadSettingsPanel() {
         scroll.addView(list);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        Runnable render = () -> {
+        final Runnable[] renderRef = new Runnable[1];
+        renderRef[0] = () -> {
             list.removeAllViews();
             String q = search.getText().toString().trim().toLowerCase(Locale.US);
             java.util.ArrayList<BookmarkItemData> items = new java.util.ArrayList<>();
@@ -3588,15 +3581,15 @@ private void showDownloadSettingsPanel() {
                 empty.setPadding(0, dp(20), 0, 0);
                 list.addView(empty);
             } else {
-                for (BookmarkItemData item : items) list.addView(bookmarkItemRow(item, dialog));
+                for (BookmarkItemData item : items) list.addView(bookmarkItemRow(item, dialog, renderRef[0]));
             }
         };
         search.addTextChangedListener(new android.text.TextWatcher() {
             public void beforeTextChanged(CharSequence s,int st,int c,int a){}
-            public void onTextChanged(CharSequence s,int st,int b,int c){ render.run(); }
+            public void onTextChanged(CharSequence s,int st,int b,int c){ if (renderRef[0] != null) renderRef[0].run(); }
             public void afterTextChanged(android.text.Editable s){}
         });
-        render.run();
+        renderRef[0].run();
 
         dialog.setContentView(root);
         dialog.show();
@@ -3608,7 +3601,7 @@ private void showDownloadSettingsPanel() {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(14), 0, dp(14));
-        row.setOnClickListener(v -> { parent.dismiss(); showBookmarkFolderPanel(folder); });
+        row.setOnClickListener(v -> switchDialogSmooth(parent, () -> showBookmarkFolderPanel(folder)));
 
         ImageView icon = new ImageView(this);
         icon.setImageResource(R.drawable.ic_folder);
@@ -3630,7 +3623,7 @@ private void showDownloadSettingsPanel() {
         return row;
     }
 
-    private View bookmarkItemRow(BookmarkItemData item, Dialog dialog) {
+    private View bookmarkItemRow(BookmarkItemData item, Dialog dialog, Runnable refresh) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -3672,12 +3665,12 @@ private void showDownloadSettingsPanel() {
         more.setTextColor(Color.parseColor("#D3D8E1"));
         more.setTextSize(22);
         more.setGravity(Gravity.CENTER);
-        more.setOnClickListener(v -> showBookmarkItemMenu(v, item, dialog));
+        more.setOnClickListener(v -> showBookmarkItemMenu(v, item, dialog, refresh));
         row.addView(more, new LinearLayout.LayoutParams(dp(36), dp(36)));
         return row;
     }
 
-    private void showBookmarkItemMenu(View anchor, BookmarkItemData item, Dialog dialog) {
+    private void showBookmarkItemMenu(View anchor, BookmarkItemData item, Dialog dialog, Runnable refresh) {
         PopupMenu menu = new PopupMenu(this, anchor);
         menu.getMenu().add("Pilih");
         menu.getMenu().add("Edit");
@@ -3692,24 +3685,22 @@ private void showDownloadSettingsPanel() {
             if ("Pilih".equals(t)) {
                 Toast.makeText(this, "Mode pilih bookmark aktif", Toast.LENGTH_SHORT).show();
             } else if ("Edit".equals(t)) {
-                showEditBookmarkDialog(item, dialog);
+                showEditBookmarkDialog(item, dialog, refresh);
             } else if ("Salin link".equals(t)) {
                 ClipboardManager cb = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 if (cb != null) cb.setPrimaryClip(ClipData.newPlainText("bookmark", item.url));
                 Toast.makeText(this, "Link bookmark disalin", Toast.LENGTH_SHORT).show();
             } else if ("Pindahkan ke...".equals(t)) {
-                showMoveBookmarkDialog(item, dialog);
+                showMoveBookmarkDialog(item, dialog, refresh);
             } else if ("Hapus".equals(t)) {
                 bookmarkData.remove(item);
                 saveBookmarkData();
-                dialog.dismiss();
-                showBookmarkFolderPanel(item.folder);
+                refreshDialogSmooth(dialog, refresh);
             } else if ("Berpindah ke atas".equals(t)) {
                 bookmarkData.remove(item);
                 bookmarkData.add(0, item);
                 saveBookmarkData();
-                dialog.dismiss();
-                showBookmarkFolderPanel(item.folder);
+                refreshDialogSmooth(dialog, refresh);
             } else if ("Buka di tab baru".equals(t)) {
                 dialog.dismiss();
                 newNormalTab();
@@ -3726,7 +3717,7 @@ private void showDownloadSettingsPanel() {
         menu.show();
     }
 
-    private void showEditBookmarkDialog(BookmarkItemData item, Dialog dialog) {
+    private void showEditBookmarkDialog(BookmarkItemData item, Dialog dialog, Runnable refresh) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(8), dp(4), dp(8), 0);
@@ -3746,14 +3737,13 @@ private void showDownloadSettingsPanel() {
                     item.url = normalizeShortcutUrl(url.getText().toString().trim());
                     if (item.url == null) item.url = url.getText().toString().trim();
                     saveBookmarkData();
-                    dialog.dismiss();
-                    showBookmarkFolderPanel(item.folder);
+                    refreshDialogSmooth(dialog, refresh);
                 })
                 .setNegativeButton("Batal", null)
                 .show();
     }
 
-    private void showMoveBookmarkDialog(BookmarkItemData item, Dialog dialog) {
+    private void showMoveBookmarkDialog(BookmarkItemData item, Dialog dialog, Runnable refresh) {
         java.util.ArrayList<String> folders = new java.util.ArrayList<>(getBookmarkFolders());
         String[] arr = folders.toArray(new String[0]);
         new AlertDialog.Builder(this)
@@ -3761,8 +3751,7 @@ private void showDownloadSettingsPanel() {
                 .setItems(arr, (d,w) -> {
                     item.folder = arr[w];
                     saveBookmarkData();
-                    dialog.dismiss();
-                    showBookmarkFolderPanel(item.folder);
+                    refreshDialogSmooth(dialog, refresh);
                 })
                 .show();
     }
@@ -3814,6 +3803,33 @@ private void showDownloadSettingsPanel() {
             return true;
         });
         menu.show();
+    }
+
+    private void switchDialogSmooth(Dialog currentDialog, Runnable openNext) {
+        try {
+            if (openNext != null) openNext.run();
+        } catch (Exception e) {
+            Toast.makeText(this, "Gagal membuka menu: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+
+        if (currentDialog != null) {
+            mainHandler.postDelayed(() -> {
+                try {
+                    if (currentDialog.isShowing()) currentDialog.dismiss();
+                } catch (Exception ignored) {
+                }
+            }, 120);
+        }
+    }
+
+    private void refreshDialogSmooth(Dialog dialog, Runnable render) {
+        try {
+            if (render != null) render.run();
+        } catch (Exception ignored) {
+        }
+        if (dialog != null && !dialog.isShowing()) {
+            try { dialog.show(); } catch (Exception ignored) {}
+        }
     }
 
     private ImageButton plainIconButton(int iconRes, View.OnClickListener listener) {
@@ -4029,7 +4045,25 @@ private void showDownloadSettingsPanel() {
     }
 
     private File historyV3File() {
+        File dir = new File(getFilesDir(), HISTORY_V3_FOLDER);
+        try { if (!dir.exists()) dir.mkdirs(); } catch (Exception ignored) {}
+        return new File(dir, HISTORY_V3_PUBLIC_FILE);
+    }
+
+    private File historyV3LegacyFile() {
         return new File(getFilesDir(), HISTORY_V3_FILE);
+    }
+
+    private File historyV3ExternalFile() {
+        try {
+            File base = getExternalFilesDir(null);
+            if (base == null) return null;
+            File dir = new File(base, HISTORY_V3_FOLDER);
+            try { if (!dir.exists()) dir.mkdirs(); } catch (Exception ignored) {}
+            return new File(dir, HISTORY_V3_PUBLIC_FILE);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private String readTextFileSafe(File file) {
@@ -4037,7 +4071,8 @@ private void showDownloadSettingsPanel() {
         FileInputStream fis = null;
         try {
             fis = new FileInputStream(file);
-            byte[] data = new byte[(int) Math.min(file.length(), 1024L * 1024L)];
+            long length = Math.max(0, Math.min(file.length(), 1024L * 1024L));
+            byte[] data = new byte[(int) length];
             int len = fis.read(data);
             if (len <= 0) return "";
             return new String(data, 0, len, "UTF-8");
@@ -4052,6 +4087,8 @@ private void showDownloadSettingsPanel() {
         if (file == null || value == null) return;
         FileOutputStream fos = null;
         try {
+            File parent = file.getParentFile();
+            if (parent != null && !parent.exists()) parent.mkdirs();
             fos = new FileOutputStream(file, false);
             fos.write(value.getBytes("UTF-8"));
             fos.flush();
@@ -4062,6 +4099,16 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+    private String normalizeHistoryRowsText(String saved) {
+        if (saved == null || saved.length() == 0) return "";
+        // Perbaikan penting: versi lama menyimpan pemisah sebagai teks "\\n".
+        // Normalisasi dulu agar bisa dibaca sebagai baris sungguhan.
+        return saved.replace("\\r\\n", "\n")
+                .replace("\\n", "\n")
+                .replace("\r\n", "\n")
+                .replace("\r", "\n");
+    }
+
     private String serializeHistoryList(ArrayList<HistoryItemData> list) {
         StringBuilder sb = new StringBuilder();
         if (list == null) return "";
@@ -4069,7 +4116,7 @@ private void showDownloadSettingsPanel() {
             if (item == null || !shouldRecordHistoryUrl(item.url)) continue;
             sb.append(encode(item.title)).append("|")
                     .append(encode(item.url)).append("|")
-                    .append(item.time).append("\\n");
+                    .append(item.time).append('\n');
         }
         return sb.toString();
     }
@@ -4092,18 +4139,27 @@ private void showDownloadSettingsPanel() {
                 .commit();
 
         writeTextFileSafe(historyV3File(), value);
+        writeTextFileSafe(historyV3LegacyFile(), value);
+        writeTextFileSafe(historyV3ExternalFile(), value);
     }
 
     private void mergeHistoryRows(String saved, ArrayList<HistoryItemData> out) {
         if (saved == null || saved.length() == 0 || out == null) return;
-        String[] rows = saved.split("\\n");
+        saved = normalizeHistoryRowsText(saved);
+        if (saved.length() == 0) return;
+
+        String[] rows = saved.split("\n");
         for (String row : rows) {
+            if (row == null) continue;
+            row = row.trim();
+            if (row.length() == 0) continue;
+
             String[] parts = row.split("\\|", 3);
             if (parts.length == 3) {
                 try {
                     String title = decode(parts[0]);
                     String url = decode(parts[1]);
-                    long time = Long.parseLong(parts[2]);
+                    long time = Long.parseLong(parts[2].trim());
                     if (!shouldRecordHistoryUrl(url)) continue;
 
                     boolean duplicate = false;
@@ -4176,6 +4232,8 @@ private void showDownloadSettingsPanel() {
 
         ArrayList<HistoryItemData> loaded = new ArrayList<>();
         mergeHistoryRows(readTextFileSafe(historyV3File()), loaded);
+        mergeHistoryRows(readTextFileSafe(historyV3LegacyFile()), loaded);
+        mergeHistoryRows(readTextFileSafe(historyV3ExternalFile()), loaded);
         mergeHistoryRows(h.getString(KEY_BROWSER_HISTORY_V3, ""), loaded);
         mergeHistoryRows(h.getString(KEY_BROWSER_HISTORY_V2, ""), loaded);
         mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY_V3, ""), loaded);
@@ -4211,6 +4269,16 @@ private void showDownloadSettingsPanel() {
         try {
             File f = historyV3File();
             if (f.exists()) f.delete();
+        } catch (Exception ignored) {
+        }
+        try {
+            File f = historyV3LegacyFile();
+            if (f.exists()) f.delete();
+        } catch (Exception ignored) {
+        }
+        try {
+            File f = historyV3ExternalFile();
+            if (f != null && f.exists()) f.delete();
         } catch (Exception ignored) {
         }
     }
@@ -7813,6 +7881,7 @@ private void showDownloadSettingsPanel() {
                     }
                 } catch (Exception ignored) {
                 }
+                if (smoothSearchTransitionActive) finishSmoothSearchTransition();
                 super.onReceivedError(view, request, error);
             }
 
@@ -7823,6 +7892,9 @@ private void showDownloadSettingsPanel() {
                     blurWebInputsAndHideKeyboard();
                 }
                 try {
+                    if (smoothSearchTransitionActive && navigationLoadingOverlay != null) {
+                        navigationLoadingOverlay.bringToFront();
+                    }
                     if (shouldRecordHistoryUrl(url)) addBrowserHistory(url, url);
                     String currentUrl = getEffectiveCurrentUrl();
                     if (isDirectImageMainFrameNavigation(url, currentUrl)) {
@@ -7892,6 +7964,9 @@ private void showDownloadSettingsPanel() {
                         blurWebInputsAndHideKeyboard();
                         pendingHideKeyboardAfterNavigation = false;
                     }, 900);
+                }
+                if (smoothSearchTransitionActive) {
+                    mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 220);
                 }
                 scheduleCloseDetectedAdTabs();
                 updateTopActionStates();
@@ -8773,11 +8848,23 @@ private void showDownloadSettingsPanel() {
         TabInfo currentTab = getCurrentTab();
         currentTab.url = url;
         currentTab.title = url;
-        webView.setVisibility(View.VISIBLE);
-        homeScroll.setVisibility(View.GONE);
+        boolean fromHomeSearch = homeScroll != null && homeScroll.getVisibility() == View.VISIBLE;
+        if (fromHomeSearch) {
+            startSmoothSearchTransition();
+        } else {
+            if (webView != null) {
+                webView.setAlpha(1f);
+                webView.setVisibility(View.VISIBLE);
+            }
+            if (homeScroll != null) homeScroll.setVisibility(View.GONE);
+        }
         updateVideoControlsVisibility();
+        if (shouldRecordHistoryUrl(url)) addBrowserHistory(url, url);
         if (translateEnabled) loadTranslatedPage(url);
         else webView.loadUrl(url);
+        if (fromHomeSearch) {
+            mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 1400);
+        }
         updateTopActionStates();
         updateTabsCountUi();
     }
@@ -8934,7 +9021,95 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+    private FrameLayout createNavigationLoadingOverlay() {
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(COLOR_BG);
+        overlay.setAlpha(0f);
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setPadding(dp(24), dp(24), dp(24), dp(24));
+
+        ProgressBar spinner = new ProgressBar(this);
+        try {
+            spinner.setIndeterminateTintList(ColorStateList.valueOf(COLOR_ACCENT));
+        } catch (Exception ignored) {
+        }
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(42), dp(42));
+        box.addView(spinner, sp);
+
+        TextView label = new TextView(this);
+        label.setText("Memuat halaman...");
+        label.setTextColor(COLOR_SUBTEXT);
+        label.setTextSize(14);
+        label.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.setMargins(0, dp(14), 0, 0);
+        box.addView(label, lp);
+
+        overlay.addView(box, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        return overlay;
+    }
+
+    private void startSmoothSearchTransition() {
+        smoothSearchTransitionActive = true;
+        try {
+            if (navigationLoadingOverlay != null) {
+                navigationLoadingOverlay.bringToFront();
+                navigationLoadingOverlay.setVisibility(View.VISIBLE);
+                navigationLoadingOverlay.setAlpha(1f);
+            }
+            if (homeScroll != null) homeScroll.setVisibility(View.GONE);
+            if (webView != null) {
+                webView.setAlpha(0f);
+                webView.setVisibility(View.VISIBLE);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void finishSmoothSearchTransition() {
+        if (!smoothSearchTransitionActive) return;
+        smoothSearchTransitionActive = false;
+        try {
+            if (webView != null) {
+                webView.setVisibility(View.VISIBLE);
+                webView.animate().alpha(1f).setDuration(180).start();
+            }
+            if (navigationLoadingOverlay != null) {
+                navigationLoadingOverlay.animate()
+                        .alpha(0f)
+                        .setDuration(180)
+                        .withEndAction(() -> {
+                            try {
+                                navigationLoadingOverlay.setVisibility(View.GONE);
+                                navigationLoadingOverlay.setAlpha(0f);
+                            } catch (Exception ignored) {
+                            }
+                        })
+                        .start();
+            }
+        } catch (Exception ignored) {
+            if (navigationLoadingOverlay != null) navigationLoadingOverlay.setVisibility(View.GONE);
+            if (webView != null) webView.setAlpha(1f);
+        }
+    }
+
+    private void cancelSmoothSearchTransition() {
+        smoothSearchTransitionActive = false;
+        try {
+            if (navigationLoadingOverlay != null) {
+                navigationLoadingOverlay.setVisibility(View.GONE);
+                navigationLoadingOverlay.setAlpha(0f);
+            }
+            if (webView != null) webView.setAlpha(1f);
+        } catch (Exception ignored) {
+        }
+    }
+
     private void showHome() {
+        cancelSmoothSearchTransition();
         // Home hanya menyembunyikan halaman web, bukan menghapus state halaman.
         // Jadi kalau tidak sengaja kepencet Home, halaman terakhir masih bisa dikembalikan lewat gesture.
         try {
