@@ -8,8 +8,8 @@ android {
         applicationId 'com.yieldbrowser.install'
         minSdk 23
         targetSdk 30
-        versionCode 18
-        versionName "0.9.43"
+        versionCode 20
+        versionName "0.9.45"
     }
 
     buildTypes {

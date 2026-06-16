@@ -15,3 +15,6 @@ Patch stabilitas untuk crash WebView thread pada `shouldInterceptRequest`.
 3. Klik menu internal Lordborg.
 4. Pastikan aplikasi tidak force close.
 5. Pastikan Desktop/Mobile mode tetap stabil.
+
+## v0.9.45
+Fix direct image navigation guard: prevents comic pages from being replaced by raw .jpeg/.jpg web image pages; temporary direct-link tabs are restored.

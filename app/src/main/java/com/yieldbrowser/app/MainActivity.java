@@ -288,6 +288,13 @@ public class MainActivity extends Activity {
     private String trustedMainFrameHost = "";
     private long trustedMainFrameUntilMs = 0L;
 
+    // v0.9.44: Universal Site Compatibility Guard.
+    // Dipakai untuk situs yang anti-adblock/auto-reload/blank supaya Yield berhenti
+    // melakukan restore, intercept agresif, dan DOM injection pada domain tersebut.
+    private String siteCompatibilityHost = "";
+    private long siteCompatibilityUntilMs = 0L;
+    private long siteCompatibilityToastLastMs = 0L;
+
 
     // ===== Data models =====
     private static class DownloadItem {
@@ -3332,6 +3339,7 @@ private void showDownloadSettingsPanel() {
 
     private void injectVideoPlaybackWatcher() {
         if (webView == null) return;
+        if (isSiteCompatibilityModeActiveForUrl(getEffectiveCurrentUrl())) return;
         String js = "javascript:(function(){"
                 + "window.__yieldVideoWatcherInstalled=true;"
                 + "var Y_BUF=" + (videoBufferBooster ? "true" : "false") + ",Y_HLS=" + (hlsSegmentPrefetch ? "true" : "false") + ",Y_BG=" + (videoBackgroundPlay ? "true" : "false") + ";"
@@ -7919,7 +7927,15 @@ private void showDownloadSettingsPanel() {
     }
 
     private boolean captureAdRedirectToTempTab(String url, String reason) {
-        if (!adBlock || url == null || url.trim().length() == 0) return false;
+        return captureBlockedNavigationToTempTab(url, reason, false);
+    }
+
+    private boolean captureDirectImageToTempTab(String url, String reason) {
+        return captureBlockedNavigationToTempTab(url, reason, true);
+    }
+
+    private boolean captureBlockedNavigationToTempTab(String url, String reason, boolean allowWhenAdBlockOff) {
+        if ((!allowWhenAdBlockOff && !adBlock) || url == null || url.trim().length() == 0) return false;
         if (isMediaResourceUrl(url) || isYoutubeCoreUrl(url)) return false;
 
         String safeUrl = url.trim();
@@ -8126,14 +8142,26 @@ private void showDownloadSettingsPanel() {
                     return true;
                 }
 
-                if (mainFrame && isNormalUserMainFrameNavigation(u, currentUrl, hasGesture)) {
+                // v0.9.45: direct image main-frame harus dicegat sebelum normal user navigation
+                // atau compatibility mode. Kalau tidak, klik/redirect gambar komik (.jpg/.jpeg/.webp)
+                // bisa mengambil alih tab utama dan berubah menjadi halaman gambar mentah.
+                String referenceUrlForDirectImage = (currentUrl != null && currentUrl.length() > 0) ? currentUrl : lastSafeHttpUrl;
+                if (mainFrame && !isTrustedMainFrameNavigation(u) && isDirectImageMainFrameNavigation(u, referenceUrlForDirectImage)) {
+                    restoreAfterBlockedNavigation(view, u, "Gambar/direct link dibuka di tab baru");
+                    return true;
+                }
+
+                // v0.9.44: kalau domain sedang dalam compatibility mode, jangan blokir navigasi
+                // main-frame. Situs anti-adblock sering memakai redirect internal/menu yang kalau
+                // ditahan akan membuat halaman blank atau balik ke home.
+                if (mainFrame && (isSiteCompatibilityModeActiveForUrl(u) || isSiteCompatibilityModeActiveForUrl(currentUrl))) {
                     markTrustedMainFrameNavigation(u);
                     return false;
                 }
 
-                if (request.isForMainFrame() && isDirectImageMainFrameNavigation(u, currentUrl)) {
-                    restoreAfterBlockedNavigation(view, u, "Gambar/direct link dibuka di tab baru");
-                    return true;
+                if (mainFrame && isNormalUserMainFrameNavigation(u, currentUrl, hasGesture)) {
+                    markTrustedMainFrameNavigation(u);
+                    return false;
                 }
 
                 if (request.isForMainFrame() && isExternalSchemeUrl(u)) {
@@ -8156,6 +8184,12 @@ private void showDownloadSettingsPanel() {
                 String u = request.getUrl().toString();
                 String pageUrl = currentPageUrlForRequest != null ? currentPageUrlForRequest : "";
                 if ((pageUrl == null || pageUrl.length() == 0) && lastSafeHttpUrl != null) pageUrl = lastSafeHttpUrl;
+                // v0.9.44: compatibility mode bersifat universal per-domain. Jika aktif, jangan
+                // intercept resource sama sekali untuk halaman itu. Ini menyelesaikan situs yang
+                // reload/blank karena mendeteksi resource diblokir walau user sedang mencoba masuk.
+                if (isSiteCompatibilityModeActiveForUrl(pageUrl)) {
+                    return super.shouldInterceptRequest(view, request);
+                }
                 // v0.9.42: kalau suatu host masuk compatibility/reload-loop guard, jangan blokir
                 // resource first-party-nya. Banyak situs lama memakai nama file/folder berisi "ad"
                 // untuk script/menu internal; kalau ikut diblokir halaman bisa blank.
@@ -8180,6 +8214,12 @@ private void showDownloadSettingsPanel() {
                             ? String.valueOf(error.getDescription()).toLowerCase(Locale.US)
                             : "";
                     if (request != null && request.isForMainFrame()
+                            && isSiteCompatibilityModeActiveForUrl(failedUrl)) {
+                        // Compatibility mode: biarkan WebView menampilkan hasil/error asli situs,
+                        // jangan restore/goBack karena itu bisa memicu loop ke home.
+                        return;
+                    }
+                    if (request != null && request.isForMainFrame()
                             && (isExternalSchemeUrl(failedUrl)
                             || errorCode == WebViewClient.ERROR_UNSUPPORTED_SCHEME
                             || errorText.contains("unknown_url_scheme")
@@ -8198,10 +8238,12 @@ private void showDownloadSettingsPanel() {
 
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                String safeBeforePageStarted = lastSafeHttpUrl;
                 currentPageUrlForRequest = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
                 boolean reloadLoopGuarded = registerNavigationLoopGuard(url);
+                boolean siteCompatibilityActive = isSiteCompatibilityModeActiveForUrl(url);
                 applyBrowserSettings();
-                if (!reloadLoopGuarded) {
+                if (!reloadLoopGuarded && !siteCompatibilityActive) {
                     if (desktopMode) {
                         mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 250);
                     } else {
@@ -8226,7 +8268,10 @@ private void showDownloadSettingsPanel() {
                         addBrowserHistory(url, url);
                     }
                     String currentUrl = getEffectiveCurrentUrl();
-                    if (isDirectImageMainFrameNavigation(url, currentUrl)) {
+                    String referenceUrlForDirectImage = (safeBeforePageStarted != null && safeBeforePageStarted.length() > 0)
+                            ? safeBeforePageStarted
+                            : currentUrl;
+                    if (!isTrustedMainFrameNavigation(url) && isDirectImageMainFrameNavigation(url, referenceUrlForDirectImage)) {
                         restoreAfterBlockedNavigation(view, url, "Gambar/direct link dibuka di tab baru");
                         return;
                     }
@@ -8253,9 +8298,11 @@ private void showDownloadSettingsPanel() {
                 if (shouldRecordHistoryUrl(finalUrl)) {
                     lastSafeHttpUrl = finalUrl;
                 }
-                addressBar.setText(finalUrl);
+                if (webView != null && webView.getVisibility() == View.VISIBLE) {
+                    addressBar.setText(finalUrl);
+                }
                 progressBar.setVisibility(View.GONE);
-                boolean pageReloadGuarded = isReloadLoopGuardActiveForUrl(finalUrl);
+                boolean pageReloadGuarded = isReloadLoopGuardActiveForUrl(finalUrl) || isSiteCompatibilityModeActiveForUrl(finalUrl);
                 if (!pageReloadGuarded) {
                     applyViewportForCurrentMode();
                     mainHandler.postDelayed(() -> applyViewportForCurrentMode(), 600);
@@ -8429,6 +8476,7 @@ private void showDownloadSettingsPanel() {
 
     private void applyNightModeToWebPage() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) return;
+        if (isSiteCompatibilityModeActiveForUrl(getEffectiveCurrentUrl())) return;
 
         boolean active = isNightModeActiveForCurrentSite();
         String js;
@@ -8880,6 +8928,32 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+    private void enableSiteCompatibilityModeForUrl(String url, String reason) {
+        try {
+            if (!isHttpOrHttpsUrl(url)) return;
+            String host = hostOfUrl(url);
+            if (host == null || host.length() == 0) return;
+            siteCompatibilityHost = host;
+            siteCompatibilityUntilMs = System.currentTimeMillis() + 300000L;
+            if (System.currentTimeMillis() - siteCompatibilityToastLastMs > 8000L) {
+                siteCompatibilityToastLastMs = System.currentTimeMillis();
+                Toast.makeText(this, "Mode kompatibel aktif untuk situs ini", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private boolean isSiteCompatibilityModeActiveForUrl(String url) {
+        try {
+            long now = System.currentTimeMillis();
+            if (siteCompatibilityHost == null || siteCompatibilityHost.length() == 0 || now > siteCompatibilityUntilMs) return false;
+            String host = hostOfUrl(url);
+            return host.length() > 0 && (host.equals(siteCompatibilityHost) || host.endsWith("." + siteCompatibilityHost));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private boolean isReloadLoopGuardActiveForUrl(String url) {
         long now = System.currentTimeMillis();
         if (reloadLoopGuardHost == null || reloadLoopGuardHost.length() == 0 || now > reloadLoopGuardUntilMs) return false;
@@ -8922,6 +8996,7 @@ private void showDownloadSettingsPanel() {
             reloadLoopGuardHost = host;
             reloadLoopGuardKey = key;
             reloadLoopGuardUntilMs = now + 120000L;
+            enableSiteCompatibilityModeForUrl(url, "reload-loop");
             reloadLoopCount = 0;
             if ((now - reloadLoopToastLastMs) > 6000L) {
                 reloadLoopToastLastMs = now;
@@ -9138,8 +9213,10 @@ private void showDownloadSettingsPanel() {
             if (isTrustedMainFrameNavigation(blockedUrl)) {
                 return;
             }
-            if (isReloadLoopGuardActiveForUrl(blockedUrl) || isReloadLoopGuardActiveForUrl(lastSafeHttpUrl)) {
-                try { if (view != null) view.stopLoading(); } catch (Exception ignored) {}
+            if (isSiteCompatibilityModeActiveForUrl(blockedUrl) || isSiteCompatibilityModeActiveForUrl(lastSafeHttpUrl)
+                    || isReloadLoopGuardActiveForUrl(blockedUrl) || isReloadLoopGuardActiveForUrl(lastSafeHttpUrl)) {
+                // v0.9.44: jangan stopLoading/goBack pada host kompatibel. Stop loading inilah
+                // yang sering membuat halaman blank/hitam dan URL tetap menempel di Home.
                 return;
             }
             String currentBefore = view != null ? view.getUrl() : "";
@@ -9149,9 +9226,13 @@ private void showDownloadSettingsPanel() {
                     && blockedUrl.equals(currentBefore);
             boolean directImageNavigation = isDirectImageMainFrameNavigation(blockedUrl, currentBefore);
 
-            // Ad redirect dipisah ke tab baru, tab utama tidak di-reload agar gambar/komik yang sedang loading
-            // tidak terputus.
-            captureAdRedirectToTempTab(blockedUrl, reason);
+            // Ad/direct image dipisah ke tab baru, tab utama tidak di-reload agar gambar/komik
+            // yang sedang loading tidak berubah menjadi halaman .jpg/.jpeg mentah.
+            if (directImageNavigation) {
+                captureDirectImageToTempTab(blockedUrl, reason);
+            } else {
+                captureAdRedirectToTempTab(blockedUrl, reason);
+            }
 
             if (view != null && (navigationAlreadyChanged || directImageNavigation || isExternalSchemeUrl(blockedUrl))) {
                 view.stopLoading();
@@ -9391,6 +9472,7 @@ private void showDownloadSettingsPanel() {
     // ===== AdBlock / video ad handling =====
     private void injectPremiumAdBlock() {
         if (webView == null || !adBlock) return;
+        if (isSiteCompatibilityModeActiveForUrl(getEffectiveCurrentUrl())) return;
 
         String popupEnabled = adBlockPopupBlocker ? "true" : "false";
         String clickEnabled = adBlockClickHijackBlocker ? "true" : "false";
@@ -9796,6 +9878,9 @@ private void showDownloadSettingsPanel() {
         // Jadi kalau tidak sengaja kepencet Home, halaman terakhir masih bisa dikembalikan lewat gesture.
         try {
             if (!historyClearLock) saveCurrentTabState();
+        } catch (Exception ignored) {}
+        try {
+            if (webView != null) webView.stopLoading();
         } catch (Exception ignored) {}
 
         homeScroll.setVisibility(View.VISIBLE);
