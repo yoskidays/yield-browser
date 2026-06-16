@@ -627,3 +627,10 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - Container utama YouTube (`ytm-app`, `#content`, `#contents`, `ytm-watch`, `ytm-browse`, dll.) dipulihkan paksa jika sempat terkena hide.
   - Ad skip video tetap aktif lewat mute/speed/seek/Skip Ad, bukan hard-block.
   - Re-injection adblock YouTube diperlambat agar halaman mobile tidak blank.
+
+
+## v0.9.21
+- Fix compile error v0.9.20 pada Java 8/source 8:
+  - regex JavaScript `\s` di dalam string Java sekarang di-escape dengan benar.
+  - error `text blocks are not supported in -source 8` pada `MainActivity.java` diperbaiki.
+- YouTube Safe AdBlock v0.9.20 tetap dipertahankan.
