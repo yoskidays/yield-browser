@@ -268,6 +268,9 @@ public class MainActivity extends Activity {
     private LinearLayout shortcutContainer;
     private String searchEngine = "Google";
     private String lastSafeHttpUrl = "";
+    // v0.9.43: cache URL halaman aktif untuk thread shouldInterceptRequest.
+    // shouldInterceptRequest berjalan di thread Chromium, jadi dilarang memanggil WebView.getUrl() di sana.
+    private volatile String currentPageUrlForRequest = "";
     private boolean pendingHideKeyboardAfterNavigation = false;
     private boolean historyClearLock = false;
 
@@ -8151,7 +8154,8 @@ private void showDownloadSettingsPanel() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 String u = request.getUrl().toString();
-                String pageUrl = view != null ? view.getUrl() : "";
+                String pageUrl = currentPageUrlForRequest != null ? currentPageUrlForRequest : "";
+                if ((pageUrl == null || pageUrl.length() == 0) && lastSafeHttpUrl != null) pageUrl = lastSafeHttpUrl;
                 // v0.9.42: kalau suatu host masuk compatibility/reload-loop guard, jangan blokir
                 // resource first-party-nya. Banyak situs lama memakai nama file/folder berisi "ad"
                 // untuk script/menu internal; kalau ikut diblokir halaman bisa blank.
@@ -8194,6 +8198,7 @@ private void showDownloadSettingsPanel() {
 
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                currentPageUrlForRequest = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
                 boolean reloadLoopGuarded = registerNavigationLoopGuard(url);
                 applyBrowserSettings();
                 if (!reloadLoopGuarded) {
@@ -8244,6 +8249,7 @@ private void showDownloadSettingsPanel() {
             public void onPageFinished(WebView view, String url) {
                 String shownUrl = extractOriginalUrl(url);
                 String finalUrl = shownUrl != null ? shownUrl : url;
+                currentPageUrlForRequest = finalUrl;
                 if (shouldRecordHistoryUrl(finalUrl)) {
                     lastSafeHttpUrl = finalUrl;
                 }
@@ -8672,6 +8678,7 @@ private void showDownloadSettingsPanel() {
         }
 
         try {
+            currentPageUrlForRequest = cleanUrl;
             markTrustedMainFrameNavigation(cleanUrl);
             applyBrowserSettings();
             Map<String, String> headers = new LinkedHashMap<>();
