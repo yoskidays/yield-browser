@@ -607,3 +607,23 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - `this::blurWebInputsAndHideKeyboard` diganti menjadi `() -> blurWebInputsAndHideKeyboard()`.
   - Penyebabnya: kode berada di dalam anonymous `WebViewClient`, sehingga `this` mengarah ke `WebViewClient`, bukan `MainActivity`.
 - Fitur keyboard auto-hide dan YouTube faster ad-skip dari v0.9.17 tetap dipertahankan.
+
+
+## v0.9.19
+- Fix YouTube blank/hitam total setelah v0.9.17/v0.9.18:
+  - penghapus sponsor YouTube mobile dibuat selector-only.
+  - scanning teks “iklan/bersponsor” yang bisa salah menyembunyikan container besar YouTube dihapus.
+  - root container YouTube (`html`, `body`, `ytm-app`, `ytd-app`, `#app`) dipulihkan otomatis jika sempat tersentuh CSS hide.
+  - interval cleaner dibuat lebih aman agar tidak membuat halaman blank/reflow berat.
+  - ad speed-skip tetap aktif, tapi seek dibuat sedikit lebih stabil.
+- Keyboard auto-hide v0.9.18 tetap dipertahankan.
+
+
+## v0.9.20
+- Fix lanjutan YouTube blank/hitam:
+  - YouTube request metadata/ad tidak lagi diblokir di network layer.
+  - Generic cosmetic selector tidak dijalankan untuk YouTube.
+  - Hider sponsor YouTube dibuat ultra-safe dan hanya menyentuh renderer iklan eksplisit.
+  - Container utama YouTube (`ytm-app`, `#content`, `#contents`, `ytm-watch`, `ytm-browse`, dll.) dipulihkan paksa jika sempat terkena hide.
+  - Ad skip video tetap aktif lewat mute/speed/seek/Skip Ad, bukan hard-block.
+  - Re-injection adblock YouTube diperlambat agar halaman mobile tidak blank.
