@@ -64,6 +64,8 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebBackForwardList;
+import android.webkit.WebHistoryItem;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -129,6 +131,8 @@ public class MainActivity extends Activity {
     private static final String KEY_BROWSER_HISTORY = "browser_history";
     private static final String KEY_BROWSER_HISTORY_BACKUP = "browser_history_backup";
     private static final String KEY_BROWSER_HISTORY_V2 = "browser_history_v2";
+    private static final String KEY_BROWSER_HISTORY_V3 = "browser_history_v3";
+    private static final String HISTORY_V3_FILE = "yield_browser_history_v3.txt";
     private static final String PREFS_HISTORY_V2 = "yield_browser_history_store";
     private static final String KEY_NIGHT_EXCEPTIONS = "night_mode_exceptions";
     private static final String CHANNEL_DOWNLOADS = "yield_downloads";
@@ -509,6 +513,7 @@ public class MainActivity extends Activity {
         try {
             saveCurrentTabState();
             recordCurrentPageToHistory();
+            recordWebViewBackForwardHistory();
             saveBrowserHistory();
         } catch (Exception ignored) {}
         if (videoBackgroundPlay && webView != null) {
@@ -524,6 +529,7 @@ public class MainActivity extends Activity {
     protected void onStop() {
         try {
             recordCurrentPageToHistory();
+            recordWebViewBackForwardHistory();
             saveBrowserHistory();
         } catch (Exception ignored) {}
         super.onStop();
@@ -540,6 +546,7 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         try {
             recordCurrentPageToHistory();
+            recordWebViewBackForwardHistory();
             saveBrowserHistory();
         } catch (Exception ignored) {}
         super.onDestroy();
@@ -1424,6 +1431,7 @@ content.addView(space(dp(36)));
         menu.addView(menuRow(R.drawable.ic_exit, "Keluar", v -> {
             try {
                 recordCurrentPageToHistory();
+                recordWebViewBackForwardHistory();
                 saveBrowserHistory();
             } catch (Exception ignored) {}
             dialog.dismiss();
@@ -1454,7 +1462,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.26";
+        return "0.9.27";
     }
 
     private void showAboutYieldDialog() {
@@ -3267,6 +3275,8 @@ private void showDownloadSettingsPanel() {
     }
 
     private void showHistoryPanel() {
+        recordCurrentPageToHistory();
+        recordWebViewBackForwardHistory();
         loadBrowserHistory();
         Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar);
         LinearLayout root = new LinearLayout(this);
@@ -4018,6 +4028,40 @@ private void showDownloadSettingsPanel() {
         return getSharedPreferences(PREFS_HISTORY_V2, MODE_PRIVATE);
     }
 
+    private File historyV3File() {
+        return new File(getFilesDir(), HISTORY_V3_FILE);
+    }
+
+    private String readTextFileSafe(File file) {
+        if (file == null || !file.exists()) return "";
+        FileInputStream fis = null;
+        try {
+            fis = new FileInputStream(file);
+            byte[] data = new byte[(int) Math.min(file.length(), 1024L * 1024L)];
+            int len = fis.read(data);
+            if (len <= 0) return "";
+            return new String(data, 0, len, "UTF-8");
+        } catch (Exception ignored) {
+            return "";
+        } finally {
+            try { if (fis != null) fis.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private void writeTextFileSafe(File file, String value) {
+        if (file == null || value == null) return;
+        FileOutputStream fos = null;
+        try {
+            fos = new FileOutputStream(file, false);
+            fos.write(value.getBytes("UTF-8"));
+            fos.flush();
+            try { fos.getFD().sync(); } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        } finally {
+            try { if (fos != null) fos.close(); } catch (Exception ignored) {}
+        }
+    }
+
     private String serializeHistoryList(ArrayList<HistoryItemData> list) {
         StringBuilder sb = new StringBuilder();
         if (list == null) return "";
@@ -4039,11 +4083,15 @@ private void showDownloadSettingsPanel() {
                 .putString(KEY_BROWSER_HISTORY, value)
                 .putString(KEY_BROWSER_HISTORY_BACKUP, value)
                 .putString(KEY_BROWSER_HISTORY_V2, value)
+                .putString(KEY_BROWSER_HISTORY_V3, value)
                 .commit();
 
         historyStore().edit()
                 .putString(KEY_BROWSER_HISTORY_V2, value)
+                .putString(KEY_BROWSER_HISTORY_V3, value)
                 .commit();
+
+        writeTextFileSafe(historyV3File(), value);
     }
 
     private void mergeHistoryRows(String saved, ArrayList<HistoryItemData> out) {
@@ -4073,6 +4121,24 @@ private void showDownloadSettingsPanel() {
                 } catch (Exception ignored) {
                 }
             }
+        }
+    }
+
+    private void recordWebViewBackForwardHistory() {
+        try {
+            if (webView == null) return;
+            WebBackForwardList list = webView.copyBackForwardList();
+            if (list == null) return;
+            for (int i = 0; i < list.getSize(); i++) {
+                WebHistoryItem item = list.getItemAtIndex(i);
+                if (item == null) continue;
+                String url = item.getUrl();
+                String title = item.getTitle();
+                if (shouldRecordHistoryUrl(url)) {
+                    addBrowserHistory(title, url);
+                }
+            }
+        } catch (Exception ignored) {
         }
     }
 
@@ -4109,7 +4175,10 @@ private void showDownloadSettingsPanel() {
         SharedPreferences h = historyStore();
 
         ArrayList<HistoryItemData> loaded = new ArrayList<>();
+        mergeHistoryRows(readTextFileSafe(historyV3File()), loaded);
+        mergeHistoryRows(h.getString(KEY_BROWSER_HISTORY_V3, ""), loaded);
         mergeHistoryRows(h.getString(KEY_BROWSER_HISTORY_V2, ""), loaded);
+        mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY_V3, ""), loaded);
         mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY_V2, ""), loaded);
         mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY, ""), loaded);
         mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY_BACKUP, ""), loaded);
@@ -4133,10 +4202,17 @@ private void showDownloadSettingsPanel() {
                 .putString(KEY_BROWSER_HISTORY, "")
                 .putString(KEY_BROWSER_HISTORY_BACKUP, "")
                 .putString(KEY_BROWSER_HISTORY_V2, "")
+                .putString(KEY_BROWSER_HISTORY_V3, "")
                 .commit();
         historyStore().edit()
                 .putString(KEY_BROWSER_HISTORY_V2, "")
+                .putString(KEY_BROWSER_HISTORY_V3, "")
                 .commit();
+        try {
+            File f = historyV3File();
+            if (f.exists()) f.delete();
+        } catch (Exception ignored) {
+        }
     }
 
     private void showTextZoomDialog(Dialog parentDialog) {

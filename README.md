@@ -694,3 +694,14 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - `ic_launcher` dan `ic_launcher_round` diperbarui untuk semua density Android.
   - splash logo disamakan dengan icon final agar branding konsisten.
 - Perbaikan History V2 dari v0.9.25 tetap dipertahankan.
+
+
+## v0.9.27
+- Perbaikan khusus Histori untuk Android 11 / Realme:
+  - ditambahkan History V3 berbasis file internal app `yield_browser_history_v3.txt`.
+  - histori sekarang disimpan ke SharedPreferences lama, History V2, History V3, dan file internal.
+  - panel Histori juga membaca WebView back-forward list sebagai fallback.
+  - saat buka panel Histori, halaman aktif dan riwayat WebView langsung dicatat dulu sebelum daftar ditampilkan.
+  - lifecycle pause/stop/destroy dan menu Keluar juga menyimpan current page + WebView history list.
+  - manual clear menghapus semua store dan file History V3.
+- Icon final v0.9.26 tetap dipertahankan.
