@@ -483,4 +483,79 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - lanjut otomatis saat file sebelumnya selesai/gagal/dijeda.
 - Tidak bentrok dengan kontrol video fullscreen bawah dan AdBlock Premium default ON.
 
-- Queue item bisa dijeda langsung dari menu antrean.
+
+## v0.9.7
+- Perbaikan lanjutan AdBlock YouTube agar lebih mendekati Brave:
+  - hide iklan sponsor YouTube mobile di bawah video (`Bersponsor`, `Buy now`, companion slot, promoted renderer).
+  - YouTube pre-roll tidak di-hard-block; video resource `googlevideo/videoplayback` tetap di-allow.
+  - skip iklan lebih natural: mute + speed 16x + seek bertahap 8 detik, bukan lompat paksa ke akhir yang bisa bikin player hitam.
+  - restore mute/speed setelah mode iklan selesai.
+  - block ringan hanya metadata/tracking iklan YouTube non-media seperti `/api/stats/ads`, `pagead`, `ptracking`, bukan file video.
+- Download Queue Manager v0.9.6 tetap dipertahankan.
+
+
+## v0.9.8
+- Judul dialog download lanjutan diganti dari “Fitur UC Download” menjadi “Yield Fast Download”.
+- Pilihan batas maksimal download aktif sekarang hanya 2, 3, dan 4.
+- Setting lama yang masih bernilai 1 otomatis dinaikkan menjadi minimal 2.
+- Fitur Download Queue Manager dan AdBlock YouTube v0.9.7 tetap dipertahankan.
+
+
+## v0.9.9
+- Perbaikan klik iklan/deeplink yang menyebabkan halaman error `ERR_UNKNOWN_URL_SCHEME`.
+- Link eksternal seperti `shopeeid://`, `intent://`, `market://`, Lazada/Tokopedia deeplink, dan deeplink affiliate iklan sekarang diblokir sebelum dimuat sebagai halaman.
+- Saat redirect iklan diblokir, Yield mencoba tetap di halaman asli / memulihkan URL web terakhir yang aman.
+- Ditambahkan recovery `onReceivedError` untuk main-frame unknown scheme agar halaman tidak stuck di error WebView.
+- Parameter klik iklan/affiliate seperti `reactPath`, `navigate_url`, `deep_and_deferred`, `utm_medium=affiliates`, `click_id`, dan `adurl` lebih cepat ditahan.
+- MainActivity dirapikan secara aman:
+  - section comment untuk area utama.
+  - helper URL safety dibuat terpisah.
+  - naming UC pada dialog diganti menjadi branding Yield.
+  - cleanup teks/komentar lama yang tidak perlu tanpa memecah struktur besar agar risiko build error tetap rendah.
+- Fitur Yield Fast Download, Download Queue Manager, dan AdBlock YouTube v0.9.8 tetap dipertahankan.
+
+
+## v0.9.10
+- Perbaikan minimize aplikasi:
+  - saat tombol Home/Recent Android ditekan, Yield tidak lagi masuk floating/Picture-in-Picture.
+  - app kembali ke recent apps normal seperti aplikasi belum dibuka.
+  - ketika dibuka lagi dari recent apps, halaman/menu terakhir tetap dipertahankan.
+  - menu Home di dalam Yield tetap berfungsi untuk kembali ke beranda Yield.
+- `supportsPictureInPicture` di manifest dimatikan agar tidak muncul jendela melayang di launcher.
+- Setting video diubah menjadi “Minimize normal / tanpa floating”.
+- Fitur v0.9.9 tetap dipertahankan.
+
+
+## v0.9.11
+- Perbaikan bug dialog Download Queue yang kadang kedip/keluar saat memilih batas maksimal aktif.
+- Pilihan batas maksimal aktif sekarang tampil sebagai chip stabil di dialog: 2, 3, dan 4 file aktif.
+- Klik ON/OFF Download Queue tidak menutup/reopen menu lagi.
+- Klik 2/3/4 langsung update setting di tempat, dialog tetap terbuka.
+- Pause semua, Resume semua, dan Urutkan Antrian tetap di menu yang sama.
+- Fallback dialog lama juga dibuat tidak menutup parent menu.
+
+
+## v0.9.12
+- Perbaikan redirect iklan saat baca komik/website bergambar:
+  - link/direct iklan sekarang dipisah ke tab baru iklan.
+  - tab utama tidak dipaksa reload agar gambar komik tidak terputus.
+  - recovery ke URL terakhir hanya dilakukan kalau tab utama benar-benar sudah berubah ke halaman iklan/error.
+  - duplicate tab iklan dicegah agar tidak spam.
+  - auto close tab iklan dibuat lebih halus agar tidak terasa flicker.
+- Toast/label redirect diubah menjadi “Iklan dibuka di tab baru”.
+- Fitur v0.9.11 tetap dipertahankan.
+
+
+## v0.9.13
+- Perbaikan direct image redirect saat baca komik:
+  - jika klik iklan/direct link mengubah tab utama ke URL gambar `.jpg/.jpeg/.png/.webp`, Yield menahannya.
+  - direct image main-frame dibuka sebagai tab baru/direct link, bukan mengganti tab komik utama.
+  - tab utama tidak dipaksa reload, sehingga gambar komik yang sedang load tidak mudah terputus.
+- Perbaikan minimize di Realme/Oppo:
+  - `resizeableActivity` dimatikan agar tidak masuk floating/freeform window.
+  - PiP tetap OFF dan recent apps tetap normal.
+- Riwayat browsing dibuat lebih aman:
+  - tidak auto-clear saat data pref kosong/parse gagal.
+  - direct image/ad click tidak masuk histori.
+  - batas histori dinaikkan sampai 500 item.
+  - hapus histori tetap manual lewat menu “Kelola / hapus riwayat...” atau tombol `×` per item.

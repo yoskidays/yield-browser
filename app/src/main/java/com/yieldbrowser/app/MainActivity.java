@@ -58,6 +58,7 @@ import android.webkit.MimeTypeMap;
 import android.webkit.URLUtil;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -110,6 +111,8 @@ import com.google.zxing.Result;
 import com.google.zxing.common.HybridBinarizer;
 
 public class MainActivity extends Activity {
+
+    // ===== Theme / constants =====
     private static final int COLOR_BG = Color.parseColor("#15171C");
     private static final int COLOR_SURFACE_2 = Color.parseColor("#2A2D33");
     private static final int COLOR_BORDER = Color.parseColor("#3A3D45");
@@ -182,6 +185,8 @@ public class MainActivity extends Activity {
     private boolean compatibleTranslateActive = false;
     private String translateTargetLang = "id";
     private String translateTargetLabel = "Indonesia";
+
+    // ===== Browser settings state =====
     private boolean speedMode = false;
     private boolean safeMode = true;
     private boolean nightMode = true;
@@ -230,6 +235,8 @@ public class MainActivity extends Activity {
     private boolean topIconBookmark = true;
     private boolean topIconTranslate = true;
 
+
+    // ===== App data collections =====
     private final ArrayList<DownloadItem> downloadItems = new ArrayList<>();
     private final ArrayList<ShortcutItemData> shortcutsData = new ArrayList<>();
     private final ArrayList<HistoryItemData> historyData = new ArrayList<>();
@@ -238,7 +245,10 @@ public class MainActivity extends Activity {
     private int currentTabIndex = 0;
     private LinearLayout shortcutContainer;
     private String searchEngine = "Google";
+    private String lastSafeHttpUrl = "";
 
+
+    // ===== Data models =====
     private static class DownloadItem {
         int id;
         String url;
@@ -379,11 +389,13 @@ public class MainActivity extends Activity {
     private class AdBlockBridge {
         @JavascriptInterface
         public void onAdRedirect(String url) {
-            runOnUiThread(() -> captureAdRedirectToTempTab(url, "Popup iklan"));
+            runOnUiThread(() -> captureAdRedirectToTempTab(url, "Iklan/direct link"));
         }
     }
 
 
+
+    // ===== Activity lifecycle =====
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -481,6 +493,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        try { saveCurrentTabState(); } catch (Exception ignored) {}
         if (videoBackgroundPlay && webView != null) {
             try {
                 webView.evaluateJavascript("(function(){try{var v=document.querySelector('video');if(v&&!v.paused){v.play().catch(function(){});}return 'keep';}catch(e){return 'err';}})()", null);
@@ -516,6 +529,8 @@ public class MainActivity extends Activity {
     }
 
 
+
+    // ===== Main UI =====
     private View createTopBar() {
         LinearLayout wrap = new LinearLayout(this);
         wrap.setOrientation(LinearLayout.VERTICAL);
@@ -1395,7 +1410,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.6";
+        return "0.9.13";
     }
 
     private void showAboutYieldDialog() {
@@ -2110,7 +2125,7 @@ private void showDownloadSettingsPanel() {
             showDownloadSettingsPanel();
         }));
 
-        panel.addView(actionRow(R.drawable.ic_settings, "Fitur download lanjutan", getAdvancedDownloadSummary(), v -> {
+        panel.addView(actionRow(R.drawable.ic_settings, "Yield Fast Download", getAdvancedDownloadSummary(), v -> {
             showAdvancedDownloadFeaturesDialog(dialog);
         }));
 
@@ -2140,58 +2155,185 @@ private void showDownloadSettingsPanel() {
     }
 
     private void showDownloadQueueSettingsDialog(Dialog parentDialog) {
-        ArrayList<String> options = new ArrayList<>();
-        options.add(downloadQueueEnabled ? "Matikan Download Queue" : "Aktifkan Download Queue");
-        options.add("Batas maksimal download aktif: " + downloadMaxActive);
-        options.add("Pause semua download");
-        options.add("Resume semua download");
-        options.add("Urutkan tampilan: Antrian");
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
-        String[] items = options.toArray(new String[0]);
-        new AlertDialog.Builder(this)
-                .setTitle("Download Queue")
-                .setItems(items, (dialog, which) -> {
-                    if (which == 0) {
-                        downloadQueueEnabled = !downloadQueueEnabled;
-                        downloadQueuePaused = false;
-                        saveSettings();
-                        pumpDownloadQueue();
-                        Toast.makeText(this, downloadQueueEnabled ? "Download Queue aktif" : "Download Queue nonaktif", Toast.LENGTH_SHORT).show();
-                    } else if (which == 1) {
-                        showMaxActiveDownloadDialog(parentDialog);
-                    } else if (which == 2) {
-                        pauseAllDownloads();
-                    } else if (which == 3) {
-                        resumeAllDownloads();
-                    } else if (which == 4) {
-                        activeDownloadSort = "Antrian";
-                        renderDownloadList();
-                    }
-                    if (parentDialog != null && parentDialog.isShowing()) {
-                        parentDialog.dismiss();
-                        showDownloadSettingsPanel();
-                    }
-                })
-                .setNegativeButton("Batal", null)
-                .show();
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        scroll.setBackground(roundRect(Color.parseColor("#26292F"), dp(24), dp(1), COLOR_BORDER));
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(18), dp(20), dp(14));
+        scroll.addView(box, new ScrollView.LayoutParams(-1, -2));
+
+        TextView title = new TextView(this);
+        title.setText("Download Queue");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(22);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setIncludeFontPadding(false);
+        box.addView(title);
+
+        TextView info = new TextView(this);
+        info.setText("Atur antrian download tanpa keluar dari menu.");
+        info.setTextColor(COLOR_SUBTEXT);
+        info.setTextSize(13);
+        info.setPadding(0, dp(8), 0, dp(12));
+        box.addView(info);
+
+        final TextView[] statusText = new TextView[1];
+
+        box.addView(videoOptSwitchRow("Download Queue", "Batasi download aktif agar koneksi lebih stabil.", downloadQueueEnabled, v -> {
+            downloadQueueEnabled = !downloadQueueEnabled;
+            downloadQueuePaused = false;
+            saveSettings();
+            pumpDownloadQueue();
+            if (statusText[0] != null) statusText[0].setText(getDownloadQueueSummary());
+            refreshDownloadPanel();
+        }));
+
+        TextView maxTitle = new TextView(this);
+        maxTitle.setText("Batas maksimal download aktif");
+        maxTitle.setTextColor(Color.WHITE);
+        maxTitle.setTextSize(15);
+        maxTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        maxTitle.setPadding(0, dp(8), 0, dp(8));
+        box.addView(maxTitle);
+
+        LinearLayout choices = new LinearLayout(this);
+        choices.setOrientation(LinearLayout.HORIZONTAL);
+        choices.setGravity(Gravity.CENTER);
+        choices.setPadding(0, 0, 0, dp(8));
+        box.addView(choices, new LinearLayout.LayoutParams(-1, -2));
+
+        final TextView[] c2 = new TextView[1];
+        final TextView[] c3 = new TextView[1];
+        final TextView[] c4 = new TextView[1];
+
+        Runnable refreshChoices = () -> {
+            updateQueueChoiceChip(c2[0], 2);
+            updateQueueChoiceChip(c3[0], 3);
+            updateQueueChoiceChip(c4[0], 4);
+            if (statusText[0] != null) statusText[0].setText(getDownloadQueueSummary());
+        };
+
+        c2[0] = queueChoiceChip("2", 2, refreshChoices);
+        c3[0] = queueChoiceChip("3", 3, refreshChoices);
+        c4[0] = queueChoiceChip("4", 4, refreshChoices);
+
+        choices.addView(c2[0], new LinearLayout.LayoutParams(0, dp(46), 1));
+        LinearLayout.LayoutParams c3Lp = new LinearLayout.LayoutParams(0, dp(46), 1);
+        c3Lp.setMargins(dp(8), 0, 0, 0);
+        choices.addView(c3[0], c3Lp);
+        LinearLayout.LayoutParams c4Lp = new LinearLayout.LayoutParams(0, dp(46), 1);
+        c4Lp.setMargins(dp(8), 0, 0, 0);
+        choices.addView(c4[0], c4Lp);
+        refreshChoices.run();
+
+        LinearLayout actionRow = new LinearLayout(this);
+        actionRow.setOrientation(LinearLayout.HORIZONTAL);
+        actionRow.setGravity(Gravity.CENTER_VERTICAL);
+        actionRow.setPadding(0, dp(6), 0, dp(8));
+        box.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView pause = downloadToolButton("Pause semua");
+        pause.setOnClickListener(v -> {
+            pauseAllDownloads();
+            if (statusText[0] != null) statusText[0].setText(getDownloadQueueSummary());
+        });
+        actionRow.addView(pause, new LinearLayout.LayoutParams(0, dp(42), 1));
+
+        TextView resume = downloadToolButton("Resume semua");
+        resume.setOnClickListener(v -> {
+            resumeAllDownloads();
+            if (statusText[0] != null) statusText[0].setText(getDownloadQueueSummary());
+        });
+        LinearLayout.LayoutParams resumeLp = new LinearLayout.LayoutParams(0, dp(42), 1);
+        resumeLp.setMargins(dp(8), 0, 0, 0);
+        actionRow.addView(resume, resumeLp);
+
+        TextView sort = downloadToolButton("Urutkan: Antrian");
+        sort.setOnClickListener(v -> {
+            activeDownloadSort = "Antrian";
+            renderDownloadList();
+            Toast.makeText(this, "Tampilan diurutkan berdasarkan antrian", Toast.LENGTH_SHORT).show();
+        });
+        box.addView(sort, new LinearLayout.LayoutParams(-1, dp(42)));
+
+        statusText[0] = new TextView(this);
+        statusText[0].setText(getDownloadQueueSummary());
+        statusText[0].setTextColor(COLOR_SUBTEXT);
+        statusText[0].setTextSize(12);
+        statusText[0].setGravity(Gravity.CENTER);
+        statusText[0].setPadding(0, dp(12), 0, dp(4));
+        box.addView(statusText[0]);
+
+        LinearLayout bottom = new LinearLayout(this);
+        bottom.setGravity(Gravity.END);
+        bottom.setPadding(0, dp(8), 0, 0);
+
+        TextView close = dialogTextButton("TUTUP");
+        close.setOnClickListener(v -> dialog.dismiss());
+        bottom.addView(close);
+        box.addView(bottom);
+
+        dialog.setContentView(scroll);
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            Window window = dialog.getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.9f);
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            window.setAttributes(lp);
+        }
+    }
+
+    private TextView queueChoiceChip(String label, int value, Runnable refresh) {
+        TextView chip = new TextView(this);
+        chip.setText(label + " file aktif");
+        chip.setGravity(Gravity.CENTER);
+        chip.setTextSize(14);
+        chip.setTypeface(Typeface.DEFAULT_BOLD);
+        chip.setSingleLine(true);
+        chip.setOnClickListener(v -> {
+            downloadMaxActive = value;
+            downloadQueueEnabled = true;
+            downloadQueuePaused = false;
+            saveSettings();
+            pumpDownloadQueue();
+            refreshDownloadPanel();
+            if (refresh != null) refresh.run();
+            Toast.makeText(this, "Maksimal download aktif: " + value, Toast.LENGTH_SHORT).show();
+        });
+        updateQueueChoiceChip(chip, value);
+        return chip;
+    }
+
+    private void updateQueueChoiceChip(TextView chip, int value) {
+        if (chip == null) return;
+        boolean selected = downloadMaxActive == value;
+        chip.setTextColor(selected ? Color.parseColor("#111111") : Color.WHITE);
+        chip.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20232A"), dp(18), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
     }
 
     private void showMaxActiveDownloadDialog(Dialog parentDialog) {
-        String[] labels = new String[]{"1 file aktif", "2 file aktif", "3 file aktif", "4 file aktif"};
-        int checked = Math.max(0, Math.min(3, downloadMaxActive - 1));
+        // Fallback lama dipertahankan untuk kompatibilitas, tapi tidak menutup parent menu agar tidak kedip.
+        String[] labels = new String[]{"2 file aktif", "3 file aktif", "4 file aktif"};
+        int checked = Math.max(0, Math.min(2, downloadMaxActive - 2));
         new AlertDialog.Builder(this)
                 .setTitle("Batas maksimal download aktif")
                 .setSingleChoiceItems(labels, checked, (d, which) -> {
-                    downloadMaxActive = which + 1;
+                    downloadMaxActive = which + 2;
                     downloadQueueEnabled = true;
+                    downloadQueuePaused = false;
                     saveSettings();
-                    d.dismiss();
                     pumpDownloadQueue();
+                    refreshDownloadPanel();
+                    d.dismiss();
                     Toast.makeText(this, "Maksimal download aktif: " + downloadMaxActive, Toast.LENGTH_SHORT).show();
-                    if (parentDialog != null && parentDialog.isShowing()) {
-                        parentDialog.dismiss();
-                        showDownloadSettingsPanel();
-                    }
                 })
                 .setNegativeButton("Batal", null)
                 .show();
@@ -2212,7 +2354,7 @@ private void showDownloadSettingsPanel() {
         scroll.addView(box, new ScrollView.LayoutParams(-1, -2));
 
         TextView title = new TextView(this);
-        title.setText("Fitur UC Download");
+        title.setText("Yield Fast Download");
         title.setTextColor(Color.WHITE);
         title.setTextSize(22);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -2220,7 +2362,7 @@ private void showDownloadSettingsPanel() {
         box.addView(title);
 
         TextView info = new TextView(this);
-        info.setText("Pengaturan download lanjutan Yield.");
+        info.setText("Pengaturan download cepat Yield.");
         info.setTextColor(COLOR_SUBTEXT);
         info.setTextSize(13);
         info.setLineSpacing(0, 1.05f);
@@ -2706,7 +2848,7 @@ private void showDownloadSettingsPanel() {
         ArrayList<String> items = new ArrayList<>();
         if (videoBufferBooster) items.add("buffer");
         if (hlsSegmentPrefetch) items.add("HLS prefetch");
-        if (videoFloatingPlayer) items.add("floating");
+        if (videoFloatingPlayer) items.add("fullscreen helper");
         if (videoBackgroundPlay) items.add("background");
         if (items.isEmpty()) return "Semua optimasi video tambahan mati.";
         return "Aktif: " + TextUtils.join(", ", items);
@@ -2756,9 +2898,10 @@ private void showDownloadSettingsPanel() {
             saveSettings();
         }));
 
-        box.addView(videoOptSwitchRow("Floating player", "Tombol layar penuh/floating ringan; pakai PiP Android jika tersedia.", videoFloatingPlayer, v -> {
-            videoFloatingPlayer = !videoFloatingPlayer;
+        box.addView(videoOptSwitchRow("Minimize normal / tanpa floating", "Saat tombol Home/Recent Android ditekan, Yield tidak jadi jendela melayang dan akan balik ke tampilan terakhir.", !videoFloatingPlayer, v -> {
+            videoFloatingPlayer = false;
             saveSettings();
+            Toast.makeText(this, "Minimize normal aktif", Toast.LENGTH_SHORT).show();
         }));
 
         box.addView(videoOptSwitchRow("Background play ringan", "Video tidak dipaksa pause saat aplikasi masuk background jika WebView mendukung.", videoBackgroundPlay, v -> {
@@ -3103,7 +3246,7 @@ private void showDownloadSettingsPanel() {
         root.addView(top);
 
         TextView clearText = new TextView(this);
-        clearText.setText("Hapus data penjelajahan...");
+        clearText.setText("Kelola / hapus riwayat...");
         clearText.setTextColor(Color.parseColor("#F97352"));
         clearText.setTextSize(15);
         clearText.setTypeface(Typeface.DEFAULT_BOLD);
@@ -3112,8 +3255,8 @@ private void showDownloadSettingsPanel() {
         root.addView(clearText, clearParams);
         clearText.setOnClickListener(v -> {
             new AlertDialog.Builder(this)
-                    .setTitle("Hapus riwayat")
-                    .setMessage("Hapus semua riwayat browsing?")
+                    .setTitle("Kelola riwayat")
+                    .setMessage("Riwayat tidak dihapus otomatis. Hapus semua riwayat browsing?")
                     .setPositiveButton("Hapus", (d, w) -> {
                         historyData.clear();
                         saveBrowserHistory();
@@ -3819,35 +3962,52 @@ private void showDownloadSettingsPanel() {
         if (url == null || url.length() == 0 || url.startsWith("javascript:")) return;
         String cleanUrl = extractOriginalUrl(url);
         if (cleanUrl == null || cleanUrl.length() == 0) return;
+        if (!isHttpOrHttpsUrl(cleanUrl) || isLikelyAdClickUrl(cleanUrl) || isImageResourceUrl(cleanUrl)) return;
         for (int i = historyData.size() - 1; i >= 0; i--) {
             if (cleanUrl.equals(historyData.get(i).url)) {
                 historyData.remove(i);
             }
         }
         historyData.add(0, new HistoryItemData(title == null ? cleanUrl : title, cleanUrl, System.currentTimeMillis()));
-        while (historyData.size() > 100) historyData.remove(historyData.size() - 1);
+        while (historyData.size() > 500) historyData.remove(historyData.size() - 1);
         saveBrowserHistory();
     }
 
     private void loadBrowserHistory() {
-        historyData.clear();
         String saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_BROWSER_HISTORY, "");
-        if (saved == null || saved.length() == 0) return;
+        if (saved == null || saved.length() == 0) {
+            return;
+        }
+
+        ArrayList<HistoryItemData> loaded = new ArrayList<>();
         String[] rows = saved.split("\\n");
         for (String row : rows) {
             String[] parts = row.split("\\|", 3);
             if (parts.length == 3) {
                 try {
-                    historyData.add(new HistoryItemData(decode(parts[0]), decode(parts[1]), Long.parseLong(parts[2])));
+                    String title = decode(parts[0]);
+                    String url = decode(parts[1]);
+                    long time = Long.parseLong(parts[2]);
+                    if (isHttpOrHttpsUrl(url) && !isLikelyAdClickUrl(url) && !isImageResourceUrl(url)) {
+                        loaded.add(new HistoryItemData(title, url, time));
+                    }
                 } catch (Exception ignored) {
                 }
             }
+        }
+
+        if (!loaded.isEmpty()) {
+            historyData.clear();
+            historyData.addAll(loaded);
         }
     }
 
     private void saveBrowserHistory() {
         StringBuilder sb = new StringBuilder();
         for (HistoryItemData item : historyData) {
+            if (item == null || !isHttpOrHttpsUrl(item.url) || isLikelyAdClickUrl(item.url) || isImageResourceUrl(item.url)) {
+                continue;
+            }
             sb.append(encode(item.title)).append("|")
                     .append(encode(item.url)).append("|")
                     .append(item.time).append("\\n");
@@ -4304,6 +4464,8 @@ private void showDownloadSettingsPanel() {
         return row;
     }
 
+
+    // ===== Download manager UI =====
     private void showDownloadManager() {
         Dialog dialog = new Dialog(this);
         activeDownloadDialog = dialog;
@@ -4968,6 +5130,8 @@ private void showDownloadSettingsPanel() {
                 .show();
     }
 
+
+    // ===== Download queue manager =====
     private int countActiveDownloads() {
         int count = 0;
         synchronized (downloadItems) {
@@ -5010,7 +5174,7 @@ private void showDownloadSettingsPanel() {
         saveDownloadHistory();
         refreshDownloadPanel();
 
-        if (!downloadQueuePaused && countActiveDownloads() < Math.max(1, downloadMaxActive)) {
+        if (!downloadQueuePaused && countActiveDownloads() < Math.max(2, downloadMaxActive)) {
             startQueuedDownloadNow(item);
         } else {
             showDownloadNotification(item, "Masuk antrian", true);
@@ -5021,7 +5185,7 @@ private void showDownloadSettingsPanel() {
         if (item == null) return;
         try {
             if (!"queued".equals(item.status) && !"paused".equals(item.status) && !"running".equals(item.status)) return;
-            if (downloadQueueEnabled && "queued".equals(item.status) && countActiveDownloads() >= Math.max(1, downloadMaxActive)) return;
+            if (downloadQueueEnabled && "queued".equals(item.status) && countActiveDownloads() >= Math.max(2, downloadMaxActive)) return;
             File out = new File(item.path);
             item.status = "queued";
             item.pauseRequested = false;
@@ -5050,7 +5214,7 @@ private void showDownloadSettingsPanel() {
         }
 
         int safety = 0;
-        while (countActiveDownloads() < Math.max(1, downloadMaxActive) && safety < 8) {
+        while (countActiveDownloads() < Math.max(2, downloadMaxActive) && safety < 8) {
             DownloadItem next = findNextQueuedDownload();
             if (next == null) break;
             startQueuedDownloadNow(next);
@@ -5146,7 +5310,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private void pauseDownloadItem(DownloadItem item) {
-        if (item == null || (!"running".equals(item.status) && !"queued".equals(item.status))) return;
+        if (item == null || !"running".equals(item.status)) return;
         item.pauseRequested = true;
         item.status = "paused";
         item.speedBytesPerSecond = 0;
@@ -5426,6 +5590,8 @@ private void showDownloadSettingsPanel() {
     }
 
 
+
+    // ===== Download engine =====
     private void beginDownloadFromWeb(String url, String contentDisposition, String mimeType) {
         beginDownloadFromWeb(url, contentDisposition, mimeType, webView != null ? webView.getSettings().getUserAgentString() : "");
     }
@@ -7038,22 +7204,34 @@ private void showDownloadSettingsPanel() {
         if (!adBlock || url == null || url.trim().length() == 0) return false;
         if (isMediaResourceUrl(url) || isYoutubeCoreUrl(url)) return false;
 
+        String safeUrl = url.trim();
+
         if (!adBlockRedirectToTempTab) {
             scheduleCloseDetectedAdTabs();
             return true;
         }
 
-        String safeUrl = url.trim();
+        synchronized (tabs) {
+            for (TabInfo tab : tabs) {
+                if (tab != null && tab.adTab && safeUrl.equals(tab.url)) {
+                    updateTabsCountUi();
+                    return true;
+                }
+            }
+        }
+
         int protectedIndex = currentTabIndex;
-        TabInfo adTab = new TabInfo("Iklan diblokir", safeUrl, false, true);
+        TabInfo adTab = new TabInfo("Tab iklan", safeUrl, false, true);
         tabs.add(adTab);
         updateTabsCountUi();
 
-        Toast.makeText(this, "Iklan dialihkan ke tab sementara", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Direct link dibuka di tab baru", Toast.LENGTH_SHORT).show();
 
+        // Tetap tidak mengganggu tab utama. Jika auto-close aktif, tab iklan ditutup sedikit lebih lama
+        // agar tidak terasa seperti flicker.
         if (adBlockAutoCloseAdTabs) {
-            mainHandler.postDelayed(() -> closeAdTabSilently(adTab, protectedIndex), 1200);
-            mainHandler.postDelayed(this::closeDetectedAdTabs, 2200);
+            mainHandler.postDelayed(() -> closeAdTabSilently(adTab, protectedIndex), 4500);
+            mainHandler.postDelayed(this::closeDetectedAdTabs, 6500);
         }
         return true;
     }
@@ -7152,12 +7330,26 @@ private void showDownloadSettingsPanel() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String u = request.getUrl().toString();
+                String currentUrl = view != null ? view.getUrl() : "";
+
+                if (request.isForMainFrame() && isDirectImageMainFrameNavigation(u, currentUrl)) {
+                    restoreAfterBlockedNavigation(view, u, "Gambar/direct link dibuka di tab baru");
+                    return true;
+                }
+
+                if (request.isForMainFrame() && isExternalSchemeUrl(u)) {
+                    restoreAfterBlockedNavigation(view, u, "Iklan/direct link");
+                    return true;
+                }
+
                 if (safeMode && isUnsafeUrl(u)) {
                     Toast.makeText(MainActivity.this, "Diblokir Safe Browsing sederhana", Toast.LENGTH_SHORT).show();
                     return true;
                 }
-                if (adBlock && (adBlockRedirectBlocker || adBlockClickHijackBlocker) && request.isForMainFrame() && isSuspiciousPopupNavigation(u, view != null ? view.getUrl() : "")) {
-                    captureAdRedirectToTempTab(u, "Popup/redirect iklan");
+
+                if (adBlock && (adBlockRedirectBlocker || adBlockClickHijackBlocker) && request.isForMainFrame()
+                        && (isSuspiciousPopupNavigation(u, currentUrl) || isLikelyAdClickUrl(u))) {
+                    restoreAfterBlockedNavigation(view, u, "Iklan/direct link");
                     return true;
                 }
                 return false;
@@ -7173,13 +7365,41 @@ private void showDownloadSettingsPanel() {
             }
 
             @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                try {
+                    String failedUrl = request != null && request.getUrl() != null ? request.getUrl().toString() : "";
+                    int errorCode = Build.VERSION.SDK_INT >= 23 && error != null ? error.getErrorCode() : 0;
+                    String errorText = error != null && error.getDescription() != null
+                            ? String.valueOf(error.getDescription()).toLowerCase(Locale.US)
+                            : "";
+                    if (request != null && request.isForMainFrame()
+                            && (isExternalSchemeUrl(failedUrl)
+                            || errorCode == WebViewClient.ERROR_UNSUPPORTED_SCHEME
+                            || errorText.contains("unknown_url_scheme"))) {
+                        restoreAfterBlockedNavigation(view, failedUrl, "Iklan/direct link");
+                        return;
+                    }
+                } catch (Exception ignored) {
+                }
+                super.onReceivedError(view, request, error);
+            }
+
+            @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 try {
-                    if (adBlock && adBlockRedirectBlocker && isSuspiciousPopupNavigation(url, getEffectiveCurrentUrl())) {
-                        view.stopLoading();
-                        captureAdRedirectToTempTab(url, "Redirect iklan");
-                        if (view.canGoBack()) view.goBack();
+                    String currentUrl = getEffectiveCurrentUrl();
+                    if (isDirectImageMainFrameNavigation(url, currentUrl)) {
+                        restoreAfterBlockedNavigation(view, url, "Gambar/direct link dibuka di tab baru");
+                        return;
+                    }
+                    if (isExternalSchemeUrl(url)) {
+                        restoreAfterBlockedNavigation(view, url, "Link aplikasi/iklan diblokir");
+                        return;
+                    }
+                    if (adBlock && adBlockRedirectBlocker
+                            && (isSuspiciousPopupNavigation(url, currentUrl) || isLikelyAdClickUrl(url))) {
+                        restoreAfterBlockedNavigation(view, url, "Iklan/direct link");
                         return;
                     }
                 } catch (Exception ignored) {
@@ -7189,7 +7409,11 @@ private void showDownloadSettingsPanel() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 String shownUrl = extractOriginalUrl(url);
-                addressBar.setText(shownUrl != null ? shownUrl : url);
+                String finalUrl = shownUrl != null ? shownUrl : url;
+                if (isSafeMainFrameUrl(finalUrl)) {
+                    lastSafeHttpUrl = finalUrl;
+                }
+                addressBar.setText(finalUrl);
                 progressBar.setVisibility(View.GONE);
                 applyDesktopViewportIfNeeded();
                 mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 600);
@@ -7204,10 +7428,12 @@ private void showDownloadSettingsPanel() {
                 }
                 updateVideoControlsVisibility();
                 TabInfo currentTab = getCurrentTab();
-                currentTab.url = shownUrl != null ? shownUrl : url;
-                currentTab.title = view.getTitle() != null && view.getTitle().length() > 0 ? view.getTitle() : currentTab.url;
-                if (!currentTab.privateTab) {
-                    addBrowserHistory(view.getTitle(), shownUrl != null ? shownUrl : url);
+                if (isSafeMainFrameUrl(finalUrl)) {
+                    currentTab.url = finalUrl;
+                    currentTab.title = view.getTitle() != null && view.getTitle().length() > 0 ? view.getTitle() : currentTab.url;
+                    if (!currentTab.privateTab) {
+                        addBrowserHistory(view.getTitle(), finalUrl);
+                    }
                 }
                 videoControlsManualHidden = false;
                 injectVideoPlaybackWatcher();
@@ -7706,13 +7932,115 @@ private void showDownloadSettingsPanel() {
                 || u.contains("?ad_id=") || u.contains("/prebid") || u.contains("/vast") || u.contains("/vpaid");
     }
 
+    private boolean isHttpOrHttpsUrl(String url) {
+        if (url == null) return false;
+        String u = url.trim().toLowerCase(Locale.US);
+        return u.startsWith("http://") || u.startsWith("https://");
+    }
+
+    private boolean isSafeMainFrameUrl(String url) {
+        return isHttpOrHttpsUrl(url) && !isLikelyAdClickUrl(url) && !isSuspiciousPopupNavigation(url, lastSafeHttpUrl);
+    }
+
+    private boolean isExternalSchemeUrl(String url) {
+        if (url == null || url.trim().length() == 0) return false;
+        String u = url.trim().toLowerCase(Locale.US);
+        if (u.startsWith("http://") || u.startsWith("https://")) return false;
+        if (u.startsWith("about:") || u.startsWith("javascript:") || u.startsWith("data:")
+                || u.startsWith("blob:") || u.startsWith("file:")) return false;
+        return u.matches("^[a-z][a-z0-9+.-]*:.*");
+    }
+
+    private boolean isLikelyAdClickUrl(String url) {
+        if (url == null) return false;
+        String u = url.toLowerCase(Locale.US);
+        if (isMediaResourceUrl(u) || isYoutubeCoreUrl(u)) return false;
+        return isExternalSchemeUrl(u)
+                || u.contains("utm_medium=affiliates")
+                || u.contains("utm_source=an_")
+                || u.contains("affiliate")
+                || u.contains("aff_sub")
+                || u.contains("deep_and_deferred")
+                || u.contains("navigate_url=")
+                || u.contains("reactpath")
+                || u.contains("click_id")
+                || u.contains("adclick")
+                || u.contains("ad_click")
+                || u.contains("adurl=")
+                || u.contains("af_click")
+                || u.contains("tracking_id")
+                || u.contains("campaign_id")
+                || u.startsWith("shopeeid:")
+                || u.startsWith("lazada:")
+                || u.startsWith("tokopedia:")
+                || u.startsWith("intent:")
+                || u.startsWith("market:");
+    }
+
+    private void restoreAfterBlockedNavigation(WebView view, String blockedUrl, String reason) {
+        try {
+            String currentBefore = view != null ? view.getUrl() : "";
+            boolean navigationAlreadyChanged = blockedUrl != null
+                    && currentBefore != null
+                    && currentBefore.length() > 0
+                    && blockedUrl.equals(currentBefore);
+            boolean directImageNavigation = isDirectImageMainFrameNavigation(blockedUrl, currentBefore);
+
+            // Ad redirect dipisah ke tab baru, tab utama tidak di-reload agar gambar/komik yang sedang loading
+            // tidak terputus.
+            captureAdRedirectToTempTab(blockedUrl, reason);
+
+            if (view != null && (navigationAlreadyChanged || directImageNavigation || isExternalSchemeUrl(blockedUrl))) {
+                view.stopLoading();
+            }
+
+            if (lastSafeHttpUrl != null && lastSafeHttpUrl.length() > 0) {
+                addressBar.setText(lastSafeHttpUrl);
+            }
+
+            mainHandler.postDelayed(() -> {
+                try {
+                    if (webView == null) return;
+
+                    String current = webView.getUrl();
+                    boolean currentBad = current == null
+                            || current.length() == 0
+                            || isExternalSchemeUrl(current)
+                            || isLikelyAdClickUrl(current)
+                            || isDirectImageMainFrameNavigation(current, lastSafeHttpUrl)
+                            || (blockedUrl != null && blockedUrl.equals(current));
+
+                    // Hanya recover kalau tab utama sudah benar-benar berubah ke halaman iklan/error.
+                    // Kalau masih di halaman komik/asli, jangan reload dan jangan goBack.
+                    if (currentBad) {
+                        if (webView.canGoBack()) {
+                            webView.goBack();
+                        } else if (lastSafeHttpUrl != null && lastSafeHttpUrl.length() > 0) {
+                            webView.loadUrl(lastSafeHttpUrl);
+                        }
+                    }
+
+                    if (lastSafeHttpUrl != null && lastSafeHttpUrl.length() > 0) {
+                        addressBar.setText(lastSafeHttpUrl);
+                    }
+                } catch (Exception ignored) {
+                }
+            }, 120);
+        } catch (Exception ignored) {
+        }
+    }
+
     private boolean isSuspiciousPopupNavigation(String targetUrl, String currentUrl) {
         if (targetUrl == null || targetUrl.length() == 0) return false;
         String lower = targetUrl.toLowerCase(Locale.US);
-        if (lower.startsWith("about:") || lower.startsWith("javascript:") || lower.startsWith("data:")) return false;
-        if (lower.startsWith("mailto:") || lower.startsWith("tel:") || lower.startsWith("intent:")) return false;
+        if (lower.startsWith("about:") || lower.startsWith("javascript:")
+                || lower.startsWith("data:") || lower.startsWith("blob:")) {
+            return false;
+        }
+
         // Video playback tidak boleh diblokir oleh AdBlock.
         if (isMediaResourceUrl(lower) || isYoutubeCoreUrl(lower)) return false;
+        if (isExternalSchemeUrl(lower) || isLikelyAdClickUrl(lower)) return true;
 
         String targetHost = normalizeHostForAdBlock(targetUrl);
         String currentHost = normalizeHostForAdBlock(currentUrl);
@@ -7767,11 +8095,33 @@ private void showDownloadSettingsPanel() {
                 || u.contains("application/x-mpegurl");
     }
 
+    private boolean isImageResourceUrl(String url) {
+        if (url == null) return false;
+        String u = url.toLowerCase(Locale.US);
+        return u.contains(".jpg")
+                || u.contains(".jpeg")
+                || u.contains(".png")
+                || u.contains(".webp")
+                || u.contains(".gif")
+                || u.contains("image/jpeg")
+                || u.contains("image/png")
+                || u.contains("image/webp")
+                || u.contains("image/gif");
+    }
+
+    private boolean isDirectImageMainFrameNavigation(String targetUrl, String currentUrl) {
+        if (!isImageResourceUrl(targetUrl)) return false;
+        if (currentUrl == null || currentUrl.length() == 0) return false;
+        if (!isHttpOrHttpsUrl(currentUrl)) return false;
+        return !isImageResourceUrl(currentUrl);
+    }
+
     private boolean isAdUrl(String url) {
         if (!adBlock || url == null) return false;
         String u = url.toLowerCase(Locale.US);
 
         if (isMediaResourceUrl(u)) return false;
+        if (isYoutubeAdMetadataUrl(u)) return true;
         if (isYoutubeCoreUrl(u)) return false;
 
         String[] blocked = new String[]{
@@ -7833,6 +8183,22 @@ private void showDownloadSettingsPanel() {
         return isYoutubeAdUrl(u) || isPopUnderOrAdAsset(u);
     }
 
+    private boolean isYoutubeAdMetadataUrl(String u) {
+        if (u == null) return false;
+        String s = u.toLowerCase(Locale.US);
+        if (isMediaResourceUrl(s)) return false;
+        return s.contains("/api/stats/ads")
+                || s.contains("/pagead/")
+                || s.contains("pagead2.googlesyndication.com")
+                || s.contains("googleads.g.doubleclick.net")
+                || s.contains("tpc.googlesyndication.com")
+                || s.contains("adformat=")
+                || s.contains("adunit")
+                || s.contains("ad_break")
+                || s.contains("ptracking")
+                || s.contains("adview");
+    }
+
     private boolean isYoutubeAdUrl(String u) {
         // Jangan blokir endpoint internal YouTube/GoogleVideo karena bisa membuat video awal gagal load.
         // Iklan YouTube ditangani lewat cosmetic JS skip/hide yang lebih aman.
@@ -7855,10 +8221,20 @@ private void showDownloadSettingsPanel() {
                 || u.contains("onclick")
                 || u.contains("interstitial")
                 || u.contains("adclick")
+                || u.contains("ad_click")
+                || u.contains("adurl=")
+                || u.contains("utm_medium=affiliates")
+                || u.contains("deep_and_deferred")
+                || u.contains("navigate_url=")
+                || u.contains("reactpath")
+                || u.contains("click_id")
+                || u.contains("af_click")
                 || u.contains("vast")
                 || u.contains("vpaid");
     }
 
+
+    // ===== AdBlock / video ad handling =====
     private void injectPremiumAdBlock() {
         if (webView == null || !adBlock) return;
 
@@ -7871,24 +8247,25 @@ private void showDownloadSettingsPanel() {
                 + "var Y_POPUP=" + popupEnabled + ",Y_CLICK=" + clickEnabled + ",Y_SCRIPT=" + scriptEnabled + ";"
                 + "function hostOf(u){try{var a=document.createElement('a');a.href=u;return (a.hostname||'').replace(/^www\\./,'').toLowerCase();}catch(e){return '';}}"
                 + "function media(u){try{var s=(u||'').toLowerCase();return s.indexOf('googlevideo.com/videoplayback')>-1||s.indexOf('/videoplayback')>-1||s.indexOf('.mp4')>-1||s.indexOf('.m3u8')>-1||s.indexOf('.mpd')>-1||s.indexOf('.webm')>-1||s.indexOf('.m4s')>-1||s.indexOf('.ts')>-1||s.indexOf('mime=video')>-1||s.indexOf('mime%3dvideo')>-1;}catch(e){return false;}}"
-                + "function safeVideoHost(h){return h.indexOf('youtube.com')>-1||h.indexOf('youtu.be')>-1||h.indexOf('googlevideo.com')>-1||h.indexOf('ytimg.com')>-1;}"
-                + "function bad(u){try{if(!u||media(u))return false;var h=hostOf(u);var s=(u||'').toLowerCase();var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||h===cur||h.endsWith('.'+cur))return false;if(safeVideoHost(h))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|realsrv|doubleclick|googlesyndication|googleadservices)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;if(/\\.(shop|xyz|top|site|space|online|live|fun|lol)$/.test(h)&&/[\\/][a-z0-9_-]{8,}/.test(s))return true;if(/(popunder|popup|redirect|adclick|clickunder|interstitial|push)/.test(s))return true;return false;}catch(e){return false;}}"
-                + "if(Y_POPUP&&!window.__yieldOpenPatched){window.__yieldOpenPatched=true;var oldOpen=window.open;window.open=function(u,n,f){if(bad(u)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(u));}catch(e){}console.log('Yield isolated popup',u);return {closed:true,focus:function(){},close:function(){}};}try{return oldOpen.call(window,u,n,f);}catch(e){return {closed:true,focus:function(){},close:function(){}};}};}"
+                + "function safeVideoHost(h){return h.indexOf('youtube.com')>-1||h.indexOf('youtu.be')>-1||h.indexOf('googlevideo.com')>-1||h.indexOf('ytimg.com')>-1||h.indexOf('ggpht.com')>-1;}"
+                + "function bad(u){try{if(!u||media(u))return false;var s=(u||'').toLowerCase();if(/^[a-z][a-z0-9+.-]*:/.test(s)&&s.indexOf('http://')!==0&&s.indexOf('https://')!==0&&s.indexOf('javascript:')!==0&&s.indexOf('data:')!==0&&s.indexOf('blob:')!==0)return true;if(/(utm_medium=affiliates|deep_and_deferred|navigate_url=|reactpath|click_id|adclick|ad_click|adurl=|af_click|tracking_id|campaign_id)/.test(s))return true;var h=hostOf(u);var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||h===cur||h.endsWith('.'+cur))return false;if(safeVideoHost(h))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|realsrv|doubleclick|googlesyndication|googleadservices)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;if(/\\.(shop|xyz|top|site|space|online|live|fun|lol)$/.test(h)&&/[\\/][a-z0-9_-]{8,}/.test(s))return true;if(/(popunder|popup|redirect|adclick|clickunder|interstitial|push)/.test(s))return true;return false;}catch(e){return false;}}"
+                + "if(Y_POPUP&&!window.__yieldOpenPatched){window.__yieldOpenPatched=true;var oldOpen=window.open;window.open=function(u,n,f){if(bad(u)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(u));}catch(e){}return {closed:true,focus:function(){},close:function(){}};}try{return oldOpen.call(window,u,n,f);}catch(e){return {closed:true,focus:function(){},close:function(){}};}};}"
                 + "if(Y_CLICK&&!window.__yieldClickPatched){window.__yieldClickPatched=true;document.addEventListener('click',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);document.addEventListener('auxclick',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);}"
-                + "function softHide(s){try{document.querySelectorAll(s).forEach(function(e){e.style.setProperty('display','none','important');});}catch(x){}}"
-                + "function hardHide(s){try{document.querySelectorAll(s).forEach(function(e){e.style.setProperty('display','none','important');if(e.tagName!=='VIDEO')e.remove&&e.remove();});}catch(x){}}"
+                + "function softHide(s){try{document.querySelectorAll(s).forEach(function(e){if(!e||e.tagName==='VIDEO')return;e.style.setProperty('display','none','important');e.style.setProperty('visibility','hidden','important');e.style.setProperty('height','0px','important');e.style.setProperty('min-height','0px','important');e.style.setProperty('overflow','hidden','important');});}catch(x){}}"
+                + "function hardHide(s){try{document.querySelectorAll(s).forEach(function(e){if(!e||e.tagName==='VIDEO')return;e.style.setProperty('display','none','important');e.remove&&e.remove();});}catch(x){}}"
                 + "function clickSkip(){try{document.querySelectorAll('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button,button[class*=skip],button[id*=skip],.skip,.skip-ad,.skip-button,.vjs-skip-button,.jw-skip,.jw-skiptext,.jw-skip-icon').forEach(function(b){try{var t=(b.innerText||b.textContent||'').toLowerCase();if(t.indexOf('skip')>-1||t.indexOf('lewati')>-1||t.length<25||String(b.className).toLowerCase().indexOf('skip')>-1)b.click();}catch(e){}});}catch(e){}}"
                 + "function isYT(){var h=(location.hostname||'').toLowerCase();return h.indexOf('youtube.com')>-1||h.indexOf('youtu.be')>-1;}"
-                + "function isYouTubeAd(){try{var p=document.querySelector('.html5-video-player');return !!(p&&String(p.className).indexOf('ad-showing')>-1)||!!document.querySelector('.ytp-ad-skip-button,.ytp-ad-text,.ytp-ad-preview-container,.ytp-ad-image-overlay,.ytp-ad-player-overlay');}catch(e){return false;}}"
+                + "function isYouTubeAd(){try{var p=document.querySelector('.html5-video-player');var cls=p?String(p.className):'';return cls.indexOf('ad-showing')>-1||cls.indexOf('ad-interrupting')>-1||!!document.querySelector('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-ad-text,.ytp-ad-image-overlay,.ytp-ad-player-overlay');}catch(e){return false;}}"
                 + "function isGenericVideoAd(){try{var s=(document.body&&document.body.innerText||'').toLowerCase();var text=/(advertisement|sponsored|iklan|ads? will end|ad will end|skip ad|lewati iklan|continue to video)/.test(s);var el=!!document.querySelector('.vast,.vpaid,.ima-ad-container,.ima-ad,.googleima,.ad-container,.ad-overlay,.video-ads,.preroll,.pre-roll,.midroll,.mid-roll,.jw-ad,.jw-flag-ads,.jw-ad-visible,.vjs-ad-playing,.vjs-ima3-ad-container,.vjs-ad-container,.plyr__ads,.ad-player,.ad-wrapper,[class*=vast],[class*=vpaid],[class*=preroll],[class*=midroll],[id*=preroll],[id*=midroll]');return text||el;}catch(e){return false;}}"
-                + "function safeSpeedAd(v,fast){try{if(!v)return;if(!v.__yieldAdSaved){v.__yieldWasMuted=v.muted;v.__yieldWasRate=v.playbackRate||1;v.__yieldAdSaved=true;}v.muted=true;v.playbackRate=fast;v.play&&v.play().catch(function(){});if(isFinite(v.duration)&&v.duration>1&&v.duration<240){var target=Math.max(v.currentTime+10,v.duration-0.35);v.currentTime=Math.min(v.duration-0.2,target);}}catch(e){}}"
-                + "function restoreVideo(v){try{if(v&&v.__yieldAdSaved){v.muted=!!v.__yieldWasMuted;v.playbackRate=v.__yieldWasRate||1;v.__yieldAdSaved=false;}}catch(e){}}"
-                + "function bypassVideoAds(){try{clickSkip();var yt=isYT()&&isYouTubeAd();var gen=!yt&&isGenericVideoAd();var v=document.querySelector('video');if(yt){safeSpeedAd(v,16);softHide('.ytp-ad-overlay-container,.ytp-ad-text,.ytp-ad-image-overlay,.ytp-ad-preview-container,.ytp-ad-progress-list');return;}if(gen){safeSpeedAd(v,8);hardHide('.ima-ad-container,.ima-ad,.googleima,.ad-overlay,.video-ads,.preroll,.pre-roll,.midroll,.mid-roll,.jw-ad,.jw-ad-visible,.vjs-ima3-ad-container,.vjs-ad-container,.plyr__ads,.ad-player,.ad-wrapper,[class*=vast],[class*=vpaid]');return;}restoreVideo(v);}catch(e){}}"
+                + "function safeSpeedAd(v,fast){try{if(!v)return;if(!v.__yieldAdSaved){v.__yieldWasMuted=v.muted;v.__yieldWasRate=v.playbackRate||1;v.__yieldAdSaved=true;}v.muted=true;try{v.defaultMuted=true;}catch(e){}v.playbackRate=fast;try{v.defaultPlaybackRate=fast;}catch(e){}v.play&&v.play().catch(function(){});if(isFinite(v.duration)&&v.duration>1&&v.duration<240){var cur=isFinite(v.currentTime)?v.currentTime:0;var next=Math.min(v.duration-0.25,cur+8);if(next>cur){v.currentTime=next;try{v.dispatchEvent(new Event('seeking'));v.dispatchEvent(new Event('timeupdate'));}catch(e){}}}}catch(e){}}"
+                + "function restoreVideo(v){try{if(v&&v.__yieldAdSaved){v.muted=!!v.__yieldWasMuted;try{v.defaultMuted=!!v.__yieldWasMuted;}catch(e){}v.playbackRate=v.__yieldWasRate||1;try{v.defaultPlaybackRate=v.__yieldWasRate||1;}catch(e){}v.__yieldAdSaved=false;}}catch(e){}}"
+                + "function hideYouTubeSponsorBlocks(){try{var sels=['ytm-promoted-sparkles-web-renderer','ytm-promoted-video-renderer','ytm-promoted-sparkles-video-renderer','ytm-promoted-sparkles-text-search-renderer','ytm-ad-slot-renderer','ytm-companion-slot-renderer','ytm-in-feed-ad-layout-renderer','ytm-display-ad-renderer','ytm-compact-promoted-item-renderer','ytm-action-companion-ad-renderer','ytd-display-ad-renderer','ytd-promoted-video-renderer','ytd-ad-slot-renderer','ytd-companion-slot-renderer','ytd-in-feed-ad-layout-renderer','ytd-action-companion-ad-renderer','ytd-player-legacy-desktop-watch-ads-renderer','#player-ads','#panels ytd-ads-engagement-panel-content-renderer','[class*=promoted-sparkles]','[class*=ad-slot-renderer]','[class*=companion-slot]'];sels.forEach(function(s){softHide(s);});var words=/(bersponsor|sponsored|iklan|buy now|shop now|learn more|pelajari)/i;document.querySelectorAll('span,div,a,yt-formatted-string').forEach(function(e){try{var t=(e.innerText||e.textContent||'').trim();if(!t||t.length>180||!words.test(t))return;var p=e;for(var i=0;i<8&&p&&p!==document.body;i++){var tag=(p.tagName||'').toLowerCase();var cn=String(p.className||'').toLowerCase();if(tag.indexOf('ytm-')===0||tag.indexOf('ytd-')===0||cn.indexOf('ad')>-1||cn.indexOf('promoted')>-1||p.id==='player-ads'){if(tag==='video'||p.querySelector('video'))break;p.style.setProperty('display','none','important');p.style.setProperty('height','0px','important');p.style.setProperty('overflow','hidden','important');break;}p=p.parentElement;}}catch(x){}});}catch(e){}}"
+                + "function bypassVideoAds(){try{clickSkip();var yt=isYT()&&isYouTubeAd();var gen=!yt&&isGenericVideoAd();var v=document.querySelector('video');if(yt){safeSpeedAd(v,16);softHide('.ytp-ad-overlay-container,.ytp-ad-text,.ytp-ad-image-overlay,.ytp-ad-progress-list');return;}if(gen){safeSpeedAd(v,8);hardHide('.ima-ad-container,.ima-ad,.googleima,.ad-overlay,.video-ads,.preroll,.pre-roll,.midroll,.mid-roll,.jw-ad,.jw-ad-visible,.vjs-ima3-ad-container,.vjs-ad-container,.plyr__ads,.ad-player,.ad-wrapper,[class*=vast],[class*=vpaid]');return;}restoreVideo(v);}catch(e){}}"
                 + "function clean(){"
-                + "var yt=isYT();bypassVideoAds();"
+                + "var yt=isYT();bypassVideoAds();if(yt)hideYouTubeSponsorBlocks();"
                 + "try{if(Y_CLICK)document.querySelectorAll('a[target=_blank],a[target=\\\"_blank\\\"]').forEach(function(a){if(bad(a.href)){a.removeAttribute('target');a.setAttribute('rel','noopener noreferrer');}});}catch(e){}"
                 + "var selectors=yt?["
-                + "'ytd-display-ad-renderer','ytd-promoted-video-renderer','ytd-ad-slot-renderer','ytd-companion-slot-renderer','ytd-banner-promo-renderer','ytd-in-feed-ad-layout-renderer','ytd-promoted-sparkles-web-renderer','.ytp-ad-overlay-container','.ytp-ad-text','.ytp-ad-image-overlay','.ytp-ad-preview-container','.ytp-ad-progress-list','.GoogleActiveViewElement'"
+                + "'ytd-display-ad-renderer','ytd-promoted-video-renderer','ytd-ad-slot-renderer','ytd-companion-slot-renderer','ytd-banner-promo-renderer','ytd-in-feed-ad-layout-renderer','ytd-promoted-sparkles-web-renderer','ytm-promoted-sparkles-web-renderer','ytm-promoted-video-renderer','ytm-ad-slot-renderer','ytm-companion-slot-renderer','ytm-in-feed-ad-layout-renderer','ytm-display-ad-renderer','#player-ads','.ytp-ad-overlay-container','.ytp-ad-text','.ytp-ad-image-overlay','.ytp-ad-progress-list','.GoogleActiveViewElement'"
                 + "]:["
                 + "'.adsbygoogle','iframe[id*=ad]','iframe[src*=ads]','iframe[src*=doubleclick]','iframe[src*=onclickads]','iframe[src*=clickadu]','iframe[src*=popads]','iframe[src*=propellerads]','[id*=ad-]','[id^=ad_]','[class*=ad-]','[class*=ads-]','[class*=advert]','.GoogleActiveViewElement','.ad-banner','.ad-container','.advertisement','.sponsored','.ima-ad-container','.ima-ad','.googleima','.ad-overlay','.video-ads','.preroll','.pre-roll','.midroll','.mid-roll','.vjs-ima3-ad-container','.vjs-ad-container','.plyr__ads'"
                 + "];"
@@ -7896,7 +8273,7 @@ private void showDownloadSettingsPanel() {
                 + "try{if(Y_SCRIPT)document.querySelectorAll('iframe[src],script[src]').forEach(function(el){var u=el.src||'';if(bad(u)){el.remove();}});}catch(e){}"
                 + "try{document.body.style.setProperty('overflow','auto','important');}catch(e){}"
                 + "}"
-                + "clean();setInterval(clean,250);setTimeout(clean,100);setTimeout(clean,650);setTimeout(clean,1500);"
+                + "clean();setInterval(clean,200);setTimeout(clean,80);setTimeout(clean,300);setTimeout(clean,700);setTimeout(clean,1500);setTimeout(clean,3000);"
                 + "})();";
         webView.loadUrl(js);
     }
@@ -8293,7 +8670,14 @@ private void showDownloadSettingsPanel() {
         videoControlsEnabled = p.getBoolean("videoControlsEnabled", true);
         videoBufferBooster = p.getBoolean("videoBufferBooster", true);
         hlsSegmentPrefetch = p.getBoolean("hlsSegmentPrefetch", true);
-        videoFloatingPlayer = p.getBoolean("videoFloatingPlayer", true);
+        videoFloatingPlayer = p.getBoolean("videoFloatingPlayer", false);
+        if (!p.getBoolean("disableAutoPipOnMinimizeV0910", false)) {
+            videoFloatingPlayer = false;
+            p.edit()
+                    .putBoolean("videoFloatingPlayer", false)
+                    .putBoolean("disableAutoPipOnMinimizeV0910", true)
+                    .apply();
+        }
         videoBackgroundPlay = p.getBoolean("videoBackgroundPlay", true);
         shortcutVideoControls = p.getBoolean("shortcutVideoControls", false);
         videoSpeed = p.getFloat("videoSpeed", 1.0f);
@@ -8305,7 +8689,7 @@ private void showDownloadSettingsPanel() {
         downloadHlsEnabled = p.getBoolean("downloadHlsEnabled", true);
         downloadSpeedLimitKBps = p.getInt("downloadSpeedLimitKBps", 0);
         downloadQueueEnabled = p.getBoolean("downloadQueueEnabled", true);
-        downloadMaxActive = Math.max(1, Math.min(4, p.getInt("downloadMaxActive", 2)));
+        downloadMaxActive = Math.max(2, Math.min(4, p.getInt("downloadMaxActive", 2)));
         topIconReload = p.getBoolean("topIconReload", true);
         topIconBookmark = p.getBoolean("topIconBookmark", true);
         topIconTranslate = p.getBoolean("topIconTranslate", true);
@@ -8380,6 +8764,7 @@ private void showDownloadSettingsPanel() {
                 .putBoolean("videoBufferBooster", videoBufferBooster)
                 .putBoolean("hlsSegmentPrefetch", hlsSegmentPrefetch)
                 .putBoolean("videoFloatingPlayer", videoFloatingPlayer)
+                .putBoolean("disableAutoPipOnMinimizeV0910", true)
                 .putBoolean("videoBackgroundPlay", videoBackgroundPlay)
                 .putBoolean("shortcutVideoControls", shortcutVideoControls)
                 .putFloat("videoSpeed", videoSpeed)
@@ -8425,18 +8810,16 @@ private void showDownloadSettingsPanel() {
 
     @Override
     protected void onUserLeaveHint() {
-        super.onUserLeaveHint();
-        if (!videoFloatingPlayer || webView == null || webView.getVisibility() != View.VISIBLE) return;
+        // Android Home/Recent harus minimize normal, bukan masuk Picture-in-Picture/floating window.
+        // State halaman terakhir tetap disimpan agar saat dibuka lagi kembali ke posisi terakhir.
         try {
-            if (Build.VERSION.SDK_INT >= 26) {
-                PictureInPictureParams params = new PictureInPictureParams.Builder()
-                        .setAspectRatio(new Rational(16, 9))
-                        .build();
-                // PiP hanya dicoba ringan. Kalau halaman/player tidak mendukung, Android akan abaikan/throw.
-                enterPictureInPictureMode(params);
+            saveCurrentTabState();
+            if (webView != null && webView.getUrl() != null && isHttpOrHttpsUrl(webView.getUrl())) {
+                lastSafeHttpUrl = webView.getUrl();
             }
         } catch (Exception ignored) {
         }
+        super.onUserLeaveHint();
     }
 
     @Override
@@ -8474,6 +8857,8 @@ private void showDownloadSettingsPanel() {
         else super.onBackPressed();
     }
 
+
+    // ===== Small UI helpers =====
     private View space(int height) {
         View v = new View(this);
         v.setLayoutParams(new LinearLayout.LayoutParams(-1, height));
