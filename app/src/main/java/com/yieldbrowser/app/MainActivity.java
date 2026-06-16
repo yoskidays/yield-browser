@@ -1410,7 +1410,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.13";
+        return "0.9.14";
     }
 
     private void showAboutYieldDialog() {
@@ -4925,8 +4925,10 @@ private void showDownloadSettingsPanel() {
             action.setOnClickListener(v -> {
                 if ("running".equals(item.status)) pauseDownloadItem(item);
                 else if ("paused".equals(item.status)) resumeDownloadItem(item);
-                else if ("queued".equals(item.status)) prioritizeQueuedDownload(item, true);
-                else reloadDownloadItem(item);
+                else if ("queued".equals(item.status)) {
+                    if (!downloadQueuePaused && countActiveDownloads() < Math.max(2, downloadMaxActive)) startQueuedDownloadNow(item);
+                    else prioritizeQueuedDownload(item, true);
+                } else reloadDownloadItem(item);
             });
             LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(dp(38), dp(38));
             actionParams.setMargins(0, 0, dp(4), 0);
@@ -5163,6 +5165,7 @@ private void showDownloadSettingsPanel() {
 
     private void enqueueOrStartDownload(DownloadItem item, File out) {
         if (item == null || out == null) return;
+        if ("running".equals(item.status)) return;
         if (!downloadQueueEnabled) {
             startQueuedDownloadNow(item);
             return;
@@ -5184,19 +5187,24 @@ private void showDownloadSettingsPanel() {
     private void startQueuedDownloadNow(DownloadItem item) {
         if (item == null) return;
         try {
-            if (!"queued".equals(item.status) && !"paused".equals(item.status) && !"running".equals(item.status)) return;
+            // Jangan start ulang item yang sudah running. Ini mencegah dobel thread/crash
+            // saat tombol play diklik berkali-kali.
+            if ("running".equals(item.status)) return;
+            if (!"queued".equals(item.status) && !"paused".equals(item.status)) return;
             if (downloadQueueEnabled && "queued".equals(item.status) && countActiveDownloads() >= Math.max(2, downloadMaxActive)) return;
+
             File out = new File(item.path);
-            item.status = "queued";
+            item.status = "running";
             item.pauseRequested = false;
             item.speedBytesPerSecond = 0;
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = item.downloadedBytes;
             item.engineInfo = item.downloadedBytes > 0 ? "Melanjutkan koneksi" : "Mengecek koneksi";
+
             saveDownloadHistory();
             refreshDownloadPanel();
             showDownloadNotification(item, item.downloadedBytes > 0 ? "Melanjutkan unduhan" : "Mulai mengunduh", true);
-            enqueueOrStartDownload(item, out);
+            startTwoConnectionDownload(item, out);
         } catch (Exception e) {
             failDownload(item, e.getMessage());
         }
@@ -5325,17 +5333,27 @@ private void showDownloadSettingsPanel() {
     private void resumeDownloadItem(DownloadItem item) {
         if (item == null || !"paused".equals(item.status)) return;
         try {
-            item.status = "queued";
             item.pauseRequested = false;
             item.speedBytesPerSecond = 0;
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = item.downloadedBytes;
-            item.engineInfo = "Antri • lanjut otomatis";
-            saveDownloadHistory();
-            refreshDownloadPanel();
-            showDownloadNotification(item, "Masuk antrian", true);
-            Toast.makeText(this, "Unduhan masuk antrian dan lanjut otomatis", Toast.LENGTH_SHORT).show();
-            pumpDownloadQueue();
+            downloadQueuePaused = false;
+
+            boolean slotAvailable = !downloadQueueEnabled || countActiveDownloads() < Math.max(2, downloadMaxActive);
+            if (slotAvailable) {
+                item.engineInfo = "Melanjutkan koneksi";
+                saveDownloadHistory();
+                refreshDownloadPanel();
+                Toast.makeText(this, "Melanjutkan unduhan", Toast.LENGTH_SHORT).show();
+                startQueuedDownloadNow(item);
+            } else {
+                item.status = "queued";
+                item.engineInfo = "Antri • menunggu slot";
+                saveDownloadHistory();
+                refreshDownloadPanel();
+                showDownloadNotification(item, "Masuk antrian", true);
+                Toast.makeText(this, "Slot penuh, unduhan masuk antrian", Toast.LENGTH_SHORT).show();
+            }
         } catch (Exception e) {
             failDownload(item, e.getMessage());
         }
@@ -5345,7 +5363,7 @@ private void showDownloadSettingsPanel() {
         if (item == null) return;
         try {
             item.pauseRequested = false;
-            item.status = "running";
+            item.status = "queued";
             item.progress = 0;
             item.downloadedBytes = 0;
             item.totalBytes = 0;
@@ -5644,7 +5662,7 @@ private void showDownloadSettingsPanel() {
                 }
             }, 250);
 
-            startTwoConnectionDownload(item, out);
+            enqueueOrStartDownload(item, out);
         } catch (Exception e) {
             Toast.makeText(this, "Gagal memulai unduhan: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
@@ -6724,7 +6742,7 @@ private void showDownloadSettingsPanel() {
                         if (parts.length >= 20) item.publicUri = decode(parts[19]);
                         if (parts.length >= 21) try { item.retryCount = Integer.parseInt(parts[20]); } catch (Exception ignored) {}
                         if (parts.length >= 22) item.hlsDownload = Boolean.parseBoolean(parts[21]);
-                        if ("running".equals(item.status)) {
+                        if ("running".equals(item.status) || "queued".equals(item.status)) {
                             item.status = "paused";
                             item.speedBytesPerSecond = 0;
                             item.engineInfo = "Dijeda";

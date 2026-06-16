@@ -559,3 +559,12 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - direct image/ad click tidak masuk histori.
   - batas histori dinaikkan sampai 500 item.
   - hapus histori tetap manual lewat menu “Kelola / hapus riwayat...” atau tombol `×` per item.
+
+
+## v0.9.14
+- Perbaikan bug Download Queue saat pause/resume satu file:
+  - file tunggal yang dijeda sekarang langsung lanjut saat ditekan Play, tidak cuma “masuk antrian”.
+  - `startQueuedDownloadNow()` tidak lagi memanggil `enqueueOrStartDownload()` berulang, sehingga mencegah recursive loop/crash.
+  - item yang sudah running tidak bisa di-start ulang oleh klik Play berkali-kali.
+  - file queued langsung jalan jika slot download masih tersedia.
+  - status running/queued dari sesi lama dipulihkan sebagai paused agar tidak auto-start kacau setelah app dibuka ulang.
