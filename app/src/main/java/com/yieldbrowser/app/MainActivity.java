@@ -271,6 +271,16 @@ public class MainActivity extends Activity {
     private boolean pendingHideKeyboardAfterNavigation = false;
     private boolean historyClearLock = false;
 
+    // v0.9.41: guard untuk situs yang memaksa reload berulang.
+    // Guard ini mencegah Yield ikut menambah DOM injection/recover navigation berulang
+    // pada situs berat iklan/anti-adblock, misalnya lordborg.com.
+    private String reloadLoopLastKey = "";
+    private long reloadLoopWindowStartMs = 0L;
+    private int reloadLoopCount = 0;
+    private String reloadLoopGuardHost = "";
+    private long reloadLoopGuardUntilMs = 0L;
+    private long reloadLoopToastLastMs = 0L;
+
 
     // ===== Data models =====
     private static class DownloadItem {
@@ -2768,7 +2778,7 @@ private void showDownloadSettingsPanel() {
             return;
         }
         String js = "javascript:(function(){var v=document.querySelector('video');if(v){try{v.currentTime=Math.max(0,Math.min((v.duration||999999),v.currentTime+" + seconds + "));}catch(e){} }})()";
-        webView.loadUrl(js);
+        runPageScript(js);
         Toast.makeText(this, (seconds > 0 ? "Maju " : "Mundur ") + Math.abs(seconds) + " detik", Toast.LENGTH_SHORT).show();
     }
 
@@ -3346,7 +3356,7 @@ private void showDownloadSettingsPanel() {
                 + "try{new MutationObserver(scan).observe(document.documentElement,{childList:true,subtree:true});}catch(e){}"
                 + "})()";
         try {
-            webView.loadUrl(js);
+            runPageScript(js);
         } catch (Exception ignored) {}
     }
 
@@ -3369,7 +3379,7 @@ private void showDownloadSettingsPanel() {
         } else {
             js = "javascript:(function(){var v=document.querySelector('video');if(v){v.pause();try{v.currentTime=0;}catch(e){}'stop';}else{'no_video';}})()";
         }
-        webView.loadUrl(js);
+        runPageScript(js);
     }
 
     private void cycleVideoSpeed() {
@@ -7880,11 +7890,15 @@ private void showDownloadSettingsPanel() {
 
     private void reloadCurrentWebsite() {
         try {
-            if (webView != null && webView.getVisibility() == View.VISIBLE) {
-                webView.reload();
-                Toast.makeText(this, "Website dimuat ulang", Toast.LENGTH_SHORT).show();
+            String url = getSafeReloadUrlForModeChange();
+            if (url == null || url.trim().length() == 0) url = getEffectiveCurrentUrl();
+
+            if (webView != null && webView.getVisibility() == View.VISIBLE && url != null && url.length() > 0) {
+                // v0.9.40: reload di browser mode harus hard reload, bukan webView.reload().
+                // webView.reload() sering memakai document/UA lama, jadi Desktop ON/OFF tidak langsung berubah.
+                hardReloadUrlWithCurrentBrowserMode(url, true);
+                Toast.makeText(this, desktopMode ? "Reload desktop mode" : "Reload mobile mode", Toast.LENGTH_SHORT).show();
             } else {
-                String url = getEffectiveCurrentUrl();
                 if (url != null && url.length() > 0) {
                     addressBar.setText(url);
                     openAddressBarUrl();
@@ -8033,6 +8047,7 @@ private void showDownloadSettingsPanel() {
             if (oldWebView != null) {
                 try { oldWebView.stopLoading(); } catch (Exception ignored) {}
                 try { oldWebView.loadUrl("about:blank"); } catch (Exception ignored) {}
+                try { oldWebView.clearHistory(); } catch (Exception ignored) {}
                 try { contentFrame.removeView(oldWebView); } catch (Exception ignored) {}
                 try { oldWebView.destroy(); } catch (Exception ignored) {}
             }
@@ -8056,8 +8071,22 @@ private void showDownloadSettingsPanel() {
         if (targetUrl != null && targetUrl.trim().length() > 0) {
             mainHandler.postDelayed(() -> {
                 if (token != browserModeToken) return;
+                applyBrowserSettings();
                 loadBrowserUrl(targetUrl);
-            }, 80);
+            }, 180);
+        }
+    }
+
+    private void hardReloadUrlWithCurrentBrowserMode(String targetUrl, boolean showWebPage) {
+        if (targetUrl == null || targetUrl.trim().length() == 0) return;
+        try {
+            if (addressBar != null) addressBar.setText(targetUrl);
+            recreateBrowserWebViewForMode(targetUrl, showWebPage);
+        } catch (Exception e) {
+            try {
+                applyBrowserSettings();
+                loadBrowserUrl(targetUrl);
+            } catch (Exception ignored) {}
         }
     }
 
@@ -8067,6 +8096,11 @@ private void showDownloadSettingsPanel() {
         webView.addJavascriptInterface(new VideoBridge(), "YieldVideoBridge");
         webView.addJavascriptInterface(new AdBlockBridge(), "YieldAdBlockBridge");
         webView.addJavascriptInterface(new TranslateBridge(), "YieldTranslateBridge");
+        try {
+            CookieManager cm = CookieManager.getInstance();
+            cm.setAcceptCookie(true);
+            if (Build.VERSION.SDK_INT >= 21) cm.setAcceptThirdPartyCookies(webView, true);
+        } catch (Exception ignored) {}
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             beginDownloadFromWeb(url, contentDisposition, mimeType, userAgent);
         });
@@ -8136,9 +8170,17 @@ private void showDownloadSettingsPanel() {
 
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                if (!desktopMode) {
-                    applyBrowserSettings();
-                    mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 250);
+                boolean reloadLoopGuarded = registerNavigationLoopGuard(url);
+                applyBrowserSettings();
+                if (!reloadLoopGuarded) {
+                    if (desktopMode) {
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 250);
+                    } else {
+                        mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 250);
+                    }
+                } else {
+                    try { if (view != null) view.stopLoading(); } catch (Exception ignored) {}
+                    try { if (progressBar != null) progressBar.setVisibility(View.GONE); } catch (Exception ignored) {}
                 }
                 super.onPageStarted(view, url, favicon);
                 if (pendingHideKeyboardAfterNavigation) {
@@ -8179,16 +8221,24 @@ private void showDownloadSettingsPanel() {
                 }
                 addressBar.setText(finalUrl);
                 progressBar.setVisibility(View.GONE);
-                applyViewportForCurrentMode();
-                mainHandler.postDelayed(() -> applyViewportForCurrentMode(), 600);
-                mainHandler.postDelayed(() -> applyViewportForCurrentMode(), 1800);
-                if (readerMode) injectReaderMode();
-                if (adBlock) {
-                    injectPremiumAdBlock();
-                    mainHandler.postDelayed(() -> injectPremiumAdBlock(), 1800);
-                    mainHandler.postDelayed(() -> injectPremiumAdBlock(), 5200);
+                boolean pageReloadGuarded = isReloadLoopGuardActiveForUrl(finalUrl);
+                if (!pageReloadGuarded) {
+                    applyViewportForCurrentMode();
+                    mainHandler.postDelayed(() -> applyViewportForCurrentMode(), 600);
+                    mainHandler.postDelayed(() -> applyViewportForCurrentMode(), 1800);
+                    if (desktopMode) {
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 350);
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1200);
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 2600);
+                    }
+                    if (readerMode) injectReaderMode();
+                    if (adBlock) {
+                        injectPremiumAdBlock();
+                        mainHandler.postDelayed(() -> injectPremiumAdBlock(), 1800);
+                        mainHandler.postDelayed(() -> injectPremiumAdBlock(), 5200);
+                    }
+                    updateVideoControlsVisibility();
                 }
-                updateVideoControlsVisibility();
                 TabInfo currentTab = getCurrentTab();
                 if (shouldRecordHistoryUrl(finalUrl) && !currentTab.privateTab) {
                     addBrowserHistory(view.getTitle(), finalUrl);
@@ -8198,18 +8248,20 @@ private void showDownloadSettingsPanel() {
                     currentTab.title = view.getTitle() != null && view.getTitle().length() > 0 ? view.getTitle() : currentTab.url;
                     // Histori sudah dicatat di atas agar tersimpan lebih cepat.
                 }
-                videoControlsManualHidden = false;
-                injectVideoPlaybackWatcher();
-                applyNightModeToWebPage();
-                detectTranslateProxyBlocked(url);
-                if (hideGoogleTranslateBar && isGoogleTranslatedUrl(url)) {
+                if (!pageReloadGuarded) {
+                    videoControlsManualHidden = false;
+                    injectVideoPlaybackWatcher();
+                    applyNightModeToWebPage();
+                    detectTranslateProxyBlocked(url);
+                }
+                if (!pageReloadGuarded && hideGoogleTranslateBar && isGoogleTranslatedUrl(url)) {
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 250);
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 800);
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 1800);
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 3500);
                     mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 6000);
                 }
-                if (translateEnabled && compatibleTranslateActive && !translateManuallyDisabled && !isGoogleTranslatedUrl(url)) {
+                if (!pageReloadGuarded && translateEnabled && compatibleTranslateActive && !translateManuallyDisabled && !isGoogleTranslatedUrl(url)) {
                     final int token = translateSessionToken;
                     mainHandler.postDelayed(() -> translatePageCompatible(token), 600);
                     mainHandler.postDelayed(() -> translatePageCompatible(token), 2200);
@@ -8388,7 +8440,7 @@ private void showDownloadSettingsPanel() {
         }
 
         try {
-            webView.loadUrl(js);
+            runPageScript(js);
             webView.setBackgroundColor(active ? COLOR_BG : Color.WHITE);
         } catch (Exception ignored) {
         }
@@ -8594,7 +8646,16 @@ private void showDownloadSettingsPanel() {
         try {
             applyBrowserSettings();
             Map<String, String> headers = new LinkedHashMap<>();
-            headers.put("User-Agent", desktopMode ? getDesktopUserAgent() : getMobileUserAgent());
+            if (desktopMode) {
+                headers.put("User-Agent", getDesktopUserAgent());
+                headers.put("Sec-CH-UA-Mobile", "?0");
+                headers.put("Sec-CH-UA-Platform", "\"Windows\"");
+                headers.put("Upgrade-Insecure-Requests", "1");
+            } else {
+                headers.put("User-Agent", getMobileUserAgent());
+                headers.put("Sec-CH-UA-Mobile", "?1");
+                headers.put("Sec-CH-UA-Platform", "\"Android\"");
+            }
             headers.put("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7");
             webView.loadUrl(cleanUrl, headers);
         } catch (Exception e) {
@@ -8612,11 +8673,11 @@ private void showDownloadSettingsPanel() {
 
     private void forceMobileModeAfterUpdateIfNeeded(SharedPreferences p) {
         try {
-            if (!p.getBoolean("forceMobileModeV0938", false)) {
+            if (!p.getBoolean("forceMobileModeV0939", false)) {
                 desktopMode = false;
                 p.edit()
                         .putBoolean("desktopMode", false)
-                        .putBoolean("forceMobileModeV0938", true)
+                        .putBoolean("forceMobileModeV0939", true)
                         .apply();
             }
         } catch (Exception ignored) {
@@ -8636,7 +8697,11 @@ private void showDownloadSettingsPanel() {
             }
 
             if (wasShowingWeb && targetUrl != null && targetUrl.length() > 0) {
-                recreateBrowserWebViewForMode(targetUrl, true);
+                // v0.9.40: Browser-professional style mode switch.
+                // Jangan pakai reload biasa, karena WebView/Google bisa mempertahankan DOM lama
+                // sehingga Desktop ON/OFF baru terasa setelah pencarian baru.
+                // Solusinya: buat ulang WebView, terapkan profile mode dulu, baru request ulang URL.
+                hardReloadUrlWithCurrentBrowserMode(targetUrl, true);
             } else {
                 applyBrowserSettings();
                 if (!wasShowingWeb) showHome();
@@ -8736,9 +8801,11 @@ private void showDownloadSettingsPanel() {
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
         try { settings.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.NORMAL); } catch (Exception ignored) {}
-        try { webView.setInitialScale(0); } catch (Exception ignored) {}
-        try { webView.setHorizontalScrollBarEnabled(true); } catch (Exception ignored) {}
-        try { webView.setVerticalScrollBarEnabled(true); } catch (Exception ignored) {}
+        // Desktop mode must feel like a real browser desktop-site toggle:
+        // start zoomed out enough to show the wide page, but keep pinch zoom available.
+        try { if (webView != null) webView.setInitialScale(65); } catch (Exception ignored) {}
+        try { if (webView != null) webView.setHorizontalScrollBarEnabled(true); } catch (Exception ignored) {}
+        try { if (webView != null) webView.setVerticalScrollBarEnabled(true); } catch (Exception ignored) {}
     }
 
     private String getMobileUserAgent() {
@@ -8749,9 +8816,94 @@ private void showDownloadSettingsPanel() {
         return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
     }
 
+    private String hostOfUrl(String url) {
+        try {
+            String clean = extractOriginalUrl(url);
+            if (clean == null || clean.trim().length() == 0) clean = url;
+            Uri uri = Uri.parse(clean);
+            String host = uri.getHost();
+            if (host == null) return "";
+            host = host.toLowerCase(Locale.US);
+            if (host.startsWith("www.")) host = host.substring(4);
+            return host;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String navigationLoopKey(String url) {
+        try {
+            String clean = extractOriginalUrl(url);
+            if (clean == null || clean.trim().length() == 0) clean = url;
+            if (clean == null) return "";
+            int hash = clean.indexOf('#');
+            if (hash >= 0) clean = clean.substring(0, hash);
+            return clean.trim().toLowerCase(Locale.US);
+        } catch (Exception e) {
+            return url == null ? "" : url.trim().toLowerCase(Locale.US);
+        }
+    }
+
+    private boolean isReloadLoopGuardActiveForUrl(String url) {
+        long now = System.currentTimeMillis();
+        if (reloadLoopGuardHost == null || reloadLoopGuardHost.length() == 0 || now > reloadLoopGuardUntilMs) return false;
+        String host = hostOfUrl(url);
+        return host.length() > 0 && (host.equals(reloadLoopGuardHost) || host.endsWith("." + reloadLoopGuardHost));
+    }
+
+    private boolean isCurrentPageReloadGuarded() {
+        String url = getEffectiveCurrentUrl();
+        if ((url == null || url.length() == 0) && webView != null) url = webView.getUrl();
+        return isReloadLoopGuardActiveForUrl(url);
+    }
+
+    private boolean registerNavigationLoopGuard(String url) {
+        if (!isHttpOrHttpsUrl(url)) return false;
+        long now = System.currentTimeMillis();
+        String host = hostOfUrl(url);
+        if (host.length() == 0) return false;
+
+        if (isReloadLoopGuardActiveForUrl(url)) return true;
+
+        String key = navigationLoopKey(url);
+        if (key.length() == 0) return false;
+        if (key.equals(reloadLoopLastKey) && (now - reloadLoopWindowStartMs) <= 12000L) {
+            reloadLoopCount++;
+        } else {
+            reloadLoopLastKey = key;
+            reloadLoopWindowStartMs = now;
+            reloadLoopCount = 1;
+        }
+
+        if (reloadLoopCount >= 4) {
+            reloadLoopGuardHost = host;
+            reloadLoopGuardUntilMs = now + 90000L;
+            reloadLoopCount = 0;
+            if ((now - reloadLoopToastLastMs) > 6000L) {
+                reloadLoopToastLastMs = now;
+                Toast.makeText(this, "Reload loop dicegah untuk situs ini", Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private void runPageScript(String js) {
+        if (webView == null || js == null || js.length() == 0) return;
+        try {
+            String code = js;
+            if (code.startsWith("javascript:")) code = code.substring("javascript:".length());
+            if (Build.VERSION.SDK_INT >= 19) webView.evaluateJavascript(code, null);
+            else webView.loadUrl("javascript:" + code);
+        } catch (Exception ignored) {
+        }
+    }
+
     private void applyViewportForCurrentMode() {
         if (webView == null) return;
         applyBrowserSettings();
+        if (desktopMode) applyDesktopViewportIfNeeded();
+        else applyMobileViewportIfNeeded();
     }
 
     private void applyMobileViewportIfNeeded() {
@@ -8762,6 +8914,24 @@ private void showDownloadSettingsPanel() {
     private void applyDesktopViewportIfNeeded() {
         if (!desktopMode || webView == null) return;
         try { applyDesktopProfile(webView.getSettings()); } catch (Exception ignored) {}
+        injectDesktopViewportLock();
+    }
+
+    private void injectDesktopViewportLock() {
+        if (!desktopMode || webView == null) return;
+        String js = "javascript:(function(){try{"
+                + "var w=1200;"
+                + "var h=document.head||document.getElementsByTagName('head')[0]||document.documentElement;"
+                + "var m=document.querySelector('meta[name=viewport]');"
+                + "if(!m){m=document.createElement('meta');m.name='viewport';h.appendChild(m);}"
+                + "m.setAttribute('content','width='+w+', initial-scale=1.0, maximum-scale=5.0, user-scalable=yes');"
+                + "document.documentElement.style.minWidth=w+'px';"
+                + "if(document.body){document.body.style.minWidth=w+'px';}"
+                + "}catch(e){}})()";
+        try {
+            if (Build.VERSION.SDK_INT >= 19) webView.evaluateJavascript(js.replace("javascript:", ""), null);
+            else webView.loadUrl(js);
+        } catch (Exception ignored) {}
     }
 
     private boolean isUnsafeUrl(String url) {
@@ -8861,6 +9031,10 @@ private void showDownloadSettingsPanel() {
 
     private void restoreAfterBlockedNavigation(WebView view, String blockedUrl, String reason) {
         try {
+            if (isReloadLoopGuardActiveForUrl(blockedUrl) || isReloadLoopGuardActiveForUrl(lastSafeHttpUrl)) {
+                try { if (view != null) view.stopLoading(); } catch (Exception ignored) {}
+                return;
+            }
             String currentBefore = view != null ? view.getUrl() : "";
             boolean navigationAlreadyChanged = blockedUrl != null
                     && currentBefore != null
@@ -9148,12 +9322,12 @@ private void showDownloadSettingsPanel() {
                 + "}"
                 + "clean();setInterval(clean,250);setTimeout(clean,120);setTimeout(clean,500);setTimeout(clean,1200);setTimeout(clean,2600);setTimeout(clean,5200);"
                 + "})();";
-        webView.loadUrl(js);
+        runPageScript(js);
     }
 
     private void injectReaderMode() {
         String js = "javascript:(function(){document.body.style.maxWidth='720px';document.body.style.margin='auto';document.body.style.lineHeight='1.7';document.body.style.fontSize='18px';document.body.style.background='#111318';document.body.style.color='#F5F7FA';})()";
-        webView.loadUrl(js);
+        runPageScript(js);
     }
 
     private void hideKeyboardAndClearFocus(View focusView) {
