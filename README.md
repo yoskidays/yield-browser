@@ -414,3 +414,31 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - video tidak dipaksa pause oleh Yield saat app masuk background.
 - Download kualitas 240p–720p dibuat lebih aman lewat helper/detector, tanpa downloader agresif yang rawan crash.
 - Rapikan kode video watcher dan helper supaya fitur video lebih terpusat.
+
+
+## v0.9.1
+- Kontrol video Yield saat fullscreen dipindah menjadi floating pill di atas-tengah.
+- Perubahan ini mencegah kontrol Yield menimpa timeline/durasi/progress bar player web.
+- AdBlock YouTube diperkuat tanpa memblokir video playback:
+  - auto click tombol skip YouTube ads.
+  - iklan pre-roll dicoba mute + speed up + lompat ke akhir jika terdeteksi.
+  - overlay iklan YouTube disembunyikan tanpa memblokir `googlevideo/videoplayback`.
+  - injeksi AdBlock diulang beberapa kali setelah page load agar iklan awal yang telat muncul ikut tertangani.
+
+
+## v0.9.2
+- AdBlock video ad bypass diperluas, bukan hanya YouTube.
+- Menambahkan deteksi iklan video umum untuk player:
+  - JWPlayer ad classes
+  - Video.js / IMA ads
+  - Plyr ads
+  - VAST/VPAID/preroll/midroll overlay
+  - tombol skip umum (`skip`, `lewati`, `skip-ad`, dll.)
+- Saat iklan video terdeteksi:
+  - coba klik skip
+  - mute sementara
+  - percepat playback iklan
+  - lompat ke akhir jika durasi iklan pendek
+  - hide overlay iklan
+- Video utama tetap di-allow; `mp4/m3u8/mpd/webm/ts/m4s/googlevideo/videoplayback` tetap tidak diblok.
+- Injeksi AdBlock diulang beberapa kali setelah page load agar iklan yang telat muncul ikut tertangani.

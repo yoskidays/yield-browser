@@ -1391,7 +1391,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.0";
+        return "0.9.2";
     }
 
     private void showAboutYieldDialog() {
@@ -2584,13 +2584,16 @@ private void showDownloadSettingsPanel() {
                 parent.removeView(videoControlsBar);
             }
 
+            // Fullscreen: jangan taruh di bawah karena akan menimpa timeline/durasi player web.
+            // Dibuat floating pill di atas-tengah agar progress bar video tetap terlihat.
             FrameLayout decor = (FrameLayout) getWindow().getDecorView();
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.WRAP_CONTENT,
-                    Gravity.BOTTOM
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP | Gravity.CENTER_HORIZONTAL
             );
-            lp.setMargins(0, 0, 0, 0);
+            lp.setMargins(dp(8), dp(8), dp(8), 0);
+            videoControlsBar.setBackground(roundRect(Color.parseColor("#D0101217"), dp(24), dp(1), Color.parseColor("#30343C")));
             decor.addView(videoControlsBar, lp);
 
             videoControlsInFullscreen = true;
@@ -2620,6 +2623,7 @@ private void showDownloadSettingsPanel() {
                 }
             }
 
+            videoControlsBar.setBackgroundColor(Color.parseColor("#101217"));
             videoControlsInFullscreen = false;
             videoControlsOriginalParent = null;
             videoControlsOriginalLayoutParams = null;
@@ -6905,7 +6909,13 @@ private void showDownloadSettingsPanel() {
                 mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 600);
                 mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1800);
                 if (readerMode) injectReaderMode();
-                if (adBlock) injectPremiumAdBlock();
+                if (adBlock) {
+                    injectPremiumAdBlock();
+                    mainHandler.postDelayed(() -> injectPremiumAdBlock(), 700);
+                    mainHandler.postDelayed(() -> injectPremiumAdBlock(), 1600);
+                    mainHandler.postDelayed(() -> injectPremiumAdBlock(), 3200);
+                    mainHandler.postDelayed(() -> injectPremiumAdBlock(), 6000);
+                }
                 updateVideoControlsVisibility();
                 TabInfo currentTab = getCurrentTab();
                 currentTab.url = shownUrl != null ? shownUrl : url;
@@ -7579,29 +7589,43 @@ private void showDownloadSettingsPanel() {
                 + "function bad(u){try{if(!u||media(u))return false;var h=hostOf(u);var s=(u||'').toLowerCase();var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||h===cur||h.endsWith('.'+cur))return false;if(safeVideoHost(h))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|realsrv|doubleclick|googlesyndication|googleadservices)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;if(/\\.(shop|xyz|top|site|space|online|live|fun|lol)$/.test(h)&&/[\\/][a-z0-9_-]{8,}/.test(s))return true;if(/(popunder|popup|redirect|adclick|clickunder|interstitial|push)/.test(s))return true;return false;}catch(e){return false;}}"
                 + "if(Y_POPUP&&!window.__yieldOpenPatched){window.__yieldOpenPatched=true;var oldOpen=window.open;window.open=function(u,n,f){if(bad(u)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(u));}catch(e){}console.log('Yield isolated popup',u);return {closed:true,focus:function(){},close:function(){}};}try{return oldOpen.call(window,u,n,f);}catch(e){return {closed:true,focus:function(){},close:function(){}};}};}"
                 + "if(Y_CLICK&&!window.__yieldClickPatched){window.__yieldClickPatched=true;document.addEventListener('click',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();console.log('Yield isolated ad link',a.href);return false;}}catch(x){}},true);document.addEventListener('auxclick',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);}"
-                + "function hide(s){try{document.querySelectorAll(s).forEach(function(e){e.style.setProperty('display','none','important');e.remove&&e.remove();});}catch(x){}}"
-                + "function clickSkip(){try{document.querySelectorAll('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button').forEach(function(b){b.click();});}catch(e){}}"
+                + "function hide(s){try{document.querySelectorAll(s).forEach(function(e){e.style.setProperty('display','none','important');if(e.tagName!=='VIDEO')e.remove&&e.remove();});}catch(x){}}"
+                + "function clickCommonSkip(){try{document.querySelectorAll('button[class*=skip],button[id*=skip],.skip,.skip-ad,.skip-button,.vjs-skip-button,.jw-skip,.jw-skiptext,.jw-skip-icon,.jwplayer .jw-icon-next,.plyr__control[data-plyr=restart],.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button').forEach(function(b){try{var txt=(b.innerText||b.textContent||'').toLowerCase();if(txt.indexOf('skip')>-1||txt.indexOf('lewati')>-1||txt.length<25||String(b.className).toLowerCase().indexOf('skip')>-1)b.click();}catch(e){}});}catch(e){}}"
+                + "function isGenericVideoAd(){try{var s=(document.body&&document.body.innerText||'').toLowerCase();var adText=/(advertisement|sponsored|iklan|ads? will end|ad will end|skip ad|lewati iklan|continue to video)/.test(s);var adEl=!!document.querySelector('.vast,.vpaid,.ima-ad-container,.ima-ad,.googleima,.ad-container,.ad-overlay,.video-ads,.preroll,.pre-roll,.midroll,.mid-roll,.jw-ad,.jw-flag-ads,.jw-ad-visible,.vjs-ad-playing,.vjs-ima3-ad-container,.vjs-ad-container,.plyr__ads,.ad-player,.ad-wrapper,[class*=vast],[class*=vpaid],[class*=preroll],[class*=midroll],[id*=preroll],[id*=midroll]');return adText||adEl;}catch(e){return false;}}"
+                + "function bypassGenericVideoAd(){try{"
+                + "var host=(location.hostname||'').toLowerCase();"
+                + "var isYT=host.indexOf('youtube.com')>-1||host.indexOf('youtu.be')>-1;"
+                + "var player=isYT?document.querySelector('.html5-video-player'):null;"
+                + "var ytAd=!!(player&&String(player.className).indexOf('ad-showing')>-1)||!!document.querySelector('.ytp-ad-player-overlay,.ytp-ad-text,.ytp-ad-preview-container,.ytp-ad-image-overlay,.ytp-ad-module');"
+                + "var genAd=isGenericVideoAd();"
+                + "clickCommonSkip();"
+                + "if(ytAd||genAd){"
+                + "var v=document.querySelector('video');"
+                + "if(v){try{if(!v.__yieldAdSaved){v.__yieldWasMuted=v.muted;v.__yieldWasRate=v.playbackRate||1;v.__yieldAdSaved=true;}v.muted=true;v.playbackRate=isYT?16:8;if(isFinite(v.duration)&&v.duration>1&&v.duration<180){v.currentTime=Math.max(0,v.duration-0.3);}v.play&&v.play().catch(function(){});}catch(e){}}"
+                + "hide('.ytp-ad-overlay-container,.ytp-ad-text,.ytp-ad-image-overlay,.ytp-ad-preview-container,.ytp-ad-player-overlay,.ytp-ad-module,.ytp-ad-progress-list,.ima-ad-container,.ima-ad,.googleima,.ad-overlay,.video-ads,.preroll,.pre-roll,.midroll,.mid-roll,.jw-ad,.jw-ad-visible,.vjs-ima3-ad-container,.vjs-ad-container,.plyr__ads,.ad-player,.ad-wrapper,[class*=vast],[class*=vpaid]');"
+                + "}else{var vv=document.querySelector('video');if(vv&&vv.__yieldAdSaved){try{vv.muted=vv.__yieldWasMuted;vv.playbackRate=vv.__yieldWasRate||1;vv.__yieldAdSaved=false;}catch(e){}}}"
+                + "}catch(e){}}"
                 + "function clean(){"
                 + "var host=(location.hostname||'').toLowerCase();"
                 + "var isYT=host.indexOf('youtube.com')>-1||host.indexOf('youtu.be')>-1;"
+                + "bypassGenericVideoAd();"
                 + "try{if(Y_CLICK)document.querySelectorAll('a[target=_blank],a[target=\\\"_blank\\\"]').forEach(function(a){if(bad(a.href)){a.removeAttribute('target');a.setAttribute('rel','noopener noreferrer');}});}catch(e){}"
                 + "var selectors=isYT?["
                 + "'ytd-display-ad-renderer','ytd-promoted-video-renderer','ytd-ad-slot-renderer','ytd-companion-slot-renderer',"
                 + "'ytd-banner-promo-renderer','ytd-in-feed-ad-layout-renderer','ytd-promoted-sparkles-web-renderer',"
-                + "'.ytp-ad-module','.ytp-ad-overlay-container','.ytp-ad-text','.ytp-ad-image-overlay',"
-                + "'.ytp-ad-skip-button-container','.ytp-ad-preview-container','.ytp-ad-progress-list','.GoogleActiveViewElement'"
+                + "'.ytp-ad-overlay-container','.ytp-ad-text','.ytp-ad-image-overlay','.ytp-ad-preview-container','.ytp-ad-player-overlay','.ytp-ad-module','.ytp-ad-progress-list','.GoogleActiveViewElement'"
                 + "]:["
                 + "'.adsbygoogle','iframe[id*=ad]','iframe[src*=ads]','iframe[src*=doubleclick]',"
                 + "'iframe[src*=onclickads]','iframe[src*=clickadu]','iframe[src*=popads]','iframe[src*=propellerads]',"
                 + "'[id*=ad-]','[id^=ad_]','[class*=ad-]','[class*=ads-]','[class*=advert]',"
-                + "'.GoogleActiveViewElement','.ad-banner','.ad-container','.advertisement','.sponsored'"
+                + "'.GoogleActiveViewElement','.ad-banner','.ad-container','.advertisement','.sponsored',"
+                + "'.ima-ad-container','.ima-ad','.googleima','.ad-overlay','.video-ads','.preroll','.pre-roll','.midroll','.mid-roll','.vjs-ima3-ad-container','.vjs-ad-container','.plyr__ads'"
                 + "];"
                 + "if(Y_SCRIPT)selectors.forEach(hide);"
                 + "try{if(Y_SCRIPT)document.querySelectorAll('iframe[src],script[src]').forEach(function(el){var u=el.src||'';if(bad(u)){el.remove();}});}catch(e){}"
-                + "if(isYT)clickSkip();"
                 + "try{document.body.style.setProperty('overflow','auto','important');}catch(e){}"
                 + "}"
-                + "clean();setInterval(clean,900);"
+                + "clean();setInterval(clean,350);"
                 + "})();";
         webView.loadUrl(js);
     }
