@@ -588,3 +588,15 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - debounce 650ms ditambahkan agar klik berkali-kali tidak memicu start/pause dobel.
   - setelah aksi tombol, panel download di-refresh agar status langsung terlihat.
 - Perbaikan resume 4 koneksi v0.9.15 tetap dipertahankan.
+
+
+## v0.9.17
+- Keyboard pencarian dibuat otomatis turun setelah tombol enter/cari ditekan:
+  - address bar dan home search langsung clear focus.
+  - keyboard dipaksa hide via InputMethodManager.
+  - input web di halaman Google ikut di-blur setelah page load agar keyboard tidak tetap terbuka.
+- YouTube ad speed-skip dipercepat lagi:
+  - interval ad cleaner dipercepat dari 200ms ke 120ms.
+  - seek iklan dinaikkan bertahap 16–28 detik.
+  - jika iklan pendek masih aktif beberapa tick, Yield lompat mendekati akhir iklan.
+  - resource video YouTube/GoogleVideo tetap tidak di-hard-block agar player tidak stuck.
