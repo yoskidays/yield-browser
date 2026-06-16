@@ -128,6 +128,8 @@ public class MainActivity extends Activity {
     private static final String KEY_DOWNLOAD_HISTORY = "download_history";
     private static final String KEY_BROWSER_HISTORY = "browser_history";
     private static final String KEY_BROWSER_HISTORY_BACKUP = "browser_history_backup";
+    private static final String KEY_BROWSER_HISTORY_V2 = "browser_history_v2";
+    private static final String PREFS_HISTORY_V2 = "yield_browser_history_store";
     private static final String KEY_NIGHT_EXCEPTIONS = "night_mode_exceptions";
     private static final String CHANNEL_DOWNLOADS = "yield_downloads";
     private static final String ACTION_OPEN_DOWNLOADS = "com.yieldbrowser.app.OPEN_DOWNLOADS";
@@ -506,7 +508,8 @@ public class MainActivity extends Activity {
     protected void onPause() {
         try {
             saveCurrentTabState();
-            if (!historyData.isEmpty()) saveBrowserHistory();
+            recordCurrentPageToHistory();
+            saveBrowserHistory();
         } catch (Exception ignored) {}
         if (videoBackgroundPlay && webView != null) {
             try {
@@ -520,7 +523,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         try {
-            if (!historyData.isEmpty()) saveBrowserHistory();
+            recordCurrentPageToHistory();
+            saveBrowserHistory();
         } catch (Exception ignored) {}
         super.onStop();
     }
@@ -535,7 +539,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         try {
-            if (!historyData.isEmpty()) saveBrowserHistory();
+            recordCurrentPageToHistory();
+            saveBrowserHistory();
         } catch (Exception ignored) {}
         super.onDestroy();
     }
@@ -1417,6 +1422,10 @@ content.addView(space(dp(36)));
             showCustomizeMenuPanel();
         }));
         menu.addView(menuRow(R.drawable.ic_exit, "Keluar", v -> {
+            try {
+                recordCurrentPageToHistory();
+                saveBrowserHistory();
+            } catch (Exception ignored) {}
             dialog.dismiss();
             finish();
         }));
@@ -1445,7 +1454,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.24";
+        return "0.9.26";
     }
 
     private void showAboutYieldDialog() {
@@ -4005,6 +4014,79 @@ private void showDownloadSettingsPanel() {
                 && !cleanUrl.startsWith("javascript:");
     }
 
+    private SharedPreferences historyStore() {
+        return getSharedPreferences(PREFS_HISTORY_V2, MODE_PRIVATE);
+    }
+
+    private String serializeHistoryList(ArrayList<HistoryItemData> list) {
+        StringBuilder sb = new StringBuilder();
+        if (list == null) return "";
+        for (HistoryItemData item : list) {
+            if (item == null || !shouldRecordHistoryUrl(item.url)) continue;
+            sb.append(encode(item.title)).append("|")
+                    .append(encode(item.url)).append("|")
+                    .append(item.time).append("\\n");
+        }
+        return sb.toString();
+    }
+
+    private void persistHistoryEverywhere() {
+        if (historyData.isEmpty()) return;
+        String value = serializeHistoryList(historyData);
+        if (value.length() == 0) return;
+
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(KEY_BROWSER_HISTORY, value)
+                .putString(KEY_BROWSER_HISTORY_BACKUP, value)
+                .putString(KEY_BROWSER_HISTORY_V2, value)
+                .commit();
+
+        historyStore().edit()
+                .putString(KEY_BROWSER_HISTORY_V2, value)
+                .commit();
+    }
+
+    private void mergeHistoryRows(String saved, ArrayList<HistoryItemData> out) {
+        if (saved == null || saved.length() == 0 || out == null) return;
+        String[] rows = saved.split("\\n");
+        for (String row : rows) {
+            String[] parts = row.split("\\|", 3);
+            if (parts.length == 3) {
+                try {
+                    String title = decode(parts[0]);
+                    String url = decode(parts[1]);
+                    long time = Long.parseLong(parts[2]);
+                    if (!shouldRecordHistoryUrl(url)) continue;
+
+                    boolean duplicate = false;
+                    for (HistoryItemData old : out) {
+                        if (old != null && url.equals(old.url)) {
+                            if (time > old.time) {
+                                old.title = title;
+                                old.time = time;
+                            }
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (!duplicate) out.add(new HistoryItemData(title, url, time));
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    private void recordCurrentPageToHistory() {
+        try {
+            if (webView == null) return;
+            String url = webView.getUrl();
+            if (shouldRecordHistoryUrl(url)) {
+                addBrowserHistory(webView.getTitle(), url);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     private void addBrowserHistory(String title, String url) {
         if (!shouldRecordHistoryUrl(url)) return;
         String cleanUrl = extractOriginalUrl(url);
@@ -4019,67 +4101,30 @@ private void showDownloadSettingsPanel() {
         String safeTitle = title == null || title.trim().length() == 0 ? cleanUrl : title.trim();
         historyData.add(0, new HistoryItemData(safeTitle, cleanUrl, System.currentTimeMillis()));
         while (historyData.size() > 500) historyData.remove(historyData.size() - 1);
-        saveBrowserHistory();
+        persistHistoryEverywhere();
     }
 
     private void loadBrowserHistory() {
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String saved = p.getString(KEY_BROWSER_HISTORY, "");
-        String backup = p.getString(KEY_BROWSER_HISTORY_BACKUP, "");
-        if ((saved == null || saved.length() == 0) && backup != null && backup.length() > 0) {
-            saved = backup;
-        }
-        if (saved == null || saved.length() == 0) {
-            return;
-        }
+        SharedPreferences h = historyStore();
 
         ArrayList<HistoryItemData> loaded = new ArrayList<>();
-        String[] rows = saved.split("\\n");
-        for (String row : rows) {
-            String[] parts = row.split("\\|", 3);
-            if (parts.length == 3) {
-                try {
-                    String title = decode(parts[0]);
-                    String url = decode(parts[1]);
-                    long time = Long.parseLong(parts[2]);
-                    if (shouldRecordHistoryUrl(url)) {
-                        loaded.add(new HistoryItemData(title, url, time));
-                    }
-                } catch (Exception ignored) {
-                }
-            }
-        }
+        mergeHistoryRows(h.getString(KEY_BROWSER_HISTORY_V2, ""), loaded);
+        mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY_V2, ""), loaded);
+        mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY, ""), loaded);
+        mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY_BACKUP, ""), loaded);
 
         if (!loaded.isEmpty()) {
+            Collections.sort(loaded, (a, b) -> Long.compare(b.time, a.time));
+            while (loaded.size() > 500) loaded.remove(loaded.size() - 1);
             historyData.clear();
             historyData.addAll(loaded);
+            persistHistoryEverywhere();
         }
     }
 
     private void saveBrowserHistory() {
-        if (historyData.isEmpty()) {
-            return;
-        }
-
-        StringBuilder sb = new StringBuilder();
-        for (HistoryItemData item : historyData) {
-            if (item == null || !shouldRecordHistoryUrl(item.url)) {
-                continue;
-            }
-            sb.append(encode(item.title)).append("|")
-                    .append(encode(item.url)).append("|")
-                    .append(item.time).append("\\n");
-        }
-
-        String value = sb.toString();
-        if (value.length() == 0) {
-            return;
-        }
-
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString(KEY_BROWSER_HISTORY, value)
-                .putString(KEY_BROWSER_HISTORY_BACKUP, value)
-                .commit();
+        persistHistoryEverywhere();
     }
 
     private void clearBrowserHistoryManually() {
@@ -4087,6 +4132,10 @@ private void showDownloadSettingsPanel() {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putString(KEY_BROWSER_HISTORY, "")
                 .putString(KEY_BROWSER_HISTORY_BACKUP, "")
+                .putString(KEY_BROWSER_HISTORY_V2, "")
+                .commit();
+        historyStore().edit()
+                .putString(KEY_BROWSER_HISTORY_V2, "")
                 .commit();
     }
 
@@ -7698,6 +7747,7 @@ private void showDownloadSettingsPanel() {
                     blurWebInputsAndHideKeyboard();
                 }
                 try {
+                    if (shouldRecordHistoryUrl(url)) addBrowserHistory(url, url);
                     String currentUrl = getEffectiveCurrentUrl();
                     if (isDirectImageMainFrameNavigation(url, currentUrl)) {
                         restoreAfterBlockedNavigation(view, url, "Gambar/direct link dibuka di tab baru");
@@ -7736,12 +7786,13 @@ private void showDownloadSettingsPanel() {
                 }
                 updateVideoControlsVisibility();
                 TabInfo currentTab = getCurrentTab();
+                if (shouldRecordHistoryUrl(finalUrl) && !currentTab.privateTab) {
+                    addBrowserHistory(view.getTitle(), finalUrl);
+                }
                 if (shouldRecordHistoryUrl(finalUrl)) {
                     currentTab.url = finalUrl;
                     currentTab.title = view.getTitle() != null && view.getTitle().length() > 0 ? view.getTitle() : currentTab.url;
-                    if (!currentTab.privateTab) {
-                        addBrowserHistory(view.getTitle(), finalUrl);
-                    }
+                    // Histori sudah dicatat di atas agar tersimpan lebih cepat.
                 }
                 videoControlsManualHidden = false;
                 injectVideoPlaybackWatcher();
@@ -8649,7 +8700,6 @@ private void showDownloadSettingsPanel() {
         webView.setVisibility(View.VISIBLE);
         homeScroll.setVisibility(View.GONE);
         updateVideoControlsVisibility();
-        if (shouldRecordHistoryUrl(url)) addBrowserHistory(url, url);
         if (translateEnabled) loadTranslatedPage(url);
         else webView.loadUrl(url);
         updateTopActionStates();

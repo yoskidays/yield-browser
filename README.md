@@ -674,3 +674,23 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Revisi icon launcher:
   - background icon diganti dari hitam menjadi putih dengan sedikit ungu soft.
   - logo YL emas tetap di tengah.
+
+
+## v0.9.25
+- Perbaikan besar histori browsing:
+  - ditambahkan penyimpanan History V2 di SharedPreferences terpisah `yield_browser_history_store`.
+  - histori dimuat dari 4 sumber: History V2 store, History V2 prefs lama, history utama, dan backup lama.
+  - histori dicatat saat URL mulai dibuka, saat halaman mulai load, saat halaman selesai load, saat pause/stop/destroy, dan saat menu Keluar ditekan.
+  - manual clear menghapus semua store histori agar tidak muncul kembali.
+  - tujuan: histori tidak hilang setelah keluar aplikasi lalu masuk lagi.
+- Revisi icon launcher:
+  - logo YL dibuat jauh lebih besar.
+  - background tetap putih dengan ungu soft.
+
+
+## v0.9.26
+- Final icon APK:
+  - icon launcher diganti memakai desain final YL emas dengan inner dark panel dan background putih-ungu.
+  - `ic_launcher` dan `ic_launcher_round` diperbarui untuk semua density Android.
+  - splash logo disamakan dengan icon final agar branding konsisten.
+- Perbaikan History V2 dari v0.9.25 tetap dipertahankan.
