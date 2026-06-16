@@ -223,6 +223,9 @@ public class MainActivity extends Activity {
     private boolean downloadAutoRetry = true;
     private boolean downloadHlsEnabled = true;
     private int downloadSpeedLimitKBps = 0;
+    private boolean downloadQueueEnabled = true;
+    private int downloadMaxActive = 2;
+    private boolean downloadQueuePaused = false;
     private boolean topIconReload = true;
     private boolean topIconBookmark = true;
     private boolean topIconTranslate = true;
@@ -432,6 +435,7 @@ public class MainActivity extends Activity {
         installSwipeNavigation(root);
         updateTopActionStates();
         handleOpenDownloadsIntent(getIntent());
+        mainHandler.postDelayed(this::pumpDownloadQueue, 650);
 
     }
 
@@ -1391,7 +1395,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.5";
+        return "0.9.6";
     }
 
     private void showAboutYieldDialog() {
@@ -2109,6 +2113,10 @@ private void showDownloadSettingsPanel() {
         panel.addView(actionRow(R.drawable.ic_settings, "Fitur download lanjutan", getAdvancedDownloadSummary(), v -> {
             showAdvancedDownloadFeaturesDialog(dialog);
         }));
+
+        panel.addView(actionRow(R.drawable.ic_settings, "Download Queue: " + (downloadQueueEnabled ? "ON" : "OFF"), getDownloadQueueSummary(), v -> {
+            showDownloadQueueSettingsDialog(dialog);
+        }));
         dialog.setContentView(panel);
         if (dialog.getWindow() != null) {
             Window window = dialog.getWindow();
@@ -2125,6 +2133,68 @@ private void showDownloadSettingsPanel() {
     private String getAdvancedDownloadSummary() {
         String limit = downloadSpeedLimitKBps > 0 ? (downloadSpeedLimitKBps + " KB/s") : "tanpa limit";
         return "Dynamic 2/4 koneksi, retry, HLS/m3u8, speed limiter: " + limit;
+    }
+
+    private String getDownloadQueueSummary() {
+        return "Maks aktif: " + downloadMaxActive + " • aktif: " + countActiveDownloads() + " • antri: " + countQueuedDownloads();
+    }
+
+    private void showDownloadQueueSettingsDialog(Dialog parentDialog) {
+        ArrayList<String> options = new ArrayList<>();
+        options.add(downloadQueueEnabled ? "Matikan Download Queue" : "Aktifkan Download Queue");
+        options.add("Batas maksimal download aktif: " + downloadMaxActive);
+        options.add("Pause semua download");
+        options.add("Resume semua download");
+        options.add("Urutkan tampilan: Antrian");
+
+        String[] items = options.toArray(new String[0]);
+        new AlertDialog.Builder(this)
+                .setTitle("Download Queue")
+                .setItems(items, (dialog, which) -> {
+                    if (which == 0) {
+                        downloadQueueEnabled = !downloadQueueEnabled;
+                        downloadQueuePaused = false;
+                        saveSettings();
+                        pumpDownloadQueue();
+                        Toast.makeText(this, downloadQueueEnabled ? "Download Queue aktif" : "Download Queue nonaktif", Toast.LENGTH_SHORT).show();
+                    } else if (which == 1) {
+                        showMaxActiveDownloadDialog(parentDialog);
+                    } else if (which == 2) {
+                        pauseAllDownloads();
+                    } else if (which == 3) {
+                        resumeAllDownloads();
+                    } else if (which == 4) {
+                        activeDownloadSort = "Antrian";
+                        renderDownloadList();
+                    }
+                    if (parentDialog != null && parentDialog.isShowing()) {
+                        parentDialog.dismiss();
+                        showDownloadSettingsPanel();
+                    }
+                })
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
+    private void showMaxActiveDownloadDialog(Dialog parentDialog) {
+        String[] labels = new String[]{"1 file aktif", "2 file aktif", "3 file aktif", "4 file aktif"};
+        int checked = Math.max(0, Math.min(3, downloadMaxActive - 1));
+        new AlertDialog.Builder(this)
+                .setTitle("Batas maksimal download aktif")
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
+                    downloadMaxActive = which + 1;
+                    downloadQueueEnabled = true;
+                    saveSettings();
+                    d.dismiss();
+                    pumpDownloadQueue();
+                    Toast.makeText(this, "Maksimal download aktif: " + downloadMaxActive, Toast.LENGTH_SHORT).show();
+                    if (parentDialog != null && parentDialog.isShowing()) {
+                        parentDialog.dismiss();
+                        showDownloadSettingsPanel();
+                    }
+                })
+                .setNegativeButton("Batal", null)
+                .show();
     }
 
     private void showAdvancedDownloadFeaturesDialog(Dialog parentDialog) {
@@ -4375,7 +4445,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private void showDownloadSortDialog() {
-        String[] options = {"Tanggal", "Nama", "Ukuran"};
+        String[] options = {"Tanggal", "Antrian", "Nama", "Ukuran"};
         int checked = 0;
         for (int i = 0; i < options.length; i++) {
             if (options[i].equals(activeDownloadSort)) checked = i;
@@ -4397,6 +4467,7 @@ private void showDownloadSettingsPanel() {
         activeDownloadListPanel.removeAllViews();
 
         activeDownloadListPanel.addView(downloadToolRow());
+        activeDownloadListPanel.addView(downloadQueueControlRow());
 
         ArrayList<DownloadItem> items = getFilteredDownloadItems();
 
@@ -4466,6 +4537,31 @@ private void showDownloadSettingsPanel() {
         return tools;
     }
 
+    private View downloadQueueControlRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(4), 0, dp(4));
+
+        TextView pause = downloadToolButton("Pause semua");
+        pause.setOnClickListener(v -> pauseAllDownloads());
+        row.addView(pause, new LinearLayout.LayoutParams(0, dp(38), 1));
+
+        TextView resume = downloadToolButton("Resume semua");
+        resume.setOnClickListener(v -> resumeAllDownloads());
+        LinearLayout.LayoutParams resumeLp = new LinearLayout.LayoutParams(0, dp(38), 1);
+        resumeLp.setMargins(dp(8), 0, 0, 0);
+        row.addView(resume, resumeLp);
+
+        TextView queue = downloadToolButton("Queue " + countActiveDownloads() + "/" + downloadMaxActive + " • " + countQueuedDownloads());
+        queue.setOnClickListener(v -> showDownloadQueueSettingsDialog(activeDownloadDialog));
+        LinearLayout.LayoutParams queueLp = new LinearLayout.LayoutParams(0, dp(38), 1);
+        queueLp.setMargins(dp(8), 0, 0, 0);
+        row.addView(queue, queueLp);
+
+        return row;
+    }
+
     private TextView downloadToolButton(String text) {
         TextView button = new TextView(this);
         button.setText(text);
@@ -4488,6 +4584,8 @@ private void showDownloadSettingsPanel() {
                 result.add(item);
             }
         }
+
+        if ("Antrian".equals(activeDownloadSort)) return result;
 
         Collections.sort(result, (a, b) -> {
             if ("Nama".equals(activeDownloadSort)) {
@@ -4629,7 +4727,7 @@ private void showDownloadSettingsPanel() {
         engineParams.setMargins(0, dp(3), 0, 0);
         textWrap.addView(engine, engineParams);
 
-        if ("running".equals(item.status) || "paused".equals(item.status)) {
+        if ("running".equals(item.status) || "paused".equals(item.status) || "queued".equals(item.status)) {
             ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
             bar.setMax(100);
             bar.setProgress(item.progress);
@@ -4648,11 +4746,11 @@ private void showDownloadSettingsPanel() {
 
         row.addView(textWrap, textParams);
 
-        if ("running".equals(item.status) || "paused".equals(item.status) || "failed".equals(item.status)) {
+        if ("running".equals(item.status) || "paused".equals(item.status) || "queued".equals(item.status) || "failed".equals(item.status)) {
             TextView action = new TextView(this);
             if ("running".equals(item.status)) {
                 action.setText("Ⅱ");
-            } else if ("paused".equals(item.status)) {
+            } else if ("paused".equals(item.status) || "queued".equals(item.status)) {
                 action.setText("▶");
             } else {
                 action.setText("↻");
@@ -4665,6 +4763,7 @@ private void showDownloadSettingsPanel() {
             action.setOnClickListener(v -> {
                 if ("running".equals(item.status)) pauseDownloadItem(item);
                 else if ("paused".equals(item.status)) resumeDownloadItem(item);
+                else if ("queued".equals(item.status)) prioritizeQueuedDownload(item, true);
                 else reloadDownloadItem(item);
             });
             LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(dp(38), dp(38));
@@ -4685,7 +4784,7 @@ private void showDownloadSettingsPanel() {
                 toggleDownloadSelection(item);
             } else if ("completed".equals(item.status)) {
                 openDownloadedFile(item);
-            } else if ("failed".equals(item.status) || "paused".equals(item.status)) {
+            } else if ("failed".equals(item.status) || "paused".equals(item.status) || "queued".equals(item.status)) {
                 showDownloadItemMenu(v, item);
             } else {
                 Toast.makeText(this, getConnectionLabel(item) + " • " + item.progress + "%", Toast.LENGTH_SHORT).show();
@@ -4703,6 +4802,7 @@ private void showDownloadSettingsPanel() {
 
     private String getDownloadEngineVisibleText(DownloadItem item) {
         if (item == null) return "Mengecek koneksi";
+        if ("queued".equals(item.status)) return item.engineInfo != null && item.engineInfo.length() > 0 ? item.engineInfo : "Antri • menunggu slot";
         if (item.hlsDownload) return "HLS/m3u8";
         if (item.connectionCount >= 4) return "4 koneksi sukses";
         if (item.connectionCount >= 2) return "2 koneksi sukses";
@@ -4719,6 +4819,8 @@ private void showDownloadSettingsPanel() {
 
         if ("running".equals(item.status)) {
             status = "download • " + item.progress + "%";
+        } else if ("queued".equals(item.status)) {
+            status = "antri • menunggu slot";
         } else if ("paused".equals(item.status)) {
             status = "dijeda • " + item.progress + "%";
         } else if ("failed".equals(item.status)) {
@@ -4866,6 +4968,174 @@ private void showDownloadSettingsPanel() {
                 .show();
     }
 
+    private int countActiveDownloads() {
+        int count = 0;
+        synchronized (downloadItems) {
+            for (DownloadItem item : downloadItems) {
+                if ("running".equals(item.status)) count++;
+            }
+        }
+        return count;
+    }
+
+    private int countQueuedDownloads() {
+        int count = 0;
+        synchronized (downloadItems) {
+            for (DownloadItem item : downloadItems) {
+                if ("queued".equals(item.status)) count++;
+            }
+        }
+        return count;
+    }
+
+    private DownloadItem findNextQueuedDownload() {
+        synchronized (downloadItems) {
+            for (DownloadItem item : downloadItems) {
+                if ("queued".equals(item.status)) return item;
+            }
+        }
+        return null;
+    }
+
+    private void enqueueOrStartDownload(DownloadItem item, File out) {
+        if (item == null || out == null) return;
+        if (!downloadQueueEnabled) {
+            startQueuedDownloadNow(item);
+            return;
+        }
+
+        item.status = "queued";
+        item.pauseRequested = false;
+        item.engineInfo = "Antri • menunggu slot";
+        saveDownloadHistory();
+        refreshDownloadPanel();
+
+        if (!downloadQueuePaused && countActiveDownloads() < Math.max(1, downloadMaxActive)) {
+            startQueuedDownloadNow(item);
+        } else {
+            showDownloadNotification(item, "Masuk antrian", true);
+        }
+    }
+
+    private void startQueuedDownloadNow(DownloadItem item) {
+        if (item == null) return;
+        try {
+            if (!"queued".equals(item.status) && !"paused".equals(item.status) && !"running".equals(item.status)) return;
+            if (downloadQueueEnabled && "queued".equals(item.status) && countActiveDownloads() >= Math.max(1, downloadMaxActive)) return;
+            File out = new File(item.path);
+            item.status = "queued";
+            item.pauseRequested = false;
+            item.speedBytesPerSecond = 0;
+            item.lastSpeedTimeMs = 0;
+            item.lastSpeedBytes = item.downloadedBytes;
+            item.engineInfo = item.downloadedBytes > 0 ? "Melanjutkan koneksi" : "Mengecek koneksi";
+            saveDownloadHistory();
+            refreshDownloadPanel();
+            showDownloadNotification(item, item.downloadedBytes > 0 ? "Melanjutkan unduhan" : "Mulai mengunduh", true);
+            enqueueOrStartDownload(item, out);
+        } catch (Exception e) {
+            failDownload(item, e.getMessage());
+        }
+    }
+
+    private void pumpDownloadQueue() {
+        if (downloadQueuePaused) return;
+
+        if (!downloadQueueEnabled) {
+            DownloadItem item;
+            while ((item = findNextQueuedDownload()) != null) {
+                startQueuedDownloadNow(item);
+            }
+            return;
+        }
+
+        int safety = 0;
+        while (countActiveDownloads() < Math.max(1, downloadMaxActive) && safety < 8) {
+            DownloadItem next = findNextQueuedDownload();
+            if (next == null) break;
+            startQueuedDownloadNow(next);
+            safety++;
+        }
+    }
+
+    private void pauseAllDownloads() {
+        downloadQueuePaused = true;
+        synchronized (downloadItems) {
+            for (DownloadItem item : downloadItems) {
+                if ("running".equals(item.status)) {
+                    item.pauseRequested = true;
+                    item.status = "paused";
+                    item.speedBytesPerSecond = 0;
+                    item.engineInfo = getConnectionLabel(item) + " • dijeda";
+                    showDownloadNotification(item, "Unduhan dijeda", false);
+                } else if ("queued".equals(item.status)) {
+                    item.status = "paused";
+                    item.engineInfo = "Dijeda dari antrian";
+                }
+            }
+        }
+        saveDownloadHistory();
+        refreshDownloadPanel();
+        Toast.makeText(this, "Semua download dijeda", Toast.LENGTH_SHORT).show();
+    }
+
+    private void resumeAllDownloads() {
+        downloadQueuePaused = false;
+        synchronized (downloadItems) {
+            for (DownloadItem item : downloadItems) {
+                if ("paused".equals(item.status)) {
+                    item.status = "queued";
+                    item.pauseRequested = false;
+                    item.engineInfo = "Antri • menunggu slot";
+                    item.speedBytesPerSecond = 0;
+                }
+            }
+        }
+        saveDownloadHistory();
+        refreshDownloadPanel();
+        Toast.makeText(this, "Semua download masuk antrian", Toast.LENGTH_SHORT).show();
+        pumpDownloadQueue();
+    }
+
+    private void prioritizeQueuedDownload(DownloadItem item, boolean startIfPossible) {
+        if (item == null) return;
+        synchronized (downloadItems) {
+            int idx = downloadItems.indexOf(item);
+            if (idx > 0) {
+                downloadItems.remove(idx);
+                downloadItems.add(0, item);
+            }
+            if ("paused".equals(item.status)) {
+                item.status = "queued";
+                item.pauseRequested = false;
+            }
+            if ("queued".equals(item.status)) {
+                item.engineInfo = "Prioritas • menunggu slot";
+            }
+        }
+        activeDownloadSort = "Antrian";
+        saveDownloadHistory();
+        refreshDownloadPanel();
+        Toast.makeText(this, "File diprioritaskan", Toast.LENGTH_SHORT).show();
+        if (startIfPossible) pumpDownloadQueue();
+    }
+
+    private void moveQueuedDownload(DownloadItem item, int direction) {
+        if (item == null) return;
+        synchronized (downloadItems) {
+            int idx = downloadItems.indexOf(item);
+            if (idx < 0) return;
+            int target = idx + direction;
+            if (target < 0 || target >= downloadItems.size()) return;
+            downloadItems.remove(idx);
+            downloadItems.add(target, item);
+        }
+        activeDownloadSort = "Antrian";
+        saveDownloadHistory();
+        refreshDownloadPanel();
+        Toast.makeText(this, direction < 0 ? "Naik antrian" : "Turun antrian", Toast.LENGTH_SHORT).show();
+    }
+
     private String getConnectionLabel(DownloadItem item) {
         if (item == null) return "Premium Fast";
         if (item.hlsDownload) return "HLS";
@@ -4876,7 +5146,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private void pauseDownloadItem(DownloadItem item) {
-        if (item == null || !"running".equals(item.status)) return;
+        if (item == null || (!"running".equals(item.status) && !"queued".equals(item.status))) return;
         item.pauseRequested = true;
         item.status = "paused";
         item.speedBytesPerSecond = 0;
@@ -4885,23 +5155,23 @@ private void showDownloadSettingsPanel() {
         refreshDownloadPanel();
         showDownloadNotification(item, "Unduhan dijeda", false);
         Toast.makeText(this, "Unduhan dijeda", Toast.LENGTH_SHORT).show();
+        mainHandler.postDelayed(this::pumpDownloadQueue, 650);
     }
 
     private void resumeDownloadItem(DownloadItem item) {
         if (item == null || !"paused".equals(item.status)) return;
         try {
-            File out = new File(item.path);
-            item.status = "running";
+            item.status = "queued";
             item.pauseRequested = false;
             item.speedBytesPerSecond = 0;
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = item.downloadedBytes;
-            item.engineInfo = item.connectionCount >= 2 ? "2 koneksi sukses" : "1 koneksi sukses";
+            item.engineInfo = "Antri • lanjut otomatis";
             saveDownloadHistory();
             refreshDownloadPanel();
-            showDownloadNotification(item, "Melanjutkan unduhan", true);
-            Toast.makeText(this, "Melanjutkan unduhan dari posisi terakhir", Toast.LENGTH_SHORT).show();
-            startTwoConnectionDownload(item, out);
+            showDownloadNotification(item, "Masuk antrian", true);
+            Toast.makeText(this, "Unduhan masuk antrian dan lanjut otomatis", Toast.LENGTH_SHORT).show();
+            pumpDownloadQueue();
         } catch (Exception e) {
             failDownload(item, e.getMessage());
         }
@@ -4935,10 +5205,10 @@ private void showDownloadSettingsPanel() {
 
             saveDownloadHistory();
             refreshDownloadPanel();
-            showDownloadNotification(item, "Premium Fast • reload", true);
-            Toast.makeText(this, "Download dimulai ulang dari awal", Toast.LENGTH_SHORT).show();
+            showDownloadNotification(item, "Masuk antrian reload", true);
+            Toast.makeText(this, "Download dimulai ulang dan masuk antrian", Toast.LENGTH_SHORT).show();
 
-            startTwoConnectionDownload(item, out);
+            enqueueOrStartDownload(item, out);
         } catch (Exception e) {
             failDownload(item, e.getMessage());
         }
@@ -4949,6 +5219,11 @@ private void showDownloadSettingsPanel() {
 
         if ("running".equals(item.status)) {
             popup.getMenu().add(0, 10, 0, "Jeda / Pause");
+        } else if ("queued".equals(item.status)) {
+            popup.getMenu().add(0, 13, 0, "Prioritaskan / mulai berikutnya");
+            popup.getMenu().add(0, 14, 1, "Naik antrian");
+            popup.getMenu().add(0, 15, 2, "Turun antrian");
+            popup.getMenu().add(0, 10, 3, "Jeda");
         } else if ("paused".equals(item.status)) {
             popup.getMenu().add(0, 11, 0, "Lanjutkan");
             popup.getMenu().add(0, 12, 1, "Premium Fast • reload");
@@ -4975,6 +5250,15 @@ private void showDownloadSettingsPanel() {
                 return true;
             } else if (id == 12) {
                 reloadDownloadItem(item);
+                return true;
+            } else if (id == 13) {
+                prioritizeQueuedDownload(item, true);
+                return true;
+            } else if (id == 14) {
+                moveQueuedDownload(item, -1);
+                return true;
+            } else if (id == 15) {
+                moveQueuedDownload(item, 1);
                 return true;
             } else if (id == 1) {
                 openDownloadedFile(item);
@@ -5166,7 +5450,7 @@ private void showDownloadSettingsPanel() {
 
             fileName = autoRenameDownloadFile(fileName, fileUrl, "");
             File out = uniqueFile(new File(dir, fileName));
-            DownloadItem item = new DownloadItem(nextDownloadId++, fileUrl, out.getName(), out.getAbsolutePath(), "running", 0);
+            DownloadItem item = new DownloadItem(nextDownloadId++, fileUrl, out.getName(), out.getAbsolutePath(), "queued", 0);
             item.connectionCount = 0;
             item.speedBytesPerSecond = 0;
             item.lastSpeedTimeMs = 0;
@@ -5179,11 +5463,11 @@ private void showDownloadSettingsPanel() {
             item.categoryHint = inferDownloadCategoryFromData(fileName, fileUrl, "");
 
             synchronized (downloadItems) {
-                downloadItems.add(0, item);
+                downloadItems.add(item);
             }
             saveDownloadHistory();
             refreshDownloadPanel();
-            showDownloadNotification(item, "Mulai mengunduh", true);
+            showDownloadNotification(item, "Masuk antrian", true);
 
             Toast.makeText(this, "Unduhan dimulai. Membuka menu Download.", Toast.LENGTH_SHORT).show();
             mainHandler.postDelayed(() -> {
@@ -6003,6 +6287,7 @@ private void showDownloadSettingsPanel() {
         refreshDownloadPanel();
         showDownloadNotification(item, "Unduhan selesai", false);
         runOnUiThread(() -> Toast.makeText(this, "Unduhan selesai: " + item.fileName, Toast.LENGTH_SHORT).show());
+        mainHandler.postDelayed(this::pumpDownloadQueue, 500);
     }
 
     private void exportCompletedDownload(DownloadItem item) {
@@ -6150,6 +6435,7 @@ private void showDownloadSettingsPanel() {
         refreshDownloadPanel();
         showDownloadNotification(item, "Unduhan gagal • buka detail", false);
         runOnUiThread(() -> Toast.makeText(this, "Unduhan gagal. Buka Download untuk reload/detail.", Toast.LENGTH_LONG).show());
+        mainHandler.postDelayed(this::pumpDownloadQueue, 700);
     }
 
     private long parseTotalSize(String contentRange) {
@@ -6228,7 +6514,7 @@ private void showDownloadSettingsPanel() {
         Set<String> saved = new HashSet<>();
         synchronized (downloadItems) {
             for (DownloadItem item : downloadItems) {
-                if (item.status.equals("completed") || item.status.equals("failed") || item.status.equals("paused") || item.status.equals("running")) {
+                if (item.status.equals("completed") || item.status.equals("failed") || item.status.equals("paused") || item.status.equals("running") || item.status.equals("queued")) {
                     saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason) + "|" + encode(item.categoryHint) + "|" + item.part1Start + "|" + item.part1End + "|" + item.part1Done + "|" + item.part2Start + "|" + item.part2End + "|" + item.part2Done + "|" + encode(item.publicUri) + "|" + item.retryCount + "|" + item.hlsDownload);
                 }
             }
@@ -7588,44 +7874,29 @@ private void showDownloadSettingsPanel() {
                 + "function safeVideoHost(h){return h.indexOf('youtube.com')>-1||h.indexOf('youtu.be')>-1||h.indexOf('googlevideo.com')>-1||h.indexOf('ytimg.com')>-1;}"
                 + "function bad(u){try{if(!u||media(u))return false;var h=hostOf(u);var s=(u||'').toLowerCase();var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||h===cur||h.endsWith('.'+cur))return false;if(safeVideoHost(h))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|realsrv|doubleclick|googlesyndication|googleadservices)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;if(/\\.(shop|xyz|top|site|space|online|live|fun|lol)$/.test(h)&&/[\\/][a-z0-9_-]{8,}/.test(s))return true;if(/(popunder|popup|redirect|adclick|clickunder|interstitial|push)/.test(s))return true;return false;}catch(e){return false;}}"
                 + "if(Y_POPUP&&!window.__yieldOpenPatched){window.__yieldOpenPatched=true;var oldOpen=window.open;window.open=function(u,n,f){if(bad(u)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(u));}catch(e){}console.log('Yield isolated popup',u);return {closed:true,focus:function(){},close:function(){}};}try{return oldOpen.call(window,u,n,f);}catch(e){return {closed:true,focus:function(){},close:function(){}};}};}"
-                + "if(Y_CLICK&&!window.__yieldClickPatched){window.__yieldClickPatched=true;document.addEventListener('click',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();console.log('Yield isolated ad link',a.href);return false;}}catch(x){}},true);document.addEventListener('auxclick',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);}"
-                + "function hide(s){try{document.querySelectorAll(s).forEach(function(e){e.style.setProperty('display','none','important');if(e.tagName!=='VIDEO')e.remove&&e.remove();});}catch(x){}}"
-                + "function clickCommonSkip(){try{document.querySelectorAll('button[class*=skip],button[id*=skip],.skip,.skip-ad,.skip-button,.vjs-skip-button,.jw-skip,.jw-skiptext,.jw-skip-icon,.jwplayer .jw-icon-next,.plyr__control[data-plyr=restart],.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button').forEach(function(b){try{var txt=(b.innerText||b.textContent||'').toLowerCase();if(txt.indexOf('skip')>-1||txt.indexOf('lewati')>-1||txt.length<25||String(b.className).toLowerCase().indexOf('skip')>-1)b.click();}catch(e){}});}catch(e){}}"
-                + "function isGenericVideoAd(){try{var s=(document.body&&document.body.innerText||'').toLowerCase();var adText=/(advertisement|sponsored|iklan|ads? will end|ad will end|skip ad|lewati iklan|continue to video)/.test(s);var adEl=!!document.querySelector('.vast,.vpaid,.ima-ad-container,.ima-ad,.googleima,.ad-container,.ad-overlay,.video-ads,.preroll,.pre-roll,.midroll,.mid-roll,.jw-ad,.jw-flag-ads,.jw-ad-visible,.vjs-ad-playing,.vjs-ima3-ad-container,.vjs-ad-container,.plyr__ads,.ad-player,.ad-wrapper,[class*=vast],[class*=vpaid],[class*=preroll],[class*=midroll],[id*=preroll],[id*=midroll]');return adText||adEl;}catch(e){return false;}}"
-                + "function bypassGenericVideoAd(){try{"
-                + "var host=(location.hostname||'').toLowerCase();"
-                + "var isYT=host.indexOf('youtube.com')>-1||host.indexOf('youtu.be')>-1;"
-                + "var player=isYT?document.querySelector('.html5-video-player'):null;"
-                + "var ytAd=!!(player&&String(player.className).indexOf('ad-showing')>-1)||!!document.querySelector('.ytp-ad-player-overlay,.ytp-ad-text,.ytp-ad-preview-container,.ytp-ad-image-overlay,.ytp-ad-module');"
-                + "var genAd=isGenericVideoAd();"
-                + "clickCommonSkip();"
-                + "if(ytAd||genAd){"
-                + "var v=document.querySelector('video');"
-                + "if(v){try{if(!v.__yieldAdSaved){v.__yieldWasMuted=v.muted;v.__yieldWasRate=v.playbackRate||1;v.__yieldAdSaved=true;}v.muted=true;v.playbackRate=isYT?16:8;if(isFinite(v.duration)&&v.duration>1&&v.duration<180){v.currentTime=Math.max(0,v.duration-0.3);}v.play&&v.play().catch(function(){});}catch(e){}}"
-                + "hide('.ytp-ad-overlay-container,.ytp-ad-text,.ytp-ad-image-overlay,.ytp-ad-preview-container,.ytp-ad-player-overlay,.ytp-ad-module,.ytp-ad-progress-list,.ima-ad-container,.ima-ad,.googleima,.ad-overlay,.video-ads,.preroll,.pre-roll,.midroll,.mid-roll,.jw-ad,.jw-ad-visible,.vjs-ima3-ad-container,.vjs-ad-container,.plyr__ads,.ad-player,.ad-wrapper,[class*=vast],[class*=vpaid]');"
-                + "}else{var vv=document.querySelector('video');if(vv&&vv.__yieldAdSaved){try{vv.muted=vv.__yieldWasMuted;vv.playbackRate=vv.__yieldWasRate||1;vv.__yieldAdSaved=false;}catch(e){}}}"
-                + "}catch(e){}}"
+                + "if(Y_CLICK&&!window.__yieldClickPatched){window.__yieldClickPatched=true;document.addEventListener('click',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);document.addEventListener('auxclick',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);}"
+                + "function softHide(s){try{document.querySelectorAll(s).forEach(function(e){e.style.setProperty('display','none','important');});}catch(x){}}"
+                + "function hardHide(s){try{document.querySelectorAll(s).forEach(function(e){e.style.setProperty('display','none','important');if(e.tagName!=='VIDEO')e.remove&&e.remove();});}catch(x){}}"
+                + "function clickSkip(){try{document.querySelectorAll('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button,button[class*=skip],button[id*=skip],.skip,.skip-ad,.skip-button,.vjs-skip-button,.jw-skip,.jw-skiptext,.jw-skip-icon').forEach(function(b){try{var t=(b.innerText||b.textContent||'').toLowerCase();if(t.indexOf('skip')>-1||t.indexOf('lewati')>-1||t.length<25||String(b.className).toLowerCase().indexOf('skip')>-1)b.click();}catch(e){}});}catch(e){}}"
+                + "function isYT(){var h=(location.hostname||'').toLowerCase();return h.indexOf('youtube.com')>-1||h.indexOf('youtu.be')>-1;}"
+                + "function isYouTubeAd(){try{var p=document.querySelector('.html5-video-player');return !!(p&&String(p.className).indexOf('ad-showing')>-1)||!!document.querySelector('.ytp-ad-skip-button,.ytp-ad-text,.ytp-ad-preview-container,.ytp-ad-image-overlay,.ytp-ad-player-overlay');}catch(e){return false;}}"
+                + "function isGenericVideoAd(){try{var s=(document.body&&document.body.innerText||'').toLowerCase();var text=/(advertisement|sponsored|iklan|ads? will end|ad will end|skip ad|lewati iklan|continue to video)/.test(s);var el=!!document.querySelector('.vast,.vpaid,.ima-ad-container,.ima-ad,.googleima,.ad-container,.ad-overlay,.video-ads,.preroll,.pre-roll,.midroll,.mid-roll,.jw-ad,.jw-flag-ads,.jw-ad-visible,.vjs-ad-playing,.vjs-ima3-ad-container,.vjs-ad-container,.plyr__ads,.ad-player,.ad-wrapper,[class*=vast],[class*=vpaid],[class*=preroll],[class*=midroll],[id*=preroll],[id*=midroll]');return text||el;}catch(e){return false;}}"
+                + "function safeSpeedAd(v,fast){try{if(!v)return;if(!v.__yieldAdSaved){v.__yieldWasMuted=v.muted;v.__yieldWasRate=v.playbackRate||1;v.__yieldAdSaved=true;}v.muted=true;v.playbackRate=fast;v.play&&v.play().catch(function(){});if(isFinite(v.duration)&&v.duration>1&&v.duration<240){var target=Math.max(v.currentTime+10,v.duration-0.35);v.currentTime=Math.min(v.duration-0.2,target);}}catch(e){}}"
+                + "function restoreVideo(v){try{if(v&&v.__yieldAdSaved){v.muted=!!v.__yieldWasMuted;v.playbackRate=v.__yieldWasRate||1;v.__yieldAdSaved=false;}}catch(e){}}"
+                + "function bypassVideoAds(){try{clickSkip();var yt=isYT()&&isYouTubeAd();var gen=!yt&&isGenericVideoAd();var v=document.querySelector('video');if(yt){safeSpeedAd(v,16);softHide('.ytp-ad-overlay-container,.ytp-ad-text,.ytp-ad-image-overlay,.ytp-ad-preview-container,.ytp-ad-progress-list');return;}if(gen){safeSpeedAd(v,8);hardHide('.ima-ad-container,.ima-ad,.googleima,.ad-overlay,.video-ads,.preroll,.pre-roll,.midroll,.mid-roll,.jw-ad,.jw-ad-visible,.vjs-ima3-ad-container,.vjs-ad-container,.plyr__ads,.ad-player,.ad-wrapper,[class*=vast],[class*=vpaid]');return;}restoreVideo(v);}catch(e){}}"
                 + "function clean(){"
-                + "var host=(location.hostname||'').toLowerCase();"
-                + "var isYT=host.indexOf('youtube.com')>-1||host.indexOf('youtu.be')>-1;"
-                + "bypassGenericVideoAd();"
+                + "var yt=isYT();bypassVideoAds();"
                 + "try{if(Y_CLICK)document.querySelectorAll('a[target=_blank],a[target=\\\"_blank\\\"]').forEach(function(a){if(bad(a.href)){a.removeAttribute('target');a.setAttribute('rel','noopener noreferrer');}});}catch(e){}"
-                + "var selectors=isYT?["
-                + "'ytd-display-ad-renderer','ytd-promoted-video-renderer','ytd-ad-slot-renderer','ytd-companion-slot-renderer',"
-                + "'ytd-banner-promo-renderer','ytd-in-feed-ad-layout-renderer','ytd-promoted-sparkles-web-renderer',"
-                + "'.ytp-ad-overlay-container','.ytp-ad-text','.ytp-ad-image-overlay','.ytp-ad-preview-container','.ytp-ad-player-overlay','.ytp-ad-module','.ytp-ad-progress-list','.GoogleActiveViewElement'"
+                + "var selectors=yt?["
+                + "'ytd-display-ad-renderer','ytd-promoted-video-renderer','ytd-ad-slot-renderer','ytd-companion-slot-renderer','ytd-banner-promo-renderer','ytd-in-feed-ad-layout-renderer','ytd-promoted-sparkles-web-renderer','.ytp-ad-overlay-container','.ytp-ad-text','.ytp-ad-image-overlay','.ytp-ad-preview-container','.ytp-ad-progress-list','.GoogleActiveViewElement'"
                 + "]:["
-                + "'.adsbygoogle','iframe[id*=ad]','iframe[src*=ads]','iframe[src*=doubleclick]',"
-                + "'iframe[src*=onclickads]','iframe[src*=clickadu]','iframe[src*=popads]','iframe[src*=propellerads]',"
-                + "'[id*=ad-]','[id^=ad_]','[class*=ad-]','[class*=ads-]','[class*=advert]',"
-                + "'.GoogleActiveViewElement','.ad-banner','.ad-container','.advertisement','.sponsored',"
-                + "'.ima-ad-container','.ima-ad','.googleima','.ad-overlay','.video-ads','.preroll','.pre-roll','.midroll','.mid-roll','.vjs-ima3-ad-container','.vjs-ad-container','.plyr__ads'"
+                + "'.adsbygoogle','iframe[id*=ad]','iframe[src*=ads]','iframe[src*=doubleclick]','iframe[src*=onclickads]','iframe[src*=clickadu]','iframe[src*=popads]','iframe[src*=propellerads]','[id*=ad-]','[id^=ad_]','[class*=ad-]','[class*=ads-]','[class*=advert]','.GoogleActiveViewElement','.ad-banner','.ad-container','.advertisement','.sponsored','.ima-ad-container','.ima-ad','.googleima','.ad-overlay','.video-ads','.preroll','.pre-roll','.midroll','.mid-roll','.vjs-ima3-ad-container','.vjs-ad-container','.plyr__ads'"
                 + "];"
-                + "if(Y_SCRIPT)selectors.forEach(hide);"
+                + "if(Y_SCRIPT){if(yt)selectors.forEach(softHide);else selectors.forEach(hardHide);}"
                 + "try{if(Y_SCRIPT)document.querySelectorAll('iframe[src],script[src]').forEach(function(el){var u=el.src||'';if(bad(u)){el.remove();}});}catch(e){}"
                 + "try{document.body.style.setProperty('overflow','auto','important');}catch(e){}"
                 + "}"
-                + "clean();setInterval(clean,350);"
+                + "clean();setInterval(clean,250);setTimeout(clean,100);setTimeout(clean,650);setTimeout(clean,1500);"
                 + "})();";
         webView.loadUrl(js);
     }
@@ -8033,6 +8304,8 @@ private void showDownloadSettingsPanel() {
         downloadAutoRetry = p.getBoolean("downloadAutoRetry", true);
         downloadHlsEnabled = p.getBoolean("downloadHlsEnabled", true);
         downloadSpeedLimitKBps = p.getInt("downloadSpeedLimitKBps", 0);
+        downloadQueueEnabled = p.getBoolean("downloadQueueEnabled", true);
+        downloadMaxActive = Math.max(1, Math.min(4, p.getInt("downloadMaxActive", 2)));
         topIconReload = p.getBoolean("topIconReload", true);
         topIconBookmark = p.getBoolean("topIconBookmark", true);
         topIconTranslate = p.getBoolean("topIconTranslate", true);
@@ -8117,6 +8390,8 @@ private void showDownloadSettingsPanel() {
                 .putBoolean("downloadAutoRetry", downloadAutoRetry)
                 .putBoolean("downloadHlsEnabled", downloadHlsEnabled)
                 .putInt("downloadSpeedLimitKBps", downloadSpeedLimitKBps)
+                .putBoolean("downloadQueueEnabled", downloadQueueEnabled)
+                .putInt("downloadMaxActive", downloadMaxActive)
                 .putBoolean("topIconReload", topIconReload)
                 .putBoolean("topIconBookmark", topIconBookmark)
                 .putBoolean("topIconTranslate", topIconTranslate)

@@ -462,3 +462,25 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Fresh install langsung memakai AdBlock aktif.
 - Untuk update dari versi lama, AdBlock dipaksa ON satu kali pada v0.9.5.
 - Setelah user mematikan AdBlock secara manual, pilihan user tetap dihormati dan tidak dinyalakan paksa lagi.
+
+
+## v0.9.6
+- Perbaikan AdBlock YouTube agar tidak membuat player hitam/stuck:
+  - tidak memblokir resource video YouTube/GoogleVideo secara mentah.
+  - deteksi mode iklan YouTube (`ad-showing` dan elemen iklan).
+  - mute otomatis saat iklan.
+  - speed iklan hingga 16x.
+  - lompat ke akhir iklan jika durasi iklan pendek/terbaca.
+  - klik tombol Skip Ad otomatis.
+  - setelah iklan selesai, speed/mute video dikembalikan ke kondisi normal.
+- AdBlock video umum tetap aman untuk JWPlayer/Video.js/Plyr/VAST/IMA tanpa memblokir file video utama.
+- Menambahkan Download Queue Manager:
+  - batas maksimal download aktif 1–4.
+  - antrian otomatis.
+  - pause/resume semua.
+  - prioritas file.
+  - naik/turun urutan antrian.
+  - lanjut otomatis saat file sebelumnya selesai/gagal/dijeda.
+- Tidak bentrok dengan kontrol video fullscreen bawah dan AdBlock Premium default ON.
+
+- Queue item bisa dijeda langsung dari menu antrean.
