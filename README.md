@@ -757,3 +757,12 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 
 ## v0.9.33
 Fix Translate Kompatibel agar tidak reload loop dan tombol matikan translate benar-benar menghentikan translate.
+
+
+## v0.9.34
+
+- Menambahkan tombol `Land` pada kontrol video untuk mode landscape video biasa/semi-fullscreen.
+- Alur video diperbaiki: Normal Portrait → Landscape Video → Full Video → kembali ke Landscape Video → kembali ke Normal Portrait.
+- Tombol Back sekarang keluar dari Full Video terlebih dahulu, lalu keluar dari Landscape Video, baru menjalankan back halaman biasa.
+- Mode Home akan menutup Landscape Video secara aman agar orientasi tidak tersangkut.
+- `versionCode` dinaikkan ke 9 dan `versionName` menjadi `0.9.34`.

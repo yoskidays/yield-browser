@@ -174,6 +174,9 @@ public class MainActivity extends Activity {
     private WebChromeClient.CustomViewCallback fullscreenVideoCallback;
     private int originalSystemUiVisibility = 0;
     private int originalRequestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+    private boolean videoLandscapeModeActive = false;
+    private int orientationBeforeVideoLandscape = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+    private boolean fullscreenStartedFromVideoLandscape = false;
     private TextView tabsCountText;
     private float swipeStartX = 0f;
     private float swipeStartY = 0f;
@@ -217,6 +220,7 @@ public class MainActivity extends Activity {
     private boolean adBlockAutoCloseAdTabs = true;
     private boolean dataSaver = false;
     private boolean desktopMode = false;
+    private String mobileUserAgent = "";
     private int textZoom = 100;
 
     private boolean shortcutDownload = true;
@@ -2668,6 +2672,19 @@ private void showDownloadSettingsPanel() {
         qualityParams.setMargins(dp(4), 0, 0, 0);
         bar.addView(videoQualityLabel, qualityParams);
 
+        TextView landscape = new TextView(this);
+        landscape.setText("Land");
+        landscape.setTextColor(Color.WHITE);
+        landscape.setTextSize(11);
+        landscape.setTypeface(Typeface.DEFAULT_BOLD);
+        landscape.setGravity(Gravity.CENTER);
+        landscape.setContentDescription("Landscape video mode");
+        landscape.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
+        landscape.setOnClickListener(v -> toggleVideoLandscapeMode());
+        LinearLayout.LayoutParams landscapeParams = new LinearLayout.LayoutParams(dp(46), dp(42));
+        landscapeParams.setMargins(dp(4), 0, 0, 0);
+        bar.addView(landscape, landscapeParams);
+
         TextView full = new TextView(this);
         full.setText("Full");
         full.setTextColor(Color.WHITE);
@@ -2767,11 +2784,79 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+    private void toggleVideoLandscapeMode() {
+        if (videoLandscapeModeActive) {
+            exitVideoLandscapeMode();
+        } else {
+            enterVideoLandscapeMode();
+        }
+    }
+
+    private void enterVideoLandscapeMode() {
+        if (webView == null || webView.getVisibility() != View.VISIBLE) {
+            Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) {
+                restoreHiddenWebPage();
+            }
+            if (!videoLandscapeModeActive) {
+                orientationBeforeVideoLandscape = getRequestedOrientation();
+            }
+            videoLandscapeModeActive = true;
+            fullscreenStartedFromVideoLandscape = false;
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            if (!desktopMode) {
+                applyBrowserSettings();
+                applyMobileViewportIfNeeded();
+                mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 450);
+            }
+            restoreVideoControlsFromFullscreenOverlay();
+            if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
+            if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
+            videoControlsManualHidden = false;
+            checkAndShowVideoControls();
+            Toast.makeText(this, "Mode landscape video aktif. Tekan Full untuk layar penuh.", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Mode landscape tidak didukung di halaman ini", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void exitVideoLandscapeMode() {
+        exitVideoLandscapeMode(true);
+    }
+
+    private void exitVideoLandscapeMode(boolean showToast) {
+        try {
+            if (!videoLandscapeModeActive) return;
+            videoLandscapeModeActive = false;
+            fullscreenStartedFromVideoLandscape = false;
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+            setRequestedOrientation(orientationBeforeVideoLandscape);
+            if (!desktopMode) {
+                applyBrowserSettings();
+                applyMobileViewportIfNeeded();
+                mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 450);
+            }
+            restoreVideoControlsFromFullscreenOverlay();
+            if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
+            if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
+            checkAndShowVideoControls();
+            if (showToast) Toast.makeText(this, "Mode landscape video selesai", Toast.LENGTH_SHORT).show();
+        } catch (Exception ignored) {
+        }
+    }
+
     private void enterVideoFullscreen() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
             Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
             return;
         }
+        fullscreenStartedFromVideoLandscape = videoLandscapeModeActive;
 
         String js =
                 "(function(){"
@@ -2817,6 +2902,7 @@ private void showDownloadSettingsPanel() {
             if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) {
                 restoreHiddenWebPage();
             }
+            fullscreenStartedFromVideoLandscape = videoLandscapeModeActive;
             originalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
             originalRequestedOrientation = getRequestedOrientation();
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
@@ -2841,12 +2927,26 @@ private void showDownloadSettingsPanel() {
 
     private void exitAppVideoFullscreenFallback() {
         try {
+            restoreAfterVideoFullscreen();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void restoreAfterVideoFullscreen() {
+        try {
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
             getWindow().getDecorView().setSystemUiVisibility(originalSystemUiVisibility);
-            setRequestedOrientation(originalRequestedOrientation);
+            if (fullscreenStartedFromVideoLandscape) {
+                videoLandscapeModeActive = true;
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            } else {
+                setRequestedOrientation(originalRequestedOrientation);
+            }
+            fullscreenStartedFromVideoLandscape = false;
             restoreVideoControlsFromFullscreenOverlay();
             if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
             if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
+            videoControlsManualHidden = false;
             checkAndShowVideoControls();
         } catch (Exception ignored) {
         }
@@ -8027,9 +8127,9 @@ private void showDownloadSettingsPanel() {
                 }
                 addressBar.setText(finalUrl);
                 progressBar.setVisibility(View.GONE);
-                applyDesktopViewportIfNeeded();
-                mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 600);
-                mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1800);
+                applyViewportForCurrentMode();
+                mainHandler.postDelayed(() -> applyViewportForCurrentMode(), 600);
+                mainHandler.postDelayed(() -> applyViewportForCurrentMode(), 1800);
                 if (readerMode) injectReaderMode();
                 if (adBlock) {
                     injectPremiumAdBlock();
@@ -8094,6 +8194,7 @@ private void showDownloadSettingsPanel() {
 
                 fullscreenVideoView = view;
                 fullscreenVideoCallback = callback;
+                fullscreenStartedFromVideoLandscape = videoLandscapeModeActive;
                 originalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
                 originalRequestedOrientation = getRequestedOrientation();
 
@@ -8133,14 +8234,7 @@ private void showDownloadSettingsPanel() {
                     fullscreenVideoCallback = null;
                 }
 
-                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-                getWindow().getDecorView().setSystemUiVisibility(originalSystemUiVisibility);
-                setRequestedOrientation(originalRequestedOrientation);
-
-                restoreVideoControlsFromFullscreenOverlay();
-                if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
-                if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
-                checkAndShowVideoControls();
+                restoreAfterVideoFullscreen();
             }
         });
     }
@@ -8450,6 +8544,11 @@ private void showDownloadSettingsPanel() {
                     showHome();
                 }
             }
+            if (!desktopMode) {
+                applyMobileViewportIfNeeded();
+                mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 300);
+                mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 1200);
+            }
             Toast.makeText(this, desktopMode ? "Desktop mode aktif" : "Mode mobile aktif", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             try {
@@ -8511,9 +8610,11 @@ private void showDownloadSettingsPanel() {
         if (desktopMode) {
             settings.setUserAgentString(getDesktopUserAgent());
             try { webView.setInitialScale(55); } catch (Exception ignored) {}
+            try { webView.setHorizontalScrollBarEnabled(true); } catch (Exception ignored) {}
         } else {
-            settings.setUserAgentString(null);
+            settings.setUserAgentString(getMobileUserAgent());
             try { webView.setInitialScale(100); } catch (Exception ignored) {}
+            try { webView.setHorizontalScrollBarEnabled(false); } catch (Exception ignored) {}
         }
 
         try {
@@ -8529,8 +8630,59 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+    private String getMobileUserAgent() {
+        try {
+            if (mobileUserAgent == null || mobileUserAgent.trim().length() == 0) {
+                mobileUserAgent = WebSettings.getDefaultUserAgent(this);
+            }
+        } catch (Exception ignored) {
+        }
+        if (mobileUserAgent == null || mobileUserAgent.trim().length() == 0) {
+            mobileUserAgent = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36";
+        }
+        String ua = mobileUserAgent;
+        String low = ua.toLowerCase(Locale.US);
+        if (!low.contains("mobile")) {
+            ua = ua.replace("Safari/", "Mobile Safari/");
+            if (!ua.toLowerCase(Locale.US).contains("mobile")) {
+                ua = ua + " Mobile";
+            }
+        }
+        if (ua.toLowerCase(Locale.US).contains("windows nt") || ua.toLowerCase(Locale.US).contains("macintosh")) {
+            ua = "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36";
+        }
+        return ua;
+    }
+
     private String getDesktopUserAgent() {
         return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+    }
+
+    private void applyViewportForCurrentMode() {
+        if (desktopMode) applyDesktopViewportIfNeeded();
+        else applyMobileViewportIfNeeded();
+    }
+
+    private void applyMobileViewportIfNeeded() {
+        if (desktopMode || webView == null || webView.getVisibility() != View.VISIBLE) return;
+        try {
+            String js = "(function(){"
+                    + "try{"
+                    + "var m=document.querySelector('meta[name=viewport]');"
+                    + "if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}"
+                    + "m.setAttribute('content','width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes');"
+                    + "document.documentElement.style.minWidth='';"
+                    + "document.documentElement.style.width='';"
+                    + "document.documentElement.style.overflowX='';"
+                    + "if(document.body){document.body.style.minWidth='';document.body.style.width='';document.body.style.overflowX='';}"
+                    + "var desktop=document.querySelectorAll('.desktop-view');"
+                    + "for(var i=0;i<desktop.length&&i<80;i++){try{desktop[i].className=(desktop[i].className+'').replace(/\\s?desktop-view/g,'');}catch(e){}}"
+                    + "return 'mobile_viewport_reset';"
+                    + "}catch(e){return 'mobile_viewport_error';}"
+                    + "})()";
+            webView.evaluateJavascript(js, null);
+        } catch (Exception ignored) {
+        }
     }
 
     private void applyDesktopViewportIfNeeded() {
@@ -9295,6 +9447,9 @@ private void showDownloadSettingsPanel() {
 
     private void showHome() {
         cancelSmoothSearchTransition();
+        if (videoLandscapeModeActive) {
+            exitVideoLandscapeMode(false);
+        }
         // Home hanya menyembunyikan halaman web, bukan menghapus state halaman.
         // Jadi kalau tidak sengaja kepencet Home, halaman terakhir masih bisa dikembalikan lewat gesture.
         try {
@@ -9656,21 +9811,20 @@ private void showDownloadSettingsPanel() {
                 decor.removeView(fullscreenVideoView);
             } catch (Exception ignored) {}
             fullscreenVideoView = null;
-            restoreVideoControlsFromFullscreenOverlay();
             if (fullscreenVideoCallback != null) {
                 fullscreenVideoCallback.onCustomViewHidden();
                 fullscreenVideoCallback = null;
             }
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            getWindow().getDecorView().setSystemUiVisibility(originalSystemUiVisibility);
-            setRequestedOrientation(originalRequestedOrientation);
-            if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
-            if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
-            checkAndShowVideoControls();
+            restoreAfterVideoFullscreen();
             return;
         }
         if (topBarView != null && topBarView.getVisibility() == View.GONE && webView != null && webView.getVisibility() == View.VISIBLE) {
             exitAppVideoFullscreenFallback();
+            return;
+        }
+
+        if (videoLandscapeModeActive) {
+            exitVideoLandscapeMode();
             return;
         }
 
