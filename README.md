@@ -568,3 +568,23 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - item yang sudah running tidak bisa di-start ulang oleh klik Play berkali-kali.
   - file queued langsung jalan jika slot download masih tersedia.
   - status running/queued dari sesi lama dipulihkan sebagai paused agar tidak auto-start kacau setelah app dibuka ulang.
+
+
+## v0.9.15
+- Perbaikan resume download 4 koneksi:
+  - download dynamic 4 koneksi sekarang menyimpan posisi per-part (`part1` sampai `part4`).
+  - pause lalu Play akan mencoba lanjut dari posisi part terakhir, bukan mulai dari awal.
+  - resume 4 koneksi tidak dilempar lagi ke engine legacy 2 koneksi.
+  - jika server menolak `Range`, Yield menampilkan status server menolak resume, bukan diam-diam reset.
+  - data download lama dari versi sebelum v0.9.15 yang belum punya posisi part 3/4 akan mulai ulang 4 koneksi sekali agar file tidak korup.
+- Save/load history download diperluas agar progress part 4 koneksi tetap tersimpan.
+
+
+## v0.9.16
+- Perbaikan tombol Play/Pause download yang kadang tidak merespons:
+  - touch target tombol diperbesar dari 38dp menjadi 48dp.
+  - tombol dibuat clickable/focusable dan dipisahkan lebih jauh dari menu titik tiga.
+  - aksi Play/Pause/Reload disatukan lewat `handleDownloadPrimaryAction()`.
+  - debounce 650ms ditambahkan agar klik berkali-kali tidak memicu start/pause dobel.
+  - setelah aksi tombol, panel download di-refresh agar status langsung terlihat.
+- Perbaikan resume 4 koneksi v0.9.15 tetap dipertahankan.

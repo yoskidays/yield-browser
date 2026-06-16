@@ -276,9 +276,16 @@ public class MainActivity extends Activity {
         long part2Start = 0;
         long part2End = 0;
         long part2Done = 0;
+        long part3Start = 0;
+        long part3End = 0;
+        long part3Done = 0;
+        long part4Start = 0;
+        long part4End = 0;
+        long part4Done = 0;
         double speedBytesPerSecond = 0;
         long lastSpeedTimeMs = 0;
         long lastSpeedBytes = 0;
+        long lastActionClickMs = 0;
         DownloadItem(int id, String url, String fileName, String path, String status, int progress) {
             this.id = id;
             this.url = url;
@@ -1410,7 +1417,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.14";
+        return "0.9.16";
     }
 
     private void showAboutYieldDialog() {
@@ -4823,6 +4830,7 @@ private void showDownloadSettingsPanel() {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(10), 0, dp(10));
+        row.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
 
         if (downloadSelectMode) {
             TextView check = new TextView(this);
@@ -4918,21 +4926,21 @@ private void showDownloadSettingsPanel() {
                 action.setText("↻");
             }
             action.setTextColor(Color.WHITE);
-            action.setTextSize(17);
+            action.setTextSize(18);
             action.setTypeface(Typeface.DEFAULT_BOLD);
             action.setGravity(Gravity.CENTER);
-            action.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
-            action.setOnClickListener(v -> {
-                if ("running".equals(item.status)) pauseDownloadItem(item);
-                else if ("paused".equals(item.status)) resumeDownloadItem(item);
-                else if ("queued".equals(item.status)) {
-                    if (!downloadQueuePaused && countActiveDownloads() < Math.max(2, downloadMaxActive)) startQueuedDownloadNow(item);
-                    else prioritizeQueuedDownload(item, true);
-                } else reloadDownloadItem(item);
-            });
-            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(dp(38), dp(38));
-            actionParams.setMargins(0, 0, dp(4), 0);
+            action.setMinWidth(dp(48));
+            action.setMinHeight(dp(48));
+            action.setPadding(dp(4), 0, dp(4), 0);
+            action.setClickable(true);
+            action.setFocusable(true);
+            action.setHapticFeedbackEnabled(true);
+            action.setBackground(roundRect(Color.parseColor("#20232A"), dp(22), dp(1), COLOR_BORDER));
+            action.setOnClickListener(v -> handleDownloadPrimaryAction(item));
+            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+            actionParams.setMargins(0, 0, dp(8), 0);
             row.addView(action, actionParams);
+            action.bringToFront();
         }
 
         TextView more = new TextView(this);
@@ -4941,7 +4949,7 @@ private void showDownloadSettingsPanel() {
         more.setTextSize(28);
         more.setGravity(Gravity.CENTER);
         more.setOnClickListener(v -> showDownloadItemMenu(v, item));
-        row.addView(more, new LinearLayout.LayoutParams(dp(34), dp(52)));
+        row.addView(more, new LinearLayout.LayoutParams(dp(42), dp(52)));
 
         row.setOnClickListener(v -> {
             if (downloadSelectMode) {
@@ -5238,7 +5246,7 @@ private void showDownloadSettingsPanel() {
                     item.pauseRequested = true;
                     item.status = "paused";
                     item.speedBytesPerSecond = 0;
-                    item.engineInfo = getConnectionLabel(item) + " • dijeda";
+                    item.engineInfo = getConnectionLabel(item) + " sukses • dijeda";
                     showDownloadNotification(item, "Unduhan dijeda", false);
                 } else if ("queued".equals(item.status)) {
                     item.status = "paused";
@@ -5308,6 +5316,39 @@ private void showDownloadSettingsPanel() {
         Toast.makeText(this, direction < 0 ? "Naik antrian" : "Turun antrian", Toast.LENGTH_SHORT).show();
     }
 
+    private void handleDownloadPrimaryAction(DownloadItem item) {
+        if (item == null) return;
+
+        long now = System.currentTimeMillis();
+        if (now - item.lastActionClickMs < 650) {
+            return;
+        }
+        item.lastActionClickMs = now;
+
+        try {
+            String status = item.status == null ? "" : item.status;
+            if ("running".equals(status)) {
+                pauseDownloadItem(item);
+            } else if ("paused".equals(status)) {
+                resumeDownloadItem(item);
+            } else if ("queued".equals(status)) {
+                if (!downloadQueuePaused && countActiveDownloads() < Math.max(2, downloadMaxActive)) {
+                    startQueuedDownloadNow(item);
+                } else {
+                    prioritizeQueuedDownload(item, true);
+                }
+            } else if ("failed".equals(status)) {
+                reloadDownloadItem(item);
+            } else if ("completed".equals(status)) {
+                openDownloadedFile(item);
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "Aksi download gagal: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+
+        refreshDownloadPanel();
+    }
+
     private String getConnectionLabel(DownloadItem item) {
         if (item == null) return "Premium Fast";
         if (item.hlsDownload) return "HLS";
@@ -5322,7 +5363,7 @@ private void showDownloadSettingsPanel() {
         item.pauseRequested = true;
         item.status = "paused";
         item.speedBytesPerSecond = 0;
-        item.engineInfo = getConnectionLabel(item) + " • dijeda";
+        item.engineInfo = getConnectionLabel(item) + " sukses • dijeda";
         saveDownloadHistory();
         refreshDownloadPanel();
         showDownloadNotification(item, "Unduhan dijeda", false);
@@ -5662,7 +5703,7 @@ private void showDownloadSettingsPanel() {
                 }
             }, 250);
 
-            enqueueOrStartDownload(item, out);
+            startTwoConnectionDownload(item, out);
         } catch (Exception e) {
             Toast.makeText(this, "Gagal memulai unduhan: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
@@ -5856,6 +5897,10 @@ private void showDownloadSettingsPanel() {
         }
 
         boolean resumeAttempt = out.exists() && item.downloadedBytes > 0 && ("running".equals(item.status) || "paused".equals(item.status));
+        if (resumeAttempt && item.connectionCount >= 4) {
+            startDynamicMultiConnectionDownload(item, out);
+            return;
+        }
         if (resumeAttempt || !downloadDynamic4Connections) {
             startLegacyTwoConnectionDownload(item, out);
             return;
@@ -5897,16 +5942,116 @@ private void showDownloadSettingsPanel() {
         return name.replace("/", "_").replace("\\", "_").replace(":", "_");
     }
 
+    private void setDynamicPartState(DownloadItem item, int part, long start, long end, long done) {
+        if (item == null) return;
+        if (part == 1) {
+            item.part1Start = start;
+            item.part1End = end;
+            item.part1Done = done;
+        } else if (part == 2) {
+            item.part2Start = start;
+            item.part2End = end;
+            item.part2Done = done;
+        } else if (part == 3) {
+            item.part3Start = start;
+            item.part3End = end;
+            item.part3Done = done;
+        } else if (part == 4) {
+            item.part4Start = start;
+            item.part4End = end;
+            item.part4Done = done;
+        }
+    }
+
+    private long getDynamicPartStart(DownloadItem item, int part) {
+        if (item == null) return 0;
+        if (part == 1) return item.part1Start;
+        if (part == 2) return item.part2Start;
+        if (part == 3) return item.part3Start;
+        if (part == 4) return item.part4Start;
+        return 0;
+    }
+
+    private long getDynamicPartEnd(DownloadItem item, int part) {
+        if (item == null) return -1;
+        if (part == 1) return item.part1End;
+        if (part == 2) return item.part2End;
+        if (part == 3) return item.part3End;
+        if (part == 4) return item.part4End;
+        return -1;
+    }
+
+    private long getDynamicPartDone(DownloadItem item, int part) {
+        if (item == null) return 0;
+        if (part == 1) return item.part1Done;
+        if (part == 2) return item.part2Done;
+        if (part == 3) return item.part3Done;
+        if (part == 4) return item.part4Done;
+        return 0;
+    }
+
+    private void addDynamicPartDone(DownloadItem item, int part, long delta) {
+        if (item == null || delta <= 0) return;
+        if (part == 1) item.part1Done += delta;
+        else if (part == 2) item.part2Done += delta;
+        else if (part == 3) item.part3Done += delta;
+        else if (part == 4) item.part4Done += delta;
+    }
+
+    private void clearDynamicPartState(DownloadItem item) {
+        if (item == null) return;
+        item.part1Start = 0;
+        item.part1End = 0;
+        item.part1Done = 0;
+        item.part2Start = 0;
+        item.part2End = 0;
+        item.part2Done = 0;
+        item.part3Start = 0;
+        item.part3End = 0;
+        item.part3Done = 0;
+        item.part4Start = 0;
+        item.part4End = 0;
+        item.part4Done = 0;
+    }
+
+    private boolean hasDynamicResumeState(DownloadItem item, int connections, long total) {
+        if (item == null || connections < 3 || total <= 0) return false;
+        if (item.connectionCount != connections || item.totalBytes != total) return false;
+        for (int part = 1; part <= connections; part++) {
+            long start = getDynamicPartStart(item, part);
+            long end = getDynamicPartEnd(item, part);
+            long done = getDynamicPartDone(item, part);
+            long len = end - start + 1;
+            if (end < start || len <= 0 || done < 0 || done > len) return false;
+        }
+        return getDynamicPartDone(item, 1) + getDynamicPartDone(item, 2) + getDynamicPartDone(item, 3) + getDynamicPartDone(item, 4) > 0;
+    }
+
+    private void clampDynamicPartDone(DownloadItem item, int connections) {
+        if (item == null) return;
+        for (int part = 1; part <= connections; part++) {
+            long start = getDynamicPartStart(item, part);
+            long end = getDynamicPartEnd(item, part);
+            long done = getDynamicPartDone(item, part);
+            long len = Math.max(0, end - start + 1);
+            if (done < 0) done = 0;
+            if (done > len) done = len;
+            setDynamicPartState(item, part, start, end, done);
+        }
+    }
+
     private void startDynamicMultiConnectionDownload(DownloadItem item, File out) {
         item.status = "running";
         item.pauseRequested = false;
-        item.engineInfo = "Mengecek 2/4 koneksi";
+        item.engineInfo = item.downloadedBytes > 0 ? "Mengecek resume 4 koneksi" : "Mengecek 2/4 koneksi";
         refreshDownloadPanel();
 
         new Thread(() -> {
             HttpURLConnection head = null;
             try {
                 final File[] outRef = new File[]{out};
+                boolean resumeCandidate = out.exists() && item.downloadedBytes > 0 && item.connectionCount >= 4;
+
                 head = openDownloadConnection(item.url, item, "bytes=0-0");
                 validateDownloadResponse(head);
 
@@ -5918,7 +6063,7 @@ private void showDownloadSettingsPanel() {
                 String cd = head.getHeaderField("Content-Disposition");
                 try {
                     String betterName = autoRenameDownloadFile(URLUtil.guessFileName(item.url, cd, head.getContentType()), item.url, head.getContentType());
-                    if (betterName != null && betterName.length() > 0 && !betterName.equals(item.fileName)) {
+                    if (!resumeCandidate && betterName != null && betterName.length() > 0 && !betterName.equals(item.fileName)) {
                         File newFile = uniqueFile(new File(outRef[0].getParentFile(), betterName));
                         item.fileName = newFile.getName();
                         item.path = newFile.getAbsolutePath();
@@ -5931,6 +6076,18 @@ private void showDownloadSettingsPanel() {
                 if (head != null) head.disconnect();
 
                 if (!rangeOk) {
+                    if (resumeCandidate) {
+                        item.status = "failed";
+                        item.pauseRequested = false;
+                        item.engineInfo = "Server tidak mendukung resume Range";
+                        item.failReason = "Server menolak resume. Gunakan reload untuk mulai ulang.";
+                        saveDownloadHistory();
+                        refreshDownloadPanel();
+                        showDownloadNotification(item, "Server menolak resume", false);
+                        runOnUiThread(() -> Toast.makeText(this, "Server menolak resume. Tekan reload untuk mulai ulang.", Toast.LENGTH_LONG).show());
+                        mainHandler.postDelayed(this::pumpDownloadQueue, 700);
+                        return;
+                    }
                     startLegacyTwoConnectionDownload(item, outRef[0]);
                     return;
                 }
@@ -5941,36 +6098,70 @@ private void showDownloadSettingsPanel() {
                     return;
                 }
 
-                item.totalBytes = total;
-                item.connectionCount = connections;
-                item.engineInfo = connections + " koneksi sukses";
-                item.downloadedBytes = 0;
-                item.progress = 0;
-                item.retryCount = 0;
-
-                try {
-                    RandomAccessFile raf = new RandomAccessFile(outRef[0], "rw");
-                    raf.setLength(total);
-                    raf.close();
-                } catch (Exception ignored) {}
-
-                saveDownloadHistory();
-                refreshDownloadPanel();
-                showDownloadNotification(item, connections + " koneksi", true);
-
                 final long finalTotal = total;
                 final int finalConnections = connections;
                 final File finalOutFile = outRef[0];
 
+                boolean canResumeDynamic = resumeCandidate
+                        && outRef[0].exists()
+                        && hasDynamicResumeState(item, finalConnections, finalTotal);
+
                 long chunk = finalTotal / finalConnections;
-                final long[] done = new long[]{0};
+
+                if (!canResumeDynamic) {
+                    if (resumeCandidate) {
+                        // Download 4 koneksi dari versi lama belum punya posisi per-part.
+                        // Untuk mencegah file korup, mulai ulang 4 koneksi secara jelas.
+                        runOnUiThread(() -> Toast.makeText(this, "Resume 4 koneksi lama belum punya data part. Mulai ulang 4 koneksi.", Toast.LENGTH_LONG).show());
+                    }
+
+                    clearDynamicPartState(item);
+                    item.totalBytes = finalTotal;
+                    item.connectionCount = finalConnections;
+                    item.engineInfo = finalConnections + " koneksi sukses";
+                    item.downloadedBytes = 0;
+                    item.progress = 0;
+                    item.retryCount = 0;
+
+                    for (int i = 0; i < finalConnections; i++) {
+                        int part = i + 1;
+                        long start = i * chunk;
+                        long end = i == finalConnections - 1 ? finalTotal - 1 : ((i + 1) * chunk) - 1;
+                        setDynamicPartState(item, part, start, end, 0);
+                    }
+
+                    try {
+                        RandomAccessFile raf = new RandomAccessFile(finalOutFile, "rw");
+                        raf.setLength(finalTotal);
+                        raf.close();
+                    } catch (Exception ignored) {}
+                } else {
+                    clampDynamicPartDone(item, finalConnections);
+                    long resumed = 0;
+                    for (int part = 1; part <= finalConnections; part++) {
+                        resumed += getDynamicPartDone(item, part);
+                    }
+                    item.totalBytes = finalTotal;
+                    item.connectionCount = finalConnections;
+                    item.engineInfo = "Resume " + finalConnections + " koneksi";
+                    item.downloadedBytes = resumed;
+                    item.progress = (int) Math.min(99, (resumed * 100) / Math.max(1, finalTotal));
+                    runOnUiThread(() -> Toast.makeText(this, "Melanjutkan " + finalConnections + " koneksi dari " + item.progress + "%", Toast.LENGTH_SHORT).show());
+                }
+
+                saveDownloadHistory();
+                refreshDownloadPanel();
+                showDownloadNotification(item, item.engineInfo, true);
+
+                final long[] done = new long[]{item.downloadedBytes};
                 final boolean[] ok = new boolean[]{true};
                 ArrayList<Thread> threads = new ArrayList<>();
 
                 for (int i = 0; i < finalConnections; i++) {
                     final int part = i + 1;
-                    final long start = i * chunk;
-                    final long end = i == finalConnections - 1 ? finalTotal - 1 : ((i + 1) * chunk) - 1;
+                    final long start = getDynamicPartStart(item, part) + getDynamicPartDone(item, part);
+                    final long end = getDynamicPartEnd(item, part);
+                    if (start > end) continue;
                     Thread t = new Thread(() -> downloadRangeDynamic(item, finalOutFile, start, end, done, finalTotal, ok, part, finalConnections));
                     threads.add(t);
                     t.start();
@@ -5979,6 +6170,9 @@ private void showDownloadSettingsPanel() {
                 for (Thread t : threads) t.join();
 
                 if (item.pauseRequested || "paused".equals(item.status)) {
+                    item.status = "paused";
+                    item.speedBytesPerSecond = 0;
+                    item.engineInfo = finalConnections + " koneksi sukses • dijeda";
                     saveDownloadHistory();
                     refreshDownloadPanel();
                     showDownloadNotification(item, "Unduhan dijeda", false);
@@ -5987,16 +6181,25 @@ private void showDownloadSettingsPanel() {
 
                 if (ok[0]) completeDownload(item);
                 else {
+                    if (resumeCandidate) {
+                        failDownload(item, "Resume 4 koneksi terputus");
+                        return;
+                    }
                     if (outRef[0].exists()) outRef[0].delete();
                     item.downloadedBytes = 0;
                     item.progress = 0;
                     item.connectionCount = 0;
+                    clearDynamicPartState(item);
                     item.engineInfo = "Fallback 2 koneksi";
                     startLegacyTwoConnectionDownload(item, outRef[0]);
                 }
             } catch (Exception e) {
                 if (head != null) try { head.disconnect(); } catch (Exception ignored) {}
-                startLegacyTwoConnectionDownload(item, out);
+                if (out.exists() && item.downloadedBytes > 0 && item.connectionCount >= 4) {
+                    failDownload(item, "Resume 4 koneksi gagal: " + e.getMessage());
+                } else {
+                    startLegacyTwoConnectionDownload(item, out);
+                }
             }
         }).start();
     }
@@ -6023,6 +6226,7 @@ private void showDownloadSettingsPanel() {
                 applySpeedLimit(len, connections);
                 synchronized (done) {
                     done[0] += len;
+                    addDynamicPartDone(item, partIndex, len);
                     item.downloadedBytes = done[0];
                     updateDownloadSpeed(item, done[0]);
                     int percent = (int) Math.min(99, (done[0] * 100) / Math.max(1, total));
@@ -6699,7 +6903,12 @@ private void showDownloadSettingsPanel() {
         synchronized (downloadItems) {
             for (DownloadItem item : downloadItems) {
                 if (item.status.equals("completed") || item.status.equals("failed") || item.status.equals("paused") || item.status.equals("running") || item.status.equals("queued")) {
-                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason) + "|" + encode(item.categoryHint) + "|" + item.part1Start + "|" + item.part1End + "|" + item.part1Done + "|" + item.part2Start + "|" + item.part2End + "|" + item.part2Done + "|" + encode(item.publicUri) + "|" + item.retryCount + "|" + item.hlsDownload);
+                    saved.add(encode(item.url) + "|" + encode(item.fileName) + "|" + encode(item.path) + "|" + item.status + "|" + item.progress + "|" + item.totalBytes + "|" + item.downloadedBytes + "|" + item.connectionCount + "|" + encode(item.engineInfo) + "|" + encode(item.userAgent) + "|" + encode(item.referer) + "|" + encode(item.failReason) + "|" + encode(item.categoryHint) + "|"
+                            + item.part1Start + "|" + item.part1End + "|" + item.part1Done + "|"
+                            + item.part2Start + "|" + item.part2End + "|" + item.part2Done + "|"
+                            + item.part3Start + "|" + item.part3End + "|" + item.part3Done + "|"
+                            + item.part4Start + "|" + item.part4End + "|" + item.part4Done + "|"
+                            + encode(item.publicUri) + "|" + item.retryCount + "|" + item.hlsDownload);
                 }
             }
         }
@@ -6739,10 +6948,22 @@ private void showDownloadSettingsPanel() {
                             try { item.part2End = Long.parseLong(parts[17]); } catch (Exception ignored) {}
                             try { item.part2Done = Long.parseLong(parts[18]); } catch (Exception ignored) {}
                         }
-                        if (parts.length >= 20) item.publicUri = decode(parts[19]);
-                        if (parts.length >= 21) try { item.retryCount = Integer.parseInt(parts[20]); } catch (Exception ignored) {}
-                        if (parts.length >= 22) item.hlsDownload = Boolean.parseBoolean(parts[21]);
-                        if ("running".equals(item.status) || "queued".equals(item.status)) {
+                        if (parts.length >= 28) {
+                            try { item.part3Start = Long.parseLong(parts[19]); } catch (Exception ignored) {}
+                            try { item.part3End = Long.parseLong(parts[20]); } catch (Exception ignored) {}
+                            try { item.part3Done = Long.parseLong(parts[21]); } catch (Exception ignored) {}
+                            try { item.part4Start = Long.parseLong(parts[22]); } catch (Exception ignored) {}
+                            try { item.part4End = Long.parseLong(parts[23]); } catch (Exception ignored) {}
+                            try { item.part4Done = Long.parseLong(parts[24]); } catch (Exception ignored) {}
+                            item.publicUri = decode(parts[25]);
+                            try { item.retryCount = Integer.parseInt(parts[26]); } catch (Exception ignored) {}
+                            item.hlsDownload = Boolean.parseBoolean(parts[27]);
+                        } else {
+                            if (parts.length >= 20) item.publicUri = decode(parts[19]);
+                            if (parts.length >= 21) try { item.retryCount = Integer.parseInt(parts[20]); } catch (Exception ignored) {}
+                            if (parts.length >= 22) item.hlsDownload = Boolean.parseBoolean(parts[21]);
+                        }
+                        if ("running".equals(item.status)) {
                             item.status = "paused";
                             item.speedBytesPerSecond = 0;
                             item.engineInfo = "Dijeda";
