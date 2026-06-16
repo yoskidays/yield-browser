@@ -739,3 +739,17 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - efek halaman terlihat seperti desktop lalu berubah ke mobile ditutupi agar lebih smooth.
   - overlay otomatis hilang saat page finished, page error, atau maksimal fallback delay.
 - Menu flicker fix v0.9.29, histori v0.9.28, dan icon final tetap dipertahankan.
+
+
+## v0.9.31
+- Finishing APK:
+  - label launcher dipendekkan menjadi `Yield` agar tidak terpotong menjadi “Yield Bro...” di launcher Realme.
+  - branding di dalam aplikasi tetap `Yield Browser`.
+  - `versionCode` dinaikkan ke 6 dan `versionName` menjadi `0.9.31`.
+- GitHub Actions diperbarui:
+  - build installable debug APK.
+  - build unsigned release APK.
+  - artifact diberi nama jelas:
+    - `YieldBrowser-v0.9.31-installable-debug`
+    - `YieldBrowser-v0.9.31-release-unsigned`
+- Ditambahkan `RELEASE_NOTES_v0.9.31.md` untuk panduan artifact APK.

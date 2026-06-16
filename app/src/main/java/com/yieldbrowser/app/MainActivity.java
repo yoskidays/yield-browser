@@ -1463,7 +1463,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.30";
+        return "0.9.31";
     }
 
     private void showAboutYieldDialog() {
