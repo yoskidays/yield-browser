@@ -278,8 +278,12 @@ public class MainActivity extends Activity {
     private long reloadLoopWindowStartMs = 0L;
     private int reloadLoopCount = 0;
     private String reloadLoopGuardHost = "";
+    private String reloadLoopGuardKey = "";
     private long reloadLoopGuardUntilMs = 0L;
     private long reloadLoopToastLastMs = 0L;
+    // v0.9.42: navigasi klik user/search result tidak boleh dianggap redirect iklan.
+    private String trustedMainFrameHost = "";
+    private long trustedMainFrameUntilMs = 0L;
 
 
     // ===== Data models =====
@@ -8110,6 +8114,19 @@ private void showDownloadSettingsPanel() {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String u = request.getUrl().toString();
                 String currentUrl = view != null ? view.getUrl() : "";
+                boolean mainFrame = request != null && request.isForMainFrame();
+                boolean hasGesture = false;
+                try { if (Build.VERSION.SDK_INT >= 24 && request != null) hasGesture = request.hasGesture(); } catch (Exception ignored) {}
+
+                if (safeMode && isUnsafeUrl(u)) {
+                    Toast.makeText(MainActivity.this, "Diblokir Safe Browsing sederhana", Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+
+                if (mainFrame && isNormalUserMainFrameNavigation(u, currentUrl, hasGesture)) {
+                    markTrustedMainFrameNavigation(u);
+                    return false;
+                }
 
                 if (request.isForMainFrame() && isDirectImageMainFrameNavigation(u, currentUrl)) {
                     restoreAfterBlockedNavigation(view, u, "Gambar/direct link dibuka di tab baru");
@@ -8121,12 +8138,9 @@ private void showDownloadSettingsPanel() {
                     return true;
                 }
 
-                if (safeMode && isUnsafeUrl(u)) {
-                    Toast.makeText(MainActivity.this, "Diblokir Safe Browsing sederhana", Toast.LENGTH_SHORT).show();
-                    return true;
-                }
-
                 if (adBlock && (adBlockRedirectBlocker || adBlockClickHijackBlocker) && request.isForMainFrame()
+                        && !isTrustedMainFrameNavigation(u)
+                        && !isNormalUserMainFrameNavigation(u, currentUrl, hasGesture)
                         && (isSuspiciousPopupNavigation(u, currentUrl) || isLikelyAdClickUrl(u))) {
                     restoreAfterBlockedNavigation(view, u, "Iklan/direct link");
                     return true;
@@ -8137,6 +8151,16 @@ private void showDownloadSettingsPanel() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 String u = request.getUrl().toString();
+                String pageUrl = view != null ? view.getUrl() : "";
+                // v0.9.42: kalau suatu host masuk compatibility/reload-loop guard, jangan blokir
+                // resource first-party-nya. Banyak situs lama memakai nama file/folder berisi "ad"
+                // untuk script/menu internal; kalau ikut diblokir halaman bisa blank.
+                if (isReloadLoopGuardActiveForUrl(pageUrl) && isFirstPartyResourceForCurrentPage(u, pageUrl)) {
+                    return super.shouldInterceptRequest(view, request);
+                }
+                if (isTrustedMainFrameNavigation(pageUrl) && isFirstPartyResourceForCurrentPage(u, pageUrl)) {
+                    return super.shouldInterceptRequest(view, request);
+                }
                 if (adBlock && adBlockScriptIframeBlocker && !isMediaResourceUrl(u) && !isYoutubeCoreUrl(u) && (isAdUrl(u) || isKnownPopupHost(u))) {
                     return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
                 }
@@ -8155,7 +8179,7 @@ private void showDownloadSettingsPanel() {
                             && (isExternalSchemeUrl(failedUrl)
                             || errorCode == WebViewClient.ERROR_UNSUPPORTED_SCHEME
                             || errorText.contains("unknown_url_scheme")
-                            || (adBlock && (isKnownPopupHost(failedUrl)
+                            || (adBlock && !isTrustedMainFrameNavigation(failedUrl) && (isKnownPopupHost(failedUrl)
                             || isLikelyAdClickUrl(failedUrl)
                             || isAdUrl(failedUrl)
                             || isSuspiciousPopupNavigation(failedUrl, lastSafeHttpUrl))))) {
@@ -8179,7 +8203,9 @@ private void showDownloadSettingsPanel() {
                         mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 250);
                     }
                 } else {
-                    try { if (view != null) view.stopLoading(); } catch (Exception ignored) {}
+                    // v0.9.42: jangan stopLoading untuk seluruh host. Stop loading membuat halaman
+                    // seperti lordborg.com blank saat user klik menu internal. Guard cukup mematikan
+                    // injection/restore agresif, sementara load utama tetap dibiarkan selesai.
                     try { if (progressBar != null) progressBar.setVisibility(View.GONE); } catch (Exception ignored) {}
                 }
                 super.onPageStarted(view, url, favicon);
@@ -8204,6 +8230,8 @@ private void showDownloadSettingsPanel() {
                         return;
                     }
                     if (adBlock && adBlockRedirectBlocker
+                            && !isTrustedMainFrameNavigation(url)
+                            && !isSearchEngineResultNavigation(url, currentUrl)
                             && (isSuspiciousPopupNavigation(url, currentUrl) || isLikelyAdClickUrl(url))) {
                         restoreAfterBlockedNavigation(view, url, "Iklan/direct link");
                         return;
@@ -8644,6 +8672,7 @@ private void showDownloadSettingsPanel() {
         }
 
         try {
+            markTrustedMainFrameNavigation(cleanUrl);
             applyBrowserSettings();
             Map<String, String> headers = new LinkedHashMap<>();
             if (desktopMode) {
@@ -8862,11 +8891,18 @@ private void showDownloadSettingsPanel() {
         long now = System.currentTimeMillis();
         String host = hostOfUrl(url);
         if (host.length() == 0) return false;
-
-        if (isReloadLoopGuardActiveForUrl(url)) return true;
-
         String key = navigationLoopKey(url);
         if (key.length() == 0) return false;
+
+        // User-initiated navigation/search result jangan dihitung sebagai reload loop.
+        if (isTrustedMainFrameNavigation(url)) return false;
+
+        if (isReloadLoopGuardActiveForUrl(url)) {
+            // Guard aktif untuk host ini, tapi jangan anggap semua menu internal sebagai loop.
+            // Hanya URL yang sama persis dengan pemicu loop yang diberi status guarded.
+            return key.equals(reloadLoopGuardKey);
+        }
+
         if (key.equals(reloadLoopLastKey) && (now - reloadLoopWindowStartMs) <= 12000L) {
             reloadLoopCount++;
         } else {
@@ -8877,7 +8913,8 @@ private void showDownloadSettingsPanel() {
 
         if (reloadLoopCount >= 4) {
             reloadLoopGuardHost = host;
-            reloadLoopGuardUntilMs = now + 90000L;
+            reloadLoopGuardKey = key;
+            reloadLoopGuardUntilMs = now + 120000L;
             reloadLoopCount = 0;
             if ((now - reloadLoopToastLastMs) > 6000L) {
                 reloadLoopToastLastMs = now;
@@ -8932,6 +8969,66 @@ private void showDownloadSettingsPanel() {
             if (Build.VERSION.SDK_INT >= 19) webView.evaluateJavascript(js.replace("javascript:", ""), null);
             else webView.loadUrl(js);
         } catch (Exception ignored) {}
+    }
+
+    private void markTrustedMainFrameNavigation(String url) {
+        try {
+            if (!isHttpOrHttpsUrl(url)) return;
+            String host = normalizeHostForAdBlock(url);
+            if (host.length() == 0) return;
+            trustedMainFrameHost = host;
+            trustedMainFrameUntilMs = System.currentTimeMillis() + 10000L;
+        } catch (Exception ignored) {
+        }
+    }
+
+    private boolean isTrustedMainFrameNavigation(String url) {
+        try {
+            if (trustedMainFrameHost == null || trustedMainFrameHost.length() == 0) return false;
+            if (System.currentTimeMillis() > trustedMainFrameUntilMs) return false;
+            String host = normalizeHostForAdBlock(url);
+            return host.length() > 0 && sameOrSubDomain(host, trustedMainFrameHost);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isSearchEngineHost(String url) {
+        String host = normalizeHostForAdBlock(url);
+        if (host.length() == 0) return false;
+        return host.equals("google.com") || host.endsWith(".google.com")
+                || host.equals("bing.com") || host.endsWith(".bing.com")
+                || host.equals("duckduckgo.com") || host.endsWith(".duckduckgo.com")
+                || host.equals("yahoo.com") || host.endsWith(".yahoo.com")
+                || host.equals("yandex.com") || host.endsWith(".yandex.com");
+    }
+
+    private boolean isSearchEngineResultNavigation(String targetUrl, String currentUrl) {
+        if (!isHttpOrHttpsUrl(targetUrl) || !isSearchEngineHost(currentUrl)) return false;
+        if (isKnownPopupHost(targetUrl) || isAdUrl(targetUrl) || isLikelyAdClickUrl(targetUrl)) return false;
+        return true;
+    }
+
+    private boolean isNormalUserMainFrameNavigation(String targetUrl, String currentUrl, boolean hasGesture) {
+        if (!isHttpOrHttpsUrl(targetUrl)) return false;
+        if (isKnownPopupHost(targetUrl) || isAdUrl(targetUrl) || isLikelyAdClickUrl(targetUrl)) return false;
+        String targetHost = normalizeHostForAdBlock(targetUrl);
+        String currentHost = normalizeHostForAdBlock(currentUrl);
+        if (targetHost.length() == 0) return false;
+        if (currentHost.length() > 0 && sameOrSubDomain(targetHost, currentHost)) return true;
+        if (isSearchEngineResultNavigation(targetUrl, currentUrl)) return true;
+        return hasGesture;
+    }
+
+    private boolean isFirstPartyResourceForCurrentPage(String resourceUrl, String pageUrl) {
+        try {
+            if (!isHttpOrHttpsUrl(resourceUrl) || !isHttpOrHttpsUrl(pageUrl)) return false;
+            String resourceHost = normalizeHostForAdBlock(resourceUrl);
+            String pageHost = normalizeHostForAdBlock(pageUrl);
+            return resourceHost.length() > 0 && pageHost.length() > 0 && sameOrSubDomain(resourceHost, pageHost);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private boolean isUnsafeUrl(String url) {
@@ -9031,6 +9128,9 @@ private void showDownloadSettingsPanel() {
 
     private void restoreAfterBlockedNavigation(WebView view, String blockedUrl, String reason) {
         try {
+            if (isTrustedMainFrameNavigation(blockedUrl)) {
+                return;
+            }
             if (isReloadLoopGuardActiveForUrl(blockedUrl) || isReloadLoopGuardActiveForUrl(lastSafeHttpUrl)) {
                 try { if (view != null) view.stopLoading(); } catch (Exception ignored) {}
                 return;

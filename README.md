@@ -770,3 +770,18 @@ Fix Translate Kompatibel agar tidak reload loop dan tombol matikan translate ben
 
 ## v0.9.38
 Desktop/Mobile Mode refactor: WebView dibuat ulang saat mode berubah agar tidak nyangkut desktop ketika Desktop Mode OFF.
+
+## v0.9.40
+
+- Memperbaiki Desktop Mode ON/OFF yang kadang tidak langsung berubah pada halaman aktif.
+- Reload website sekarang memakai hard reload sesuai mode aktif, bukan `webView.reload()` biasa.
+- Mode berubah → WebView dibuat ulang → profile Mobile/Desktop diterapkan → URL dimuat ulang.
+
+## v0.9.41
+
+- Menambahkan Navigation/Reload Loop Guard untuk situs yang memaksa reload berulang seperti lordborg.com.
+- Jika URL yang sama reload berkali-kali dalam waktu pendek, Yield menghentikan auto reload/recover sementara untuk host tersebut.
+- DOM injection rutin (night mode, video watcher, adblock injection, viewport injection, compatible translate) dilewati sementara saat guard aktif agar tidak memicu reload loop.
+- Mengubah injection JavaScript rutin dari `webView.loadUrl("javascript:...")` menjadi `evaluateJavascript()` melalui helper `runPageScript()`.
+- Mengaktifkan cookie dan third-party cookie di WebView untuk mengurangi loop akibat sesi situs yang tidak tersimpan.
+- Tidak mengubah sistem Desktop/Mobile hard reload v0.9.40.
