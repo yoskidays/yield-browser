@@ -188,7 +188,7 @@ public class MainActivity extends Activity {
     private String nightModeOption = "ON";
     private final Set<String> nightModeExceptions = new HashSet<>();
     private boolean readerMode = false;
-    private boolean adBlock = false;
+    private boolean adBlock = true;
     private boolean adBlockPopupBlocker = true;
     private boolean adBlockRedirectBlocker = true;
     private boolean adBlockScriptIframeBlocker = true;
@@ -1391,7 +1391,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.3";
+        return "0.9.5";
     }
 
     private void showAboutYieldDialog() {
@@ -2592,7 +2592,7 @@ private void showDownloadSettingsPanel() {
                     FrameLayout.LayoutParams.WRAP_CONTENT,
                     Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL
             );
-            lp.setMargins(dp(8), 0, dp(8), dp(64));
+            lp.setMargins(dp(8), 0, dp(8), dp(22));
             videoControlsBar.setBackground(roundRect(Color.parseColor("#D0101217"), dp(24), dp(1), Color.parseColor("#30343C")));
             decor.addView(videoControlsBar, lp);
 
@@ -7991,11 +7991,18 @@ private void showDownloadSettingsPanel() {
         nightModeExceptions.clear();
         nightModeExceptions.addAll(p.getStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>()));
         readerMode = p.getBoolean("readerMode", false);
-        adBlock = p.getBoolean("adBlock", false);
+        adBlock = p.getBoolean("adBlock", true);
         adBlockPopupBlocker = p.getBoolean("adBlockPopupBlocker", true);
         adBlockRedirectBlocker = p.getBoolean("adBlockRedirectBlocker", true);
         adBlockScriptIframeBlocker = p.getBoolean("adBlockScriptIframeBlocker", true);
         adBlockClickHijackBlocker = p.getBoolean("adBlockClickHijackBlocker", true);
+        if (!p.getBoolean("adBlockDefaultOnV095", false)) {
+            adBlock = true;
+            p.edit()
+                    .putBoolean("adBlock", true)
+                    .putBoolean("adBlockDefaultOnV095", true)
+                    .apply();
+        }
         adBlockRedirectToTempTab = p.getBoolean("adBlockRedirectToTempTab", true);
         adBlockAutoCloseAdTabs = p.getBoolean("adBlockAutoCloseAdTabs", true);
         dataSaver = p.getBoolean("dataSaver", false);
@@ -8079,6 +8086,7 @@ private void showDownloadSettingsPanel() {
                 .putBoolean("adBlockRedirectBlocker", adBlockRedirectBlocker)
                 .putBoolean("adBlockScriptIframeBlocker", adBlockScriptIframeBlocker)
                 .putBoolean("adBlockClickHijackBlocker", adBlockClickHijackBlocker)
+                .putBoolean("adBlockDefaultOnV095", true)
                 .putBoolean("adBlockRedirectToTempTab", adBlockRedirectToTempTab)
                 .putBoolean("adBlockAutoCloseAdTabs", adBlockAutoCloseAdTabs)
                 .putBoolean("dataSaver", dataSaver)

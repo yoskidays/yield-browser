@@ -448,3 +448,17 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
 - Kontrol video saat fullscreen dikembalikan ke posisi bawah-tengah.
 - Kontrol dibuat floating pill dengan margin bawah agar tetap nyaman dan tidak terlalu menutupi timeline/durasi bawaan player.
 - Fitur AdBlock video bypass v0.9.2 tetap dipertahankan.
+
+
+## v0.9.4
+- Posisi kontrol video saat fullscreen diturunkan lagi agar lebih pas dan natural.
+- Kontrol tetap berada di bawah-tengah.
+- Ukuran tombol/menu kontrol video tidak diperkecil, jadi tetap mudah diklik.
+- Fitur AdBlock video bypass tetap dipertahankan.
+
+
+## v0.9.5
+- AdBlock Premium sekarang default ON.
+- Fresh install langsung memakai AdBlock aktif.
+- Untuk update dari versi lama, AdBlock dipaksa ON satu kali pada v0.9.5.
+- Setelah user mematikan AdBlock secara manual, pilihan user tetap dihormati dan tidak dinyalakan paksa lagi.
