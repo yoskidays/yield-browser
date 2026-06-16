@@ -442,3 +442,9 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - hide overlay iklan
 - Video utama tetap di-allow; `mp4/m3u8/mpd/webm/ts/m4s/googlevideo/videoplayback` tetap tidak diblok.
 - Injeksi AdBlock diulang beberapa kali setelah page load agar iklan yang telat muncul ikut tertangani.
+
+
+## v0.9.3
+- Kontrol video saat fullscreen dikembalikan ke posisi bawah-tengah.
+- Kontrol dibuat floating pill dengan margin bawah agar tetap nyaman dan tidak terlalu menutupi timeline/durasi bawaan player.
+- Fitur AdBlock video bypass v0.9.2 tetap dipertahankan.

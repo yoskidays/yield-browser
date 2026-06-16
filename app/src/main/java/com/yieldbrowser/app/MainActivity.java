@@ -1391,7 +1391,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.2";
+        return "0.9.3";
     }
 
     private void showAboutYieldDialog() {
@@ -2584,15 +2584,15 @@ private void showDownloadSettingsPanel() {
                 parent.removeView(videoControlsBar);
             }
 
-            // Fullscreen: jangan taruh di bawah karena akan menimpa timeline/durasi player web.
-            // Dibuat floating pill di atas-tengah agar progress bar video tetap terlihat.
+            // Fullscreen: posisi tetap di bawah-tengah seperti request user.
+            // Dibuat floating pill dengan margin bawah agar tidak menutupi timeline/durasi bawaan player.
             FrameLayout decor = (FrameLayout) getWindow().getDecorView();
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.WRAP_CONTENT,
                     FrameLayout.LayoutParams.WRAP_CONTENT,
-                    Gravity.TOP | Gravity.CENTER_HORIZONTAL
+                    Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL
             );
-            lp.setMargins(dp(8), dp(8), dp(8), 0);
+            lp.setMargins(dp(8), 0, dp(8), dp(64));
             videoControlsBar.setBackground(roundRect(Color.parseColor("#D0101217"), dp(24), dp(1), Color.parseColor("#30343C")));
             decor.addView(videoControlsBar, lp);
 
