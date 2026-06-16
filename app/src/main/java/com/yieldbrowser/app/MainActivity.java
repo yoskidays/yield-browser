@@ -211,6 +211,8 @@ public class MainActivity extends Activity {
     private boolean nightMode = true;
     private String nightModeOption = "ON";
     private final Set<String> nightModeExceptions = new HashSet<>();
+    private int nightModeApplyToken = 0;
+    private String lastNightModeSyncUrl = "";
     private boolean readerMode = false;
     private boolean adBlock = true;
     private boolean adBlockPopupBlocker = true;
@@ -8263,6 +8265,7 @@ private void showDownloadSettingsPanel() {
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 String safeBeforePageStarted = lastSafeHttpUrl;
                 currentPageUrlForRequest = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
+                syncNightModeWebSettingsForUrl(currentPageUrlForRequest);
                 boolean strictCompatibilityActive = isStrictSiteCompatibilityUrl(url);
                 boolean reloadLoopGuarded = registerNavigationLoopGuard(url);
                 boolean siteCompatibilityActive = isSiteCompatibilityModeActiveForUrl(url);
@@ -8321,6 +8324,16 @@ private void showDownloadSettingsPanel() {
             }
 
             @Override
+            public void onPageCommitVisible(WebView view, String url) {
+                super.onPageCommitVisible(view, url);
+                String shownUrl = extractOriginalUrl(url);
+                String finalUrl = shownUrl != null ? shownUrl : url;
+                currentPageUrlForRequest = finalUrl;
+                syncNightModeWebSettingsForUrl(finalUrl);
+                scheduleNightModeSyncForPage(finalUrl);
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 String shownUrl = extractOriginalUrl(url);
                 String finalUrl = shownUrl != null ? shownUrl : url;
@@ -8366,7 +8379,7 @@ private void showDownloadSettingsPanel() {
                 if (!pageReloadGuarded) {
                     videoControlsManualHidden = false;
                     injectVideoPlaybackWatcher();
-                    applyNightModeToWebPage();
+                    scheduleNightModeSyncForPage(finalUrl);
                     detectTranslateProxyBlocked(url);
                 }
                 if (!pageReloadGuarded && hideGoogleTranslateBar && isGoogleTranslatedUrl(url)) {
@@ -8486,6 +8499,10 @@ private void showDownloadSettingsPanel() {
     }
 
     private boolean isNightModeActiveForCurrentSite() {
+        return isNightModeActiveForUrl(getEffectiveCurrentUrl());
+    }
+
+    private boolean isNightModeActiveForUrl(String url) {
         boolean active;
         if ("OFF".equals(nightModeOption)) {
             active = false;
@@ -8495,11 +8512,79 @@ private void showDownloadSettingsPanel() {
             active = true;
         }
 
-        String host = getCurrentHostForSettings();
+        String host = getHostForNightMode(url);
         if (host.length() > 0 && nightModeExceptions.contains(host)) {
             active = false;
         }
         return active;
+    }
+
+    private String getHostForNightMode(String url) {
+        try {
+            String target = url;
+            if (target == null || target.length() == 0) target = getEffectiveCurrentUrl();
+            if (target == null || target.length() == 0) return "";
+            Uri uri = Uri.parse(target);
+            String host = uri.getHost();
+            if (host == null) return "";
+            if (host.startsWith("www.")) host = host.substring(4);
+            return host.toLowerCase(Locale.US);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void syncNightModeWebSettingsForUrl(String url) {
+        if (webView == null) return;
+        boolean active = isNightModeActiveForUrl(url);
+        try {
+            WebSettings settings = webView.getSettings();
+            if (Build.VERSION.SDK_INT >= 29) {
+                settings.setForceDark(active ? WebSettings.FORCE_DARK_ON : WebSettings.FORCE_DARK_OFF);
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                settings.setAlgorithmicDarkeningAllowed(active);
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            webView.setBackgroundColor(active ? COLOR_BG : Color.WHITE);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void scheduleNightModeSyncForPage(String url) {
+        if (webView == null) return;
+        final int token = ++nightModeApplyToken;
+        final String targetUrl = url != null ? url : getEffectiveCurrentUrl();
+        syncNightModeWebSettingsForUrl(targetUrl);
+        applyNightModeToWebPage();
+        mainHandler.postDelayed(() -> { if (token == nightModeApplyToken) applyNightModeToWebPage(); }, 220);
+        mainHandler.postDelayed(() -> { if (token == nightModeApplyToken) applyNightModeToWebPage(); }, 900);
+        mainHandler.postDelayed(() -> { if (token == nightModeApplyToken) applyNightModeToWebPage(); }, 2200);
+    }
+
+    private void setNightModeOptionAndApply(String option, boolean reloadPage) {
+        nightModeOption = option;
+        nightMode = !"OFF".equals(nightModeOption);
+        nightModeApplyToken++;
+        saveSettings();
+        applyBrowserSettings();
+        syncNightModeWebSettingsForUrl(getEffectiveCurrentUrl());
+        scheduleNightModeSyncForPage(getEffectiveCurrentUrl());
+
+        if (reloadPage && webView != null && webView.getVisibility() == View.VISIBLE) {
+            mainHandler.postDelayed(() -> {
+                try {
+                    String url = getEffectiveCurrentUrl();
+                    if (url == null || url.length() == 0) url = webView != null ? webView.getUrl() : "";
+                    if (url != null && isHttpOrHttpsUrl(url)) {
+                        hardReloadUrlWithCurrentBrowserMode(url, true);
+                    }
+                } catch (Exception ignored) {
+                }
+            }, 260);
+        }
     }
 
     private String nightModeLabel() {
@@ -8510,16 +8595,20 @@ private void showDownloadSettingsPanel() {
 
     private void applyNightModeToWebPage() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) return;
-        if (isSiteCompatibilityModeActiveForUrl(getEffectiveCurrentUrl())) return;
+        String pageUrl = getEffectiveCurrentUrl();
+        if (isSiteCompatibilityModeActiveForUrl(pageUrl)) return;
 
-        boolean active = isNightModeActiveForCurrentSite();
+        syncNightModeWebSettingsForUrl(pageUrl);
+        boolean active = isNightModeActiveForUrl(pageUrl);
+        lastNightModeSyncUrl = pageUrl != null ? pageUrl : "";
+
         String js;
         if (active) {
-            // Mode malam aman: jangan paksa semua teks/div/card karena Google AI/Search bisa rusak.
-            // WebView ForceDark yang menangani darkening utama, CSS ini hanya mencegah white flash.
+            // v0.9.47: Night ON memasang style gelap tunggal dan membersihkan style light-off.
             js =
                     "javascript:(function(){"
                             + "try{"
+                            + "var light=document.getElementById('yield-light-style');if(light)light.remove();"
                             + "var id='yield-night-style';"
                             + "var old=document.getElementById(id);if(old)old.remove();"
                             + "var s=document.createElement('style');s.id=id;"
@@ -8528,30 +8617,33 @@ private void showDownloadSettingsPanel() {
                             + "':root{color-scheme:dark!important;}' + "
                             + "'input,textarea,select{color-scheme:dark!important;}' + "
                             + "'img,video,canvas,svg,picture{filter:none!important;}';"
-                            + "document.head.appendChild(s);"
-                            + "}catch(e){}"
+                            + "(document.head||document.documentElement).appendChild(s);"
+                            + "var meta=document.querySelector('meta[name=color-scheme]');"
+                            + "if(!meta){meta=document.createElement('meta');meta.name='color-scheme';(document.head||document.documentElement).appendChild(meta);}"
+                            + "meta.setAttribute('content','dark light');"
+                            + "}"
+                            + "catch(e){}"
                             + "})()";
         } else {
-            // OFF harus benar-benar membersihkan efek gelap tanpa menutup panel setelan.
+            // v0.9.47: OFF harus menang melawan bfcache/history dan sisa dark CSS sebelumnya.
+            // Karena beberapa halaman tersimpan dari riwayat membawa DOM gelap lama, pasang light guard ringan.
             js =
                     "javascript:(function(){"
                             + "try{"
                             + "var ids=['yield-night-style','yield-dark-style','yield-force-dark'];"
                             + "for(var i=0;i<ids.length;i++){var x=document.getElementById(ids[i]);if(x)x.remove();}"
-                            + "document.documentElement.style.colorScheme='light';"
-                            + "document.documentElement.style.background='';"
-                            + "document.documentElement.style.backgroundColor='';"
-                            + "document.documentElement.classList.remove('dark','night','night-mode','dark-mode');"
-                            + "if(document.body){"
-                            + "document.body.style.colorScheme='light';"
-                            + "document.body.style.background='';"
-                            + "document.body.style.backgroundColor='';"
-                            + "document.body.style.color='';"
-                            + "document.body.classList.remove('dark','night','night-mode','dark-mode');"
+                            + "var html=document.documentElement;"
+                            + "if(html){html.style.colorScheme='light';html.style.background='';html.style.backgroundColor='';html.classList.remove('dark','night','night-mode','dark-mode');}"
+                            + "if(document.body){document.body.style.colorScheme='light';document.body.style.background='';document.body.style.backgroundColor='';document.body.style.color='';document.body.classList.remove('dark','night','night-mode','dark-mode');}"
+                            + "var meta=document.querySelector('meta[name=color-scheme]');"
+                            + "if(!meta){meta=document.createElement('meta');meta.name='color-scheme';(document.head||document.documentElement).appendChild(meta);}"
+                            + "meta.setAttribute('content','light');"
+                            + "var light=document.getElementById('yield-light-style');if(light)light.remove();"
+                            + "light=document.createElement('style');light.id='yield-light-style';"
+                            + "light.innerHTML=':root,html,body{color-scheme:light!important;} html,body{background:#ffffff!important;} input,textarea,select{color-scheme:light!important;} img,video,canvas,svg,picture{filter:none!important;}';"
+                            + "(document.head||document.documentElement).appendChild(light);"
                             + "}"
-                            + "var metas=document.querySelectorAll('meta[name=color-scheme]');"
-                            + "for(var m=0;m<metas.length;m++){metas[m].setAttribute('content','light');}"
-                            + "}catch(e){}"
+                            + "catch(e){}"
                             + "})()";
         }
 
@@ -8563,33 +8655,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private void disableNightModeCompletely(boolean reloadPage) {
-        nightModeOption = "OFF";
-        nightMode = false;
-        saveSettings();
-
-        try {
-            if (webView != null) {
-                webView.setBackgroundColor(Color.WHITE);
-                WebSettings settings = webView.getSettings();
-                if (Build.VERSION.SDK_INT >= 29) {
-                    settings.setForceDark(WebSettings.FORCE_DARK_OFF);
-                }
-            }
-        } catch (Exception ignored) {
-        }
-
-        applyBrowserSettings();
-        applyNightModeToWebPage();
-
-        if (reloadPage && webView != null && webView.getVisibility() == View.VISIBLE) {
-            mainHandler.postDelayed(() -> {
-                try {
-                    String url = webView.getUrl();
-                    if (url != null && url.length() > 0) webView.reload();
-                } catch (Exception ignored) {
-                }
-            }, 250);
-        }
+        setNightModeOptionAndApply("OFF", reloadPage);
     }
 
     private void showNightModeSettingsDialog() {
@@ -8610,30 +8676,22 @@ private void showDownloadSettingsPanel() {
         box.addView(title);
 
         box.addView(nightChoiceRow("OFF", "OFF".equals(nightModeOption), v -> {
-            disableNightModeCompletely(false);
+            disableNightModeCompletely(true);
             updateTopActionStates();
             Toast.makeText(this, "Mode Malam: OFF", Toast.LENGTH_SHORT).show();
         }));
         box.addView(nightChoiceRow("ON", "ON".equals(nightModeOption), v -> {
-            nightModeOption = "ON";
-            nightMode = isNightModeActiveForCurrentSite();
-            saveSettings();
-            applyBrowserSettings();
-            applyNightModeToWebPage();
+            setNightModeOptionAndApply("ON", true);
             updateTopActionStates();
             Toast.makeText(this, "Mode Malam: ON", Toast.LENGTH_SHORT).show();
         }));
         box.addView(nightChoiceRow("Auto ikut sistem", "AUTO".equals(nightModeOption), v -> {
-            nightModeOption = "AUTO";
-            nightMode = isNightModeActiveForCurrentSite();
-            saveSettings();
-            applyBrowserSettings();
-            applyNightModeToWebPage();
+            setNightModeOptionAndApply("AUTO", true);
             updateTopActionStates();
             Toast.makeText(this, "Mode Malam: Auto ikut sistem", Toast.LENGTH_SHORT).show();
         }));
         box.addView(nightChoiceRow("Bersihkan style gelap halaman ini", false, v -> {
-            disableNightModeCompletely(false);
+            disableNightModeCompletely(true);
             updateTopActionStates();
             Toast.makeText(this, "Style gelap dibersihkan", Toast.LENGTH_SHORT).show();
         }));
@@ -8741,7 +8799,7 @@ private void showDownloadSettingsPanel() {
                     else nightModeExceptions.add(host);
                     saveSettings();
                     applyBrowserSettings();
-                    applyNightModeToWebPage();
+                    scheduleNightModeSyncForPage(getEffectiveCurrentUrl());
                     Toast.makeText(this, excepted ? "Pengecualian dihapus" : "Situs dikecualikan", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Batal", null)
@@ -8902,8 +8960,12 @@ private void showDownloadSettingsPanel() {
         }
 
         try {
+            boolean activeNight = isNightModeActiveForCurrentSite();
             if (Build.VERSION.SDK_INT >= 29) {
-                settings.setForceDark(isNightModeActiveForCurrentSite() ? WebSettings.FORCE_DARK_ON : WebSettings.FORCE_DARK_OFF);
+                settings.setForceDark(activeNight ? WebSettings.FORCE_DARK_ON : WebSettings.FORCE_DARK_OFF);
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                settings.setAlgorithmicDarkeningAllowed(activeNight);
             }
         } catch (Exception ignored) {
         }
@@ -10250,7 +10312,7 @@ private void showDownloadSettingsPanel() {
                 .putBoolean("hideGoogleTranslateBar", hideGoogleTranslateBar)
                 .putString("translateTargetLang", translateTargetLang)
                 .putString("translateTargetLabel", translateTargetLabel)
-                .putBoolean("nightMode", isNightModeActiveForCurrentSite())
+                .putBoolean("nightMode", !"OFF".equals(nightModeOption))
                 .putString("nightModeOption", nightModeOption)
                 .putStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>(nightModeExceptions))
                 .putBoolean("readerMode", readerMode)
