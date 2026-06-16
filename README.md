@@ -662,3 +662,15 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - ikon reload di address bar tidak diubah.
   - jika “Reload website” OFF, item Reload website di menu titik tiga tidak muncul.
   - default “Reload website” tetap ON.
+
+
+## v0.9.24
+- Perbaikan riwayat browsing:
+  - histori sekarang direkam untuk semua URL HTTP/HTTPS normal, tidak lagi terlalu bergantung pada filter `isSafeMainFrameUrl`.
+  - panel Histori memuat ulang data tersimpan saat dibuka.
+  - histori tidak ditimpa kosong otomatis saat `historyData` kosong.
+  - URL yang diketik/search langsung dicatat sebagai cadangan awal, lalu di-dedup saat halaman selesai load.
+  - backup histori tetap dipakai dan disimpan dengan `commit()`.
+- Revisi icon launcher:
+  - background icon diganti dari hitam menjadi putih dengan sedikit ungu soft.
+  - logo YL emas tetap di tengah.
