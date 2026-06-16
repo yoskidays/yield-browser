@@ -14,4 +14,13 @@
     <item name="android:textColorPrimary">#F5F7FA</item>
     <item name="android:textColorSecondary">#B7BDC8</item>
 </style>
+
+<style name="Theme.YieldBrowser.Splash" parent="android:style/Theme.Material.NoActionBar">
+    <item name="android:fontFamily">sans</item>
+    <item name="android:windowNoTitle">true</item>
+    <item name="android:windowActionBar">false</item>
+    <item name="android:windowBackground">#050609</item>
+    <item name="android:windowLightStatusBar">false</item>
+    <item name="android:colorAccent">@color/yield_yellow</item>
+</style>
 </resources>

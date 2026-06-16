@@ -634,3 +634,31 @@ Resume download bergantung pada dukungan server terhadap HTTP Range. Jika server
   - regex JavaScript `\s` di dalam string Java sekarang di-escape dengan benar.
   - error `text blocks are not supported in -source 8` pada `MainActivity.java` diperbaiki.
 - YouTube Safe AdBlock v0.9.20 tetap dipertahankan.
+
+
+## v0.9.22
+- Finishing APK:
+  - launcher icon Android diganti dari logo Android default menjadi logo YL emas/hitam pilihan user.
+  - ditambahkan splash screen animasi native:
+    - logo YL fade/scale masuk.
+    - teks Yield Browser muncul.
+    - garis glow emas muncul.
+    - otomatis masuk ke MainActivity.
+- Manifest diubah:
+  - SplashActivity menjadi launcher activity.
+  - MainActivity tidak lagi menjadi launcher langsung.
+  - app icon memakai `@mipmap/ic_launcher` dan `@mipmap/ic_launcher_round`.
+- Riwayat browsing diperkuat:
+  - tidak auto-clear saat keluar aplikasi.
+  - histori disimpan dengan `commit()` dan backup key.
+  - histori disimpan lagi saat `onPause`, `onStop`, dan `onDestroy`.
+  - hapus semua histori tetap manual lewat menu Kelola / hapus riwayat.
+
+
+## v0.9.23
+- Revisi Sesuaikan Menu:
+  - ditambahkan ON/OFF khusus untuk item “Reload website” di menu titik tiga / Menu utama.
+  - toggle ini terpisah dari “Reload di address bar”.
+  - ikon reload di address bar tidak diubah.
+  - jika “Reload website” OFF, item Reload website di menu titik tiga tidak muncul.
+  - default “Reload website” tetap ON.

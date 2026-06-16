@@ -127,6 +127,7 @@ public class MainActivity extends Activity {
     private static final String KEY_BOOKMARK_FOLDERS = "bookmark_folders";
     private static final String KEY_DOWNLOAD_HISTORY = "download_history";
     private static final String KEY_BROWSER_HISTORY = "browser_history";
+    private static final String KEY_BROWSER_HISTORY_BACKUP = "browser_history_backup";
     private static final String KEY_NIGHT_EXCEPTIONS = "night_mode_exceptions";
     private static final String CHANNEL_DOWNLOADS = "yield_downloads";
     private static final String ACTION_OPEN_DOWNLOADS = "com.yieldbrowser.app.OPEN_DOWNLOADS";
@@ -206,6 +207,7 @@ public class MainActivity extends Activity {
     private int textZoom = 100;
 
     private boolean shortcutDownload = true;
+    private boolean shortcutReloadWebsite = true;
     private boolean shortcutBookmark = false;
     private boolean shortcutPrivate = true;
     private boolean shortcutAdBlock = true;
@@ -502,7 +504,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        try { saveCurrentTabState(); } catch (Exception ignored) {}
+        try {
+            saveCurrentTabState();
+            if (!historyData.isEmpty()) saveBrowserHistory();
+        } catch (Exception ignored) {}
         if (videoBackgroundPlay && webView != null) {
             try {
                 webView.evaluateJavascript("(function(){try{var v=document.querySelector('video');if(v&&!v.paused){v.play().catch(function(){});}return 'keep';}catch(e){return 'err';}})()", null);
@@ -513,9 +518,25 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStop() {
+        try {
+            if (!historyData.isEmpty()) saveBrowserHistory();
+        } catch (Exception ignored) {}
+        super.onStop();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         handleOpenDownloadsIntent(getIntent());
+    }
+
+    @Override
+    protected void onDestroy() {
+        try {
+            if (!historyData.isEmpty()) saveBrowserHistory();
+        } catch (Exception ignored) {}
+        super.onDestroy();
     }
 
     private void handleOpenDownloadsIntent(Intent intent) {
@@ -1378,10 +1399,12 @@ content.addView(space(dp(36)));
             }));
         }
 
-        menu.addView(menuRow(R.drawable.ic_refresh, "Reload website", v -> {
-            dialog.dismiss();
-            reloadCurrentWebsite();
-        }));
+        if (shortcutReloadWebsite) {
+            menu.addView(menuRow(R.drawable.ic_refresh, "Reload website", v -> {
+                dialog.dismiss();
+                reloadCurrentWebsite();
+            }));
+        }
 
         menu.addView(menuDivider());
         menu.addView(menuRow(R.drawable.ic_settings, "Setelan", v -> {
@@ -1421,7 +1444,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.21";
+        return "0.9.23";
     }
 
     private void showAboutYieldDialog() {
@@ -2066,6 +2089,7 @@ content.addView(space(dp(36)));
         sub.setPadding(dp(8), 0, 0, dp(12));
         panel.addView(sub);
 
+        panel.addView(customizeToggleRow(R.drawable.ic_refresh, "Reload website", shortcutReloadWebsite, v -> { shortcutReloadWebsite = !shortcutReloadWebsite; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_download_modern, "Unduhan Yield", shortcutDownload, v -> { shortcutDownload = !shortcutDownload; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_bookmark, "Bookmark", shortcutBookmark, v -> { shortcutBookmark = !shortcutBookmark; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_private, "Privat", shortcutPrivate, v -> { shortcutPrivate = !shortcutPrivate; saveSettings(); }));
@@ -3269,8 +3293,7 @@ private void showDownloadSettingsPanel() {
                     .setTitle("Kelola riwayat")
                     .setMessage("Riwayat tidak dihapus otomatis. Hapus semua riwayat browsing?")
                     .setPositiveButton("Hapus", (d, w) -> {
-                        historyData.clear();
-                        saveBrowserHistory();
+                        clearBrowserHistoryManually();
                         dialog.dismiss();
                         showHistoryPanel();
                     })
@@ -3985,7 +4008,11 @@ private void showDownloadSettingsPanel() {
     }
 
     private void loadBrowserHistory() {
-        String saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_BROWSER_HISTORY, "");
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        String saved = p.getString(KEY_BROWSER_HISTORY, "");
+        if (saved == null || saved.length() == 0) {
+            saved = p.getString(KEY_BROWSER_HISTORY_BACKUP, "");
+        }
         if (saved == null || saved.length() == 0) {
             return;
         }
@@ -4023,7 +4050,19 @@ private void showDownloadSettingsPanel() {
                     .append(encode(item.url)).append("|")
                     .append(item.time).append("\\n");
         }
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_BROWSER_HISTORY, sb.toString()).apply();
+        String value = sb.toString();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(KEY_BROWSER_HISTORY, value)
+                .putString(KEY_BROWSER_HISTORY_BACKUP, value)
+                .commit();
+    }
+
+    private void clearBrowserHistoryManually() {
+        historyData.clear();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString(KEY_BROWSER_HISTORY, "")
+                .putString(KEY_BROWSER_HISTORY_BACKUP, "")
+                .commit();
     }
 
     private void showTextZoomDialog(Dialog parentDialog) {
@@ -8928,6 +8967,7 @@ private void showDownloadSettingsPanel() {
         desktopMode = p.getBoolean("desktopMode", false);
         textZoom = p.getInt("textZoom", 100);
         shortcutDownload = p.getBoolean("shortcutDownload", true);
+        shortcutReloadWebsite = p.getBoolean("shortcutReloadWebsite", true);
         shortcutBookmark = p.getBoolean("shortcutBookmark", false);
         shortcutPrivate = p.getBoolean("shortcutPrivate", true);
         shortcutAdBlock = p.getBoolean("shortcutAdBlock", true);
@@ -8968,6 +9008,7 @@ private void showDownloadSettingsPanel() {
 
         if (!p.getBoolean("menuDefaultsV030", false)) {
             shortcutDownload = true;
+            shortcutReloadWebsite = true;
             shortcutBookmark = false;
             shortcutPrivate = true;
             shortcutAdBlock = true;
@@ -8982,6 +9023,7 @@ private void showDownloadSettingsPanel() {
 
             p.edit()
                     .putBoolean("shortcutDownload", shortcutDownload)
+                    .putBoolean("shortcutReloadWebsite", shortcutReloadWebsite)
                     .putBoolean("shortcutBookmark", shortcutBookmark)
                     .putBoolean("shortcutPrivate", shortcutPrivate)
                     .putBoolean("shortcutAdBlock", shortcutAdBlock)
@@ -9021,6 +9063,7 @@ private void showDownloadSettingsPanel() {
                 .putBoolean("desktopMode", desktopMode)
                 .putInt("textZoom", textZoom)
                 .putBoolean("shortcutDownload", shortcutDownload)
+                .putBoolean("shortcutReloadWebsite", shortcutReloadWebsite)
                 .putBoolean("shortcutBookmark", shortcutBookmark)
                 .putBoolean("shortcutPrivate", shortcutPrivate)
                 .putBoolean("shortcutAdBlock", shortcutAdBlock)
