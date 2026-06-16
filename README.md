@@ -766,3 +766,7 @@ Fix Translate Kompatibel agar tidak reload loop dan tombol matikan translate ben
 - Tombol Back sekarang keluar dari Full Video terlebih dahulu, lalu keluar dari Landscape Video, baru menjalankan back halaman biasa.
 - Mode Home akan menutup Landscape Video secara aman agar orientasi tidak tersangkut.
 - `versionCode` dinaikkan ke 9 dan `versionName` menjadi `0.9.34`.
+
+
+## v0.9.38
+Desktop/Mobile Mode refactor: WebView dibuat ulang saat mode berubah agar tidak nyangkut desktop ketika Desktop Mode OFF.
