@@ -1,10 +1,10 @@
-# Yield Browser v0.9.60
+# Yield Browser v0.9.61
 
-## Compatibility Desktop Mode Fix
+## YouTube Main Video Blank Fix
 
-- Memperbaiki Desktop Mode pada situs compatibility seperti Lordborg dan situs sejenis.
-- Saat mode kompatibel aktif, toggle Desktop ON sekarang tetap menerapkan desktop profile/viewport.
-- Request situs compatibility di Desktop Mode memakai User-Agent desktop minimal tanpa header Sec-CH agresif agar tidak memicu security/blank.
-- Mobile Mode pada situs compatibility tetap kembali normal saat Desktop OFF.
-- Tidak mengubah adblock situs umum yang sudah stabil.
-- Tidak mengubah YouTube adblock, Night Mode, Direct Image Guard, Download Manager, Translate, dan kontrol video fullscreen.
+- Revisi khusus YouTube Safe AdBlock.
+- Speed/mute hanya aktif saat sinyal iklan YouTube benar-benar kuat.
+- Memperbaiki kondisi setelah iklan dilewati: video utama hitam/blank.
+- Membersihkan sisa overlay/class iklan YouTube yang tertinggal setelah iklan selesai.
+- Tidak memblokir resource inti YouTube seperti googlevideo.com, ytimg.com, youtubei/player, dan script player.
+- Tidak menyentuh adblock situs umum, Lordborg/site compatibility, direct image guard, desktop/mobile mode, night mode, fullscreen control, translate, atau download manager.
