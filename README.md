@@ -3,7 +3,7 @@
 Yield Browser adalah browser Android ringan dengan fitur browsing modern, adblock, mode desktop/mobile, translate, mode malam, kontrol video, dan download manager.
 
 ## Versi Saat Ini
-**v0.9.49**
+**v0.9.50**
 
 ## Status Stabil
 Fitur utama yang sudah distabilkan:

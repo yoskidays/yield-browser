@@ -8248,6 +8248,16 @@ private void showDownloadSettingsPanel() {
                     return true;
                 }
 
+                // v0.9.50: Smart Redirect Context.
+                // Domain yang biasanya iklan/direct-link tetap diblokir jika muncul otomatis,
+                // tetapi jika benar-benar berasal dari klik user atau hasil pencarian, izinkan
+                // dibuka dengan compatibility mode agar link situs mirip Lordborg tidak mati.
+                if (mainFrame && isContextAllowedSuspiciousMainFrameNavigation(u, currentUrl, hasGesture)) {
+                    markTrustedMainFrameNavigation(u);
+                    enableSiteCompatibilityModeForUrl(u, "user-context");
+                    return false;
+                }
+
                 // v0.9.46: strict compatibility navigation. Host utama dibiarkan jalan polos,
                 // tetapi popup/redirect iklan lintas-domain tetap dipindah ke tab sementara.
                 if (mainFrame && (isStrictSiteCompatibilityUrl(u) || isStrictSiteCompatibilityUrl(currentUrl))) {
@@ -9349,19 +9359,46 @@ private void showDownloadSettingsPanel() {
 
     private boolean isSearchEngineResultNavigation(String targetUrl, String currentUrl) {
         if (!isHttpOrHttpsUrl(targetUrl) || !isSearchEngineHost(currentUrl)) return false;
-        if (isKnownPopupHost(targetUrl) || isAdUrl(targetUrl) || isLikelyAdClickUrl(targetUrl)) return false;
+        // v0.9.50: hasil pencarian adalah aksi user. Jangan otomatis membatalkan
+        // domain yang terlihat seperti ads/direct-link; Java guard berikutnya yang
+        // menentukan apakah perlu compatibility mode atau tab sementara.
         return true;
+    }
+
+    private boolean isContextAllowedSuspiciousMainFrameNavigation(String targetUrl, String currentUrl, boolean hasGesture) {
+        try {
+            if (!isHttpOrHttpsUrl(targetUrl)) return false;
+            if (isExternalSchemeUrl(targetUrl) || isMediaResourceUrl(targetUrl) || isYoutubeCoreUrl(targetUrl)) return false;
+            String targetHost = normalizeHostForAdBlock(targetUrl);
+            String currentHost = normalizeHostForAdBlock(currentUrl);
+            if (targetHost.length() == 0) return false;
+
+            boolean sameSite = currentHost.length() > 0 && sameOrSubDomain(targetHost, currentHost);
+            boolean fromSearch = isSearchEngineResultNavigation(targetUrl, currentUrl);
+            boolean suspicious = isKnownPopupHost(targetUrl)
+                    || isLikelyAdClickUrl(targetUrl)
+                    || isAdUrl(targetUrl)
+                    || (currentHost.length() > 0 && isSuspiciousPopupNavigation(targetUrl, currentUrl));
+
+            if (!suspicious) return false;
+            if (sameSite) return true;
+            if (fromSearch) return true;
+            return hasGesture && currentHost.length() > 0;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private boolean isNormalUserMainFrameNavigation(String targetUrl, String currentUrl, boolean hasGesture) {
         if (!isHttpOrHttpsUrl(targetUrl)) return false;
-        if (isKnownPopupHost(targetUrl) || isAdUrl(targetUrl) || isLikelyAdClickUrl(targetUrl)) return false;
+        if (isExternalSchemeUrl(targetUrl) || isMediaResourceUrl(targetUrl) || isYoutubeCoreUrl(targetUrl)) return false;
         String targetHost = normalizeHostForAdBlock(targetUrl);
         String currentHost = normalizeHostForAdBlock(currentUrl);
         if (targetHost.length() == 0) return false;
         if (currentHost.length() > 0 && sameOrSubDomain(targetHost, currentHost)) return true;
         if (isSearchEngineResultNavigation(targetUrl, currentUrl)) return true;
-        return hasGesture;
+        if (isContextAllowedSuspiciousMainFrameNavigation(targetUrl, currentUrl, hasGesture)) return true;
+        return hasGesture && !isKnownPopupHost(targetUrl) && !isAdUrl(targetUrl) && !isLikelyAdClickUrl(targetUrl);
     }
 
     private boolean isFirstPartyResourceForCurrentPage(String resourceUrl, String pageUrl) {
@@ -9749,8 +9786,10 @@ private void showDownloadSettingsPanel() {
                 + "function media(u){try{var s=(u||'').toLowerCase();return s.indexOf('googlevideo.com/videoplayback')>-1||s.indexOf('/videoplayback')>-1||s.indexOf('.mp4')>-1||s.indexOf('.m3u8')>-1||s.indexOf('.mpd')>-1||s.indexOf('.webm')>-1||s.indexOf('.m4s')>-1||s.indexOf('.ts')>-1||s.indexOf('mime=video')>-1||s.indexOf('mime%3dvideo')>-1;}catch(e){return false;}}"
                 + "function safeVideoHost(h){return h.indexOf('youtube.com')>-1||h.indexOf('youtu.be')>-1||h.indexOf('googlevideo.com')>-1||h.indexOf('ytimg.com')>-1||h.indexOf('ggpht.com')>-1;}"
                 + "function bad(u){try{if(!u||media(u))return false;var s=(u||'').toLowerCase();if(/^[a-z][a-z0-9+.-]*:/.test(s)&&s.indexOf('http://')!==0&&s.indexOf('https://')!==0&&s.indexOf('javascript:')!==0&&s.indexOf('data:')!==0&&s.indexOf('blob:')!==0)return true;if(/(utm_medium=affiliates|deep_and_deferred|navigate_url=|reactpath|click_id|adclick|ad_click|adurl=|af_click|tracking_id|campaign_id)/.test(s))return true;var h=hostOf(u);var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||h===cur||h.endsWith('.'+cur))return false;if(safeVideoHost(h))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|realsrv|invest-tracing|doubleclick|googlesyndication|googleadservices)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;if(/\\.(shop|xyz|top|site|space|online|live|fun|lol)$/.test(h)&&/[\\/][a-z0-9_-]{8,}/.test(s))return true;if(/(popunder|popup|redirect|adclick|clickunder|interstitial|push)/.test(s))return true;return false;}catch(e){return false;}}"
+                + "function visibleAnchor(a){try{if(!a||!a.getBoundingClientRect)return false;var r=a.getBoundingClientRect();var t=((a.innerText||a.textContent||a.getAttribute('aria-label')||a.title||'')+'').trim();var hasMedia=!!a.querySelector('img,svg,picture,button');return r.width>12&&r.height>8&&(t.length>0||hasMedia);}catch(e){return false;}}"
+                + "function allowClickedAnchor(a,u){try{if(!a||!u)return false;var s=(u||'').toLowerCase();if(media(s))return true;var h=hostOf(u);var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h)return false;if(h===cur||h.endsWith('.'+cur))return true;if(!visibleAnchor(a))return false;if(/(intent:|market:|shopeeid:|lazada:|tokopedia:|adclick|ad_click|adurl=|clickunder|popunder|popup|interstitial|push)/.test(s))return false;return true;}catch(e){return false;}}"
                 + "if(Y_POPUP&&!window.__yieldOpenPatched){window.__yieldOpenPatched=true;var oldOpen=window.open;window.open=function(u,n,f){if(bad(u)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(u));}catch(e){}return {closed:true,focus:function(){},close:function(){}};}try{return oldOpen.call(window,u,n,f);}catch(e){return {closed:true,focus:function(){},close:function(){}};}};}"
-                + "if(Y_CLICK&&!window.__yieldClickPatched){window.__yieldClickPatched=true;document.addEventListener('click',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);document.addEventListener('auxclick',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);}"
+                + "if(Y_CLICK&&!window.__yieldClickPatched){window.__yieldClickPatched=true;document.addEventListener('click',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)&&!allowClickedAnchor(a,a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);document.addEventListener('auxclick',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)&&!allowClickedAnchor(a,a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);}"
                 + "function softHide(s){try{document.querySelectorAll(s).forEach(function(e){if(!e||e.tagName==='VIDEO')return;e.style.setProperty('display','none','important');e.style.setProperty('visibility','hidden','important');e.style.setProperty('height','0px','important');e.style.setProperty('min-height','0px','important');e.style.setProperty('overflow','hidden','important');});}catch(x){}}"
                 + "function hardHide(s){try{document.querySelectorAll(s).forEach(function(e){if(!e||e.tagName==='VIDEO')return;e.style.setProperty('display','none','important');e.remove&&e.remove();});}catch(x){}}"
                 + "function clickSkip(){try{document.querySelectorAll('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button,button[class*=skip],button[id*=skip],.skip,.skip-ad,.skip-button,.vjs-skip-button,.jw-skip,.jw-skiptext,.jw-skip-icon').forEach(function(b){try{var t=(b.innerText||b.textContent||'').toLowerCase();if(t.indexOf('skip')>-1||t.indexOf('lewati')>-1||t.length<25||String(b.className).toLowerCase().indexOf('skip')>-1)b.click();}catch(e){}});}catch(e){}}"
