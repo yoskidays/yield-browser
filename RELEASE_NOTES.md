@@ -1,13 +1,13 @@
-# Yield Browser v0.9.70
+# Yield Browser v0.9.71
 
-## YouTube Auto Cycle Ad Bypass
+## Edge-only Gesture Fix + YouTube Lewati Click Fix
 
-- Menambahkan siklus otomatis YouTube AdBlock:
-  - iklan muncul → assist aktif;
-  - klik Skip/Lewati jika tombol muncul;
-  - jika Skip belum muncul, maju +10 detik hanya pada video iklan;
-  - setelah iklan selesai → YouTube AdBlock tidur;
-  - setelah video utama berjalan ±2 menit → monitor aktif lagi untuk iklan tengah/belakang.
-- Tidak memakai speed playbackRate, mute paksa, force play, currentTime saat video utama normal, atau style override player utama.
-- Tetap tidak memblokir resource YouTube core seperti googlevideo, ytimg, dan youtubei.
-- Fix v0.9.69 tetap dipertahankan: universal desktop-site gesture guard, desktop/mobile fix, search engine fix, universal blank compatibility, Lordborg, Instant Monitor, dan Invest-tracing.
+- Memperbaiki gesture slide/back yang terlalu sensitif pada mode mobile biasa.
+- Custom swipe Back/Forward sekarang hanya aktif jika sentuhan dimulai dari pinggir layar.
+- Pada situs desktop-only/horizontal-scroll seperti `h-metrics.com`, area edge dibuat lebih sempit agar scroll horizontal tidak mudah terbaca sebagai Back.
+- Tombol Back HP tetap normal.
+- Memperkuat auto klik tombol YouTube `Lewati` / `Skip` pada mobile player.
+- Klik YouTube sekarang mencoba parent clickable dan fallback klik koordinat tengah tombol.
+- Mode cooldown YouTube tidak lagi tidur kalau iklan masih terlihat, sehingga tombol `Lewati` tetap bisa diklik.
+- Tetap tidak memakai playbackRate 16x, mute paksa, force play, atau blokir resource inti YouTube.
+- Fitur v0.9.70 tetap dipertahankan.

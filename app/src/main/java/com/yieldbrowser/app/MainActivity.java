@@ -10108,7 +10108,7 @@ private void showDownloadSettingsPanel() {
     private void injectYouTubeSafeAdBlockV6() {
         if (webView == null || !adBlock) return;
         if (!isYouTubePageUrl(getEffectiveCurrentUrl())) return;
-        // v0.9.70: YouTube Auto Cycle Ad Bypass.
+        // v0.9.71: YouTube Auto Cycle Ad Bypass + stronger Skip click.
         // Alur: iklan terdeteksi -> bantu klik Skip/Lewati atau majukan +10 detik
         // dengan mekanisme yang sama seperti kontrol +10s Yield -> setelah iklan lewat,
         // engine tidur sampai video utama berjalan sekitar 2 menit -> aktif lagi untuk iklan berikutnya.
@@ -10133,13 +10133,14 @@ private void showDownloadSettingsPanel() {
                 + "  function adInfo(){try{var p=player();var pt=playerText();var skip=qsa('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button,.ytm-ad-skip-button,.videoAdUiSkipButton,.ytp-ad-skip-button-container',p||document).some(visible);var ui=qsa('.ytp-ad-player-overlay,.ytp-ad-player-overlay-instream-info,.ytp-ad-preview-container,.ytp-ad-text,.ytp-ad-simple-ad-badge,.ytp-ad-badge,.video-ads.ytp-ad-module,.ytp-ad-action-interstitial',p||document).some(visible);var word=/(bersponsor|sponsored|kunjungi pengiklan|visit advertiser|lewati iklan|lewati|skip ad|iklan\\s*\\u2022|ad\\s*1\\s*of|ad\\s*2\\s*of|1\\s*dari\\s*2|2\\s*dari\\s*2)/i.test(pt);return {ad:!!(skip||ui||word),skip:skip,ui:ui,word:word};}catch(e){return {ad:false,skip:false,ui:false,word:false};}}\n"
                 + "  function fire(el,type){try{var ev;if(type.indexOf('touch')===0&&typeof TouchEvent!=='undefined'){ev=new TouchEvent(type,{bubbles:true,cancelable:true});}else if(type.indexOf('pointer')===0&&typeof PointerEvent!=='undefined'){ev=new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,pointerType:'touch',isPrimary:true});}else{ev=new MouseEvent(type,{bubbles:true,cancelable:true,view:window});}el.dispatchEvent(ev);return true;}catch(e){return false;}}\n"
                 + "  function strongClick(el){try{if(!el)return false;['pointerover','pointerenter','pointerdown','touchstart','mousedown','pointerup','touchend','mouseup','click'].forEach(function(ev){fire(el,ev);});try{el.click();}catch(e){}return true;}catch(e){try{el.click();return true;}catch(x){return false;}}}\n"
-                + "  function clickBest(el){try{var t=el;for(var i=0;i<5&&t;i++,t=t.parentElement){var tag=(t.tagName||'').toLowerCase();var role=(t.getAttribute&&t.getAttribute('role')||'').toLowerCase();var cls=String(t.className||'').toLowerCase();var tx=txt(t);if(tag==='button'||role==='button'||cls.indexOf('skip')>-1||cls.indexOf('ytp-ad-skip')>-1||tx.indexOf('lewati')>-1||tx.indexOf('skip')>-1){return strongClick(t);}}return strongClick(el);}catch(e){return strongClick(el);}}\n"
+                + "  function coordinateClick(el){try{if(!el||!el.getBoundingClientRect)return false;var r=el.getBoundingClientRect();if(r.width<2||r.height<2)return false;var x=Math.max(1,Math.min(window.innerWidth-2,r.left+r.width/2));var y=Math.max(1,Math.min(window.innerHeight-2,r.top+r.height/2));var target=document.elementFromPoint(x,y)||el;['pointerdown','touchstart','mousedown','pointerup','touchend','mouseup','click'].forEach(function(type){try{var ev;if(type.indexOf('pointer')===0&&typeof PointerEvent!=='undefined'){ev=new PointerEvent(type,{bubbles:true,cancelable:true,clientX:x,clientY:y,pointerId:1,pointerType:'touch',isPrimary:true});}else{ev=new MouseEvent(type,{bubbles:true,cancelable:true,view:window,clientX:x,clientY:y});}target.dispatchEvent(ev);}catch(e){}});try{target.click();}catch(e){}return true;}catch(e){return false;}}\n"
+                + "  function clickBest(el){try{var best=el;var t=el;for(var i=0;i<7&&t;i++,t=t.parentElement){var tag=(t.tagName||'').toLowerCase();var role=(t.getAttribute&&t.getAttribute('role')||'').toLowerCase();var cls=String(t.className||'').toLowerCase();var tx=txt(t);if(tag==='button'||role==='button'||cls.indexOf('skip')>-1||cls.indexOf('ytp-ad-skip')>-1||tx.indexOf('lewati')>-1||tx.indexOf('skip')>-1){best=t;break;}}var a=strongClick(best), b=coordinateClick(best);return a||b;}catch(e){return strongClick(el)||coordinateClick(el);}}\n"
                 + "  function findSkipTargets(){try{var p=player();var roots=[p,document];var out=[];var sels=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button','.ytp-skip-ad-button__button','.ytm-ad-skip-button','.videoAdUiSkipButton','.ytp-ad-skip-button-container','.ytp-ad-skip-button-text','.ytp-ad-skip-button-icon','button[aria-label]','button','div[role=button]','a[role=button]','tp-yt-paper-button','span','div'];roots.forEach(function(root){if(!root)return;sels.forEach(function(sel){qsa(sel,root).forEach(function(el){if(out.indexOf(el)<0)out.push(el);});});});return out;}catch(e){return [];} }\n"
                 + "  function clickSkip(){try{var now=Date.now();if(now-(S.lastSkip||0)<300)return false;var info=adInfo();var list=findSkipTargets();for(var i=0;i<list.length;i++){var el=list[i];if(!visible(el))continue;var t=txt(el), c=String(el.className||'').toLowerCase(), a=String(el.getAttribute&&el.getAttribute('aria-label')||'').toLowerCase();var ok=(t.indexOf('lewati')>-1||t.indexOf('skip')>-1||t.indexOf('abaikan')>-1||a.indexOf('lewati')>-1||a.indexOf('skip')>-1||c.indexOf('skip')>-1||c.indexOf('ytp-ad-skip')>-1);if(!ok)continue;var safe=inPlayer(el)||c.indexOf('skip')>-1||info.ad;if(safe){S.lastSkip=now;var r=clickBest(el);if(r)enterCooldownPending('skip');return r;}}return false;}catch(e){return false;}}\n"
                 + "  function yieldForward10Assist(){try{var now=Date.now();if(now-(S.lastAssist||0)<850)return false;var info=adInfo();if(!info.ad)return false;var v=video();if(!v)return false;var cur=(typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;var dur=(typeof v.duration==='number'&&isFinite(v.duration))?v.duration:999999;var next=Math.max(0,Math.min(dur-0.15,cur+10));if(next<=cur+0.2)return false;S.lastAssist=now;v.currentTime=next;try{v.dispatchEvent(new Event('seeking'));v.dispatchEvent(new Event('timeupdate'));}catch(e){}return true;}catch(e){return false;}}\n"
                 + "  function enterCooldownPending(reason){try{S.phase='cooldown_pending';S.hadAd=false;S.coolStart=Date.now();setTimeout(function(){try{if(adInfo().ad){S.phase='assist';return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;S.phase='cooldown';S.coolBase=ct;S.coolTarget=ct+120;S.coolStart=Date.now();}catch(e){S.phase='cooldown';S.coolStart=Date.now();S.coolTarget=999999;}},2200);}catch(e){}}\n"
                 + "  function cooldownDone(){try{if(S.phase!=='cooldown')return false;var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;if(ct>=(S.coolTarget||0)||Date.now()-(S.coolStart||0)>150000){S.phase='monitor';return true;}return false;}catch(e){return false;}}\n"
-                + "  function run(){try{var now=Date.now();if(S.phase==='cooldown_pending')return;if(S.phase==='cooldown'){cooldownDone();return;}var info=adInfo();if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}if(S.phase==='assist'&&S.hadAd&&now-(S.lastAdSeen||0)>1800){enterCooldownPending('ad-ended');return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;if(S.phase==='initial'&&ct>8){enterCooldownPending('main-start');return;}}catch(e){}}\n"
+                + "  function run(){try{var now=Date.now();var info=adInfo();if(S.phase==='cooldown_pending'){if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}return;}if(S.phase==='cooldown'){if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}cooldownDone();return;}if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}if(S.phase==='assist'&&S.hadAd&&now-(S.lastAdSeen||0)>2600){enterCooldownPending('ad-ended');return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;if(S.phase==='initial'&&ct>8){enterCooldownPending('main-start');return;}}catch(e){}}\n"
                 + "  W.__yieldYTAutoCycleRun=run;\n"
                 + "  if(!S.installed){S.installed=true;try{var timer=null;var mo=new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(run,60);});mo.observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','aria-label','title']});}catch(e){} ['yt-navigate-start','yt-navigate-finish','yt-page-data-updated','spfdone','visibilitychange','touchstart','touchend','pointerup','click','play','timeupdate'].forEach(function(ev){try{document.addEventListener(ev,function(){setTimeout(run,40);setTimeout(run,170);setTimeout(run,600);},true);}catch(e){}});setInterval(run,420);}\n"
                 + "  setTimeout(run,30);setTimeout(run,160);setTimeout(run,420);setTimeout(run,1000);setTimeout(run,2200);setTimeout(run,4200);\n"
@@ -10401,16 +10402,25 @@ private void showDownloadSettingsPanel() {
                 if (Math.abs(dx) < dp(90)) return false;
                 if (Math.abs(dy) > dp(120)) return false;
 
-                // v0.9.69: Desktop Site Gesture Guard.
-                // Di WebView, situs desktop-only/horizontal-scroll butuh swipe kiri/kanan
-                // untuk melihat halaman. Jangan jadikan swipe itu sebagai Back/Forward.
-                if (shouldProtectWebHorizontalSwipeGesture()) {
-                    return false;
-                }
+                // v0.9.71: Edge-only swipe navigation.
+                // Sebelumnya swipe horizontal dari tengah layar bisa ikut terbaca sebagai Back.
+                // Sekarang custom Back/Forward hanya aktif jika sentuhan dimulai dari pinggir layar.
+                // Pada situs desktop/horizontal-scroll, area pinggir dibuat lebih sempit lagi.
+                boolean horizontalProtected = shouldProtectWebHorizontalSwipeGesture();
+                int screenWidth = getResources() != null && getResources().getDisplayMetrics() != null
+                        ? getResources().getDisplayMetrics().widthPixels : 0;
+                int edgeLimit = horizontalProtected ? dp(16) : dp(30);
+                boolean fromLeftEdge = swipeStartX <= edgeLimit;
+                boolean fromRightEdge = screenWidth > 0 && swipeStartX >= (screenWidth - edgeLimit);
+                if (!fromLeftEdge && !fromRightEdge) return false;
 
+                // Arah lama tetap dipertahankan: swipe kiri = Back, swipe kanan = Forward.
+                // Namun harus dimulai dari edge yang searah agar scroll horizontal tengah tidak memicu navigasi.
                 if (dx < 0) {
+                    if (!fromRightEdge) return false;
                     navigateSwipeBack();
                 } else {
+                    if (!fromLeftEdge) return false;
                     navigateSwipeForward();
                 }
                 return false;
