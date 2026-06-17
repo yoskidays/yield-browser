@@ -183,6 +183,10 @@ public class MainActivity extends Activity {
     private float swipeStartX = 0f;
     private float swipeStartY = 0f;
     private long swipeStartTime = 0L;
+    // v0.9.69: situs desktop/horizontal-scroll seperti h-metrics.com tidak boleh
+    // dianggap gesture Back saat user menggeser halaman ke samping.
+    private boolean webHorizontalGestureGuard = false;
+    private String webHorizontalGestureGuardHost = "";
 
     private LinearLayout activeDownloadListPanel;
     private Dialog activeDownloadDialog;
@@ -2088,8 +2092,9 @@ content.addView(space(dp(36)));
                     searchEngine = engines[which];
                     saveSettings();
                     dialog.dismiss();
-                    parentDialog.dismiss();
-                    showSettingsPanel();
+                    // v0.9.68: jangan tutup/recreate panel Settings setelah memilih search engine.
+                    // Recreate dialog lama membuat efek kedip/flicker balik ke home.
+                    // Nilai search engine langsung tersimpan dan dipakai oleh pencarian berikutnya.
                     Toast.makeText(this, "Search engine: " + searchEngine, Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Batal", null)
@@ -8376,6 +8381,8 @@ private void showDownloadSettingsPanel() {
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 String safeBeforePageStarted = lastSafeHttpUrl;
                 currentPageUrlForRequest = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
+                webHorizontalGestureGuard = false;
+                webHorizontalGestureGuardHost = hostOfUrl(currentPageUrlForRequest);
                 syncNightModeWebSettingsForUrl(currentPageUrlForRequest);
                 boolean strictCompatibilityActive = isStrictSiteCompatibilityUrl(url);
                 boolean reloadLoopGuarded = registerNavigationLoopGuard(url);
@@ -8459,6 +8466,7 @@ private void showDownloadSettingsPanel() {
                 String shownUrl = extractOriginalUrl(url);
                 String finalUrl = shownUrl != null ? shownUrl : url;
                 currentPageUrlForRequest = finalUrl;
+                scheduleHorizontalGestureGuardCheck(finalUrl);
                 if (shouldRecordHistoryUrl(finalUrl)) {
                     lastSafeHttpUrl = finalUrl;
                 }
@@ -10100,34 +10108,41 @@ private void showDownloadSettingsPanel() {
     private void injectYouTubeSafeAdBlockV6() {
         if (webView == null || !adBlock) return;
         if (!isYouTubePageUrl(getEffectiveCurrentUrl())) return;
-        // v0.9.67: YouTube Delayed Skip-Only.
-        // Awal video hanya cari tombol Skip/Lewati. Setelah video utama mulai, script tidur
-        // sampai currentTime >= 120 detik, lalu monitor ringan untuk midroll. Tidak speed,
-        // tidak mute, tidak force play, dan tidak menyentuh video utama.
+        // v0.9.70: YouTube Auto Cycle Ad Bypass.
+        // Alur: iklan terdeteksi -> bantu klik Skip/Lewati atau majukan +10 detik
+        // dengan mekanisme yang sama seperti kontrol +10s Yield -> setelah iklan lewat,
+        // engine tidur sampai video utama berjalan sekitar 2 menit -> aktif lagi untuk iklan berikutnya.
+        // Tidak memakai playbackRate, mute, force play, currentTime liar saat video utama normal,
+        // dan tetap tidak memblokir googlevideo/ytimg/youtubei.
         String js = "javascript:"
                 + "(function(){\n"
                 + "try{\n"
                 + "  var host=(location.hostname||'').toLowerCase();\n"
                 + "  if(host.indexOf('youtube.com')<0 && host.indexOf('youtu.be')<0) return;\n"
                 + "  var W=window;\n"
-                + "  W.__yieldYTSkipOnlyV67=W.__yieldYTSkipOnlyV67||{installed:false,phase:'initial',lastSkip:0,lastUrl:'',lastRun:0};\n"
-                + "  var S=W.__yieldYTSkipOnlyV67;\n"
-                + "  var cur=location.href; if(S.lastUrl!==cur){S.lastUrl=cur;S.phase='initial';S.lastSkip=0;}\n"
+                + "  W.__yieldYTAutoCycleV70=W.__yieldYTAutoCycleV70||{installed:false,lastUrl:'',phase:'initial',lastSkip:0,lastAssist:0,lastAdSeen:0,hadAd:false,coolStart:0,coolBase:0,coolTarget:0};\n"
+                + "  var S=W.__yieldYTAutoCycleV70;\n"
+                + "  var cur=location.href; if(S.lastUrl!==cur){S.lastUrl=cur;S.phase='initial';S.lastSkip=0;S.lastAssist=0;S.lastAdSeen=0;S.hadAd=false;S.coolStart=0;S.coolBase=0;S.coolTarget=0;}\n"
                 + "  function qsa(sel,root){try{return Array.prototype.slice.call((root||document).querySelectorAll(sel));}catch(e){return [];} }\n"
                 + "  function txt(el){try{return ((el&&((el.innerText||el.textContent||el.getAttribute('aria-label')||el.getAttribute('title')||'')))+'').replace(/\\s+/g,' ').trim().toLowerCase();}catch(e){return '';} }\n"
-                + "  function visible(el){try{if(!el)return false;var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return r.width>4&&r.height>4&&cs.display!=='none'&&cs.visibility!=='hidden'&&parseFloat(cs.opacity||'1')>0.01;}catch(e){return !!el;} }\n"
+                + "  function visible(el){try{if(!el)return false;var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return r.width>2&&r.height>2&&cs.display!=='none'&&cs.visibility!=='hidden'&&parseFloat(cs.opacity||'1')>0.01;}catch(e){return !!el;} }\n"
                 + "  function player(){return document.querySelector('#movie_player,.html5-video-player,ytd-player,ytm-player,#player-container-id,#player-container,#player');}\n"
                 + "  function video(){try{return document.querySelector('#movie_player video,.html5-video-player video,ytd-player video,ytm-player video,#player video,video');}catch(e){return null;}}\n"
                 + "  function inPlayer(el){try{return !!(el&&el.closest&&el.closest('#movie_player,.html5-video-player,ytd-player,ytm-player,#player-container-id,#player-container,#player'));}catch(e){return false;} }\n"
+                + "  function playerText(){try{var p=player();return p?txt(p):'';}catch(e){return '';} }\n"
+                + "  function adInfo(){try{var p=player();var pt=playerText();var skip=qsa('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button,.ytm-ad-skip-button,.videoAdUiSkipButton,.ytp-ad-skip-button-container',p||document).some(visible);var ui=qsa('.ytp-ad-player-overlay,.ytp-ad-player-overlay-instream-info,.ytp-ad-preview-container,.ytp-ad-text,.ytp-ad-simple-ad-badge,.ytp-ad-badge,.video-ads.ytp-ad-module,.ytp-ad-action-interstitial',p||document).some(visible);var word=/(bersponsor|sponsored|kunjungi pengiklan|visit advertiser|lewati iklan|lewati|skip ad|iklan\\s*\\u2022|ad\\s*1\\s*of|ad\\s*2\\s*of|1\\s*dari\\s*2|2\\s*dari\\s*2)/i.test(pt);return {ad:!!(skip||ui||word),skip:skip,ui:ui,word:word};}catch(e){return {ad:false,skip:false,ui:false,word:false};}}\n"
                 + "  function fire(el,type){try{var ev;if(type.indexOf('touch')===0&&typeof TouchEvent!=='undefined'){ev=new TouchEvent(type,{bubbles:true,cancelable:true});}else if(type.indexOf('pointer')===0&&typeof PointerEvent!=='undefined'){ev=new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,pointerType:'touch',isPrimary:true});}else{ev=new MouseEvent(type,{bubbles:true,cancelable:true,view:window});}el.dispatchEvent(ev);return true;}catch(e){return false;}}\n"
-                + "  function strongClick(el){try{if(!el)return false;['pointerdown','touchstart','mousedown','pointerup','touchend','mouseup','click'].forEach(function(ev){fire(el,ev);});try{el.click();}catch(e){}return true;}catch(e){try{el.click();return true;}catch(x){return false;}}}\n"
-                + "  function findSkipTargets(){try{var p=player();var roots=[p,document];var out=[];var sels=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button','.ytp-skip-ad-button__button','.ytm-ad-skip-button','.videoAdUiSkipButton','button[aria-label]','button','div[role=button]','a[role=button]','tp-yt-paper-button'];roots.forEach(function(root){if(!root)return;sels.forEach(function(sel){qsa(sel,root).forEach(function(el){if(out.indexOf(el)<0)out.push(el);});});});return out;}catch(e){return [];} }\n"
-                + "  function clickSkip(){try{var now=Date.now();if(now-(S.lastSkip||0)<650)return false;var words=/(^|\\b)(skip|lewati|abaikan|skip ad|lewati iklan)(\\b|$)/i;var list=findSkipTargets();for(var i=0;i<list.length;i++){var el=list[i];if(!visible(el))continue;var t=txt(el), c=String(el.className||'').toLowerCase(), a=String(el.getAttribute&&el.getAttribute('aria-label')||'').toLowerCase();var ok=words.test(t)||words.test(a)||c.indexOf('skip')>-1;if(ok&&inPlayer(el)){S.lastSkip=now;S.phase='cooldown';return strongClick(el);} }return false;}catch(e){return false;}}\n"
-                + "  function updatePhase(){try{var v=video();if(!v)return;var ct=(typeof v.currentTime==='number')?v.currentTime:0;if(S.phase==='initial'&&ct>=5){S.phase='cooldown';}if(ct>=120){S.phase='monitor';}}catch(e){}}\n"
-                + "  function run(){try{updatePhase();if(S.phase==='initial'||S.phase==='monitor'){clickSkip();}}catch(e){}}\n"
-                + "  W.__yieldYTSkipOnlyRun=run;\n"
-                + "  if(!S.installed){S.installed=true;try{var t=null;var mo=new MutationObserver(function(){clearTimeout(t);t=setTimeout(run,180);});mo.observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','aria-label','title']});}catch(e){} ['yt-navigate-start','yt-navigate-finish','yt-page-data-updated','spfdone','visibilitychange','touchend','pointerup','play','timeupdate'].forEach(function(ev){try{document.addEventListener(ev,function(){setTimeout(run,90);setTimeout(run,550);},true);}catch(e){}});setInterval(run,900);}\n"
-                + "  setTimeout(run,120);setTimeout(run,700);setTimeout(run,1600);setTimeout(run,3600);\n"
+                + "  function strongClick(el){try{if(!el)return false;['pointerover','pointerenter','pointerdown','touchstart','mousedown','pointerup','touchend','mouseup','click'].forEach(function(ev){fire(el,ev);});try{el.click();}catch(e){}return true;}catch(e){try{el.click();return true;}catch(x){return false;}}}\n"
+                + "  function clickBest(el){try{var t=el;for(var i=0;i<5&&t;i++,t=t.parentElement){var tag=(t.tagName||'').toLowerCase();var role=(t.getAttribute&&t.getAttribute('role')||'').toLowerCase();var cls=String(t.className||'').toLowerCase();var tx=txt(t);if(tag==='button'||role==='button'||cls.indexOf('skip')>-1||cls.indexOf('ytp-ad-skip')>-1||tx.indexOf('lewati')>-1||tx.indexOf('skip')>-1){return strongClick(t);}}return strongClick(el);}catch(e){return strongClick(el);}}\n"
+                + "  function findSkipTargets(){try{var p=player();var roots=[p,document];var out=[];var sels=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button','.ytp-skip-ad-button__button','.ytm-ad-skip-button','.videoAdUiSkipButton','.ytp-ad-skip-button-container','.ytp-ad-skip-button-text','.ytp-ad-skip-button-icon','button[aria-label]','button','div[role=button]','a[role=button]','tp-yt-paper-button','span','div'];roots.forEach(function(root){if(!root)return;sels.forEach(function(sel){qsa(sel,root).forEach(function(el){if(out.indexOf(el)<0)out.push(el);});});});return out;}catch(e){return [];} }\n"
+                + "  function clickSkip(){try{var now=Date.now();if(now-(S.lastSkip||0)<300)return false;var info=adInfo();var list=findSkipTargets();for(var i=0;i<list.length;i++){var el=list[i];if(!visible(el))continue;var t=txt(el), c=String(el.className||'').toLowerCase(), a=String(el.getAttribute&&el.getAttribute('aria-label')||'').toLowerCase();var ok=(t.indexOf('lewati')>-1||t.indexOf('skip')>-1||t.indexOf('abaikan')>-1||a.indexOf('lewati')>-1||a.indexOf('skip')>-1||c.indexOf('skip')>-1||c.indexOf('ytp-ad-skip')>-1);if(!ok)continue;var safe=inPlayer(el)||c.indexOf('skip')>-1||info.ad;if(safe){S.lastSkip=now;var r=clickBest(el);if(r)enterCooldownPending('skip');return r;}}return false;}catch(e){return false;}}\n"
+                + "  function yieldForward10Assist(){try{var now=Date.now();if(now-(S.lastAssist||0)<850)return false;var info=adInfo();if(!info.ad)return false;var v=video();if(!v)return false;var cur=(typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;var dur=(typeof v.duration==='number'&&isFinite(v.duration))?v.duration:999999;var next=Math.max(0,Math.min(dur-0.15,cur+10));if(next<=cur+0.2)return false;S.lastAssist=now;v.currentTime=next;try{v.dispatchEvent(new Event('seeking'));v.dispatchEvent(new Event('timeupdate'));}catch(e){}return true;}catch(e){return false;}}\n"
+                + "  function enterCooldownPending(reason){try{S.phase='cooldown_pending';S.hadAd=false;S.coolStart=Date.now();setTimeout(function(){try{if(adInfo().ad){S.phase='assist';return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;S.phase='cooldown';S.coolBase=ct;S.coolTarget=ct+120;S.coolStart=Date.now();}catch(e){S.phase='cooldown';S.coolStart=Date.now();S.coolTarget=999999;}},2200);}catch(e){}}\n"
+                + "  function cooldownDone(){try{if(S.phase!=='cooldown')return false;var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;if(ct>=(S.coolTarget||0)||Date.now()-(S.coolStart||0)>150000){S.phase='monitor';return true;}return false;}catch(e){return false;}}\n"
+                + "  function run(){try{var now=Date.now();if(S.phase==='cooldown_pending')return;if(S.phase==='cooldown'){cooldownDone();return;}var info=adInfo();if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}if(S.phase==='assist'&&S.hadAd&&now-(S.lastAdSeen||0)>1800){enterCooldownPending('ad-ended');return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;if(S.phase==='initial'&&ct>8){enterCooldownPending('main-start');return;}}catch(e){}}\n"
+                + "  W.__yieldYTAutoCycleRun=run;\n"
+                + "  if(!S.installed){S.installed=true;try{var timer=null;var mo=new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(run,60);});mo.observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','aria-label','title']});}catch(e){} ['yt-navigate-start','yt-navigate-finish','yt-page-data-updated','spfdone','visibilitychange','touchstart','touchend','pointerup','click','play','timeupdate'].forEach(function(ev){try{document.addEventListener(ev,function(){setTimeout(run,40);setTimeout(run,170);setTimeout(run,600);},true);}catch(e){}});setInterval(run,420);}\n"
+                + "  setTimeout(run,30);setTimeout(run,160);setTimeout(run,420);setTimeout(run,1000);setTimeout(run,2200);setTimeout(run,4200);\n"
                 + "}catch(e){}\n"
                 + "})();\n";
         runPageScript(js);
@@ -10189,7 +10204,7 @@ private void showDownloadSettingsPanel() {
         String url;
         if (text.startsWith("http://") || text.startsWith("https://")) url = text;
         else if (text.contains(".") && !text.contains(" ")) url = "https://" + text;
-        else url = "https://www.google.com/search?q=" + text.replace(" ", "+");
+        else url = buildSearchUrl(text);
 
         TabInfo currentTab = getCurrentTab();
         currentTab.url = url;
@@ -10294,6 +10309,69 @@ private void showDownloadSettingsPanel() {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("shortcuts", sb.toString()).commit();
     }
 
+    private boolean isLikelyDesktopOnlyHost(String host) {
+        try {
+            if (host == null || host.length() == 0) return false;
+            String h = host.toLowerCase(Locale.US);
+            if (h.startsWith("www.")) h = h.substring(4);
+            String[] known = new String[]{
+                    "h-metrics.com"
+            };
+            for (String base : known) {
+                if (h.equals(base) || h.endsWith("." + base)) return true;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private void scheduleHorizontalGestureGuardCheck(String url) {
+        try {
+            if (webView == null || !isHttpOrHttpsUrl(url)) return;
+            final String expectedHost = hostOfUrl(url);
+            if (expectedHost == null || expectedHost.length() == 0) return;
+            if (isLikelyDesktopOnlyHost(expectedHost)) {
+                webHorizontalGestureGuard = true;
+                webHorizontalGestureGuardHost = expectedHost;
+            }
+            mainHandler.postDelayed(() -> {
+                try {
+                    if (webView == null) return;
+                    String active = getEffectiveCurrentUrl();
+                    if (active == null || active.length() == 0) active = currentPageUrlForRequest;
+                    String activeHost = hostOfUrl(active);
+                    if (!sameOrSubDomain(activeHost, expectedHost)) return;
+                    String js = "(function(){try{var d=document.documentElement,b=document.body;"
+                            + "var vw=Math.max(window.innerWidth||0,(d&&d.clientWidth)||0);"
+                            + "var sw=Math.max((d&&d.scrollWidth)||0,(b&&b.scrollWidth)||0);"
+                            + "var hasWide=sw>vw+80;"
+                            + "var fixedWide=false;try{document.querySelectorAll('table,canvas,iframe,video,.container,.wrapper,main,body>*').forEach(function(e){if(fixedWide)return;var r=e.getBoundingClientRect&&e.getBoundingClientRect();if(r&&r.width>vw+80)fixedWide=true;});}catch(x){}"
+                            + "return (hasWide||fixedWide)?'1':'0';"
+                            + "}catch(e){return '0';}})();";
+                    webView.evaluateJavascript(js, value -> {
+                        try {
+                            String current = getEffectiveCurrentUrl();
+                            if (current == null || current.length() == 0) current = currentPageUrlForRequest;
+                            String currentHost = hostOfUrl(current);
+                            if (!sameOrSubDomain(currentHost, expectedHost)) return;
+                            String decoded = decodeEvaluateJavascriptString(value);
+                            if ("1".equals(decoded) || isLikelyDesktopOnlyHost(currentHost)) {
+                                webHorizontalGestureGuard = true;
+                                webHorizontalGestureGuardHost = currentHost;
+                            } else if (!desktopMode && !isSiteCompatibilityModeActiveForUrl(current) && !isStrictSiteCompatibilityUrl(current)) {
+                                webHorizontalGestureGuard = false;
+                                webHorizontalGestureGuardHost = currentHost;
+                            }
+                        } catch (Exception ignored) {
+                        }
+                    });
+                } catch (Exception ignored) {
+                }
+            }, 900L);
+        } catch (Exception ignored) {
+        }
+    }
+
     private void installSwipeNavigation(View root) {
         View.OnTouchListener listener = (v, event) -> handleSwipeTouch(event);
         try {
@@ -10323,12 +10401,44 @@ private void showDownloadSettingsPanel() {
                 if (Math.abs(dx) < dp(90)) return false;
                 if (Math.abs(dy) > dp(120)) return false;
 
+                // v0.9.69: Desktop Site Gesture Guard.
+                // Di WebView, situs desktop-only/horizontal-scroll butuh swipe kiri/kanan
+                // untuk melihat halaman. Jangan jadikan swipe itu sebagai Back/Forward.
+                if (shouldProtectWebHorizontalSwipeGesture()) {
+                    return false;
+                }
+
                 if (dx < 0) {
                     navigateSwipeBack();
                 } else {
                     navigateSwipeForward();
                 }
                 return false;
+        }
+        return false;
+    }
+
+    private boolean shouldProtectWebHorizontalSwipeGesture() {
+        try {
+            if (webView == null || webView.getVisibility() != View.VISIBLE) return false;
+            String url = getEffectiveCurrentUrl();
+            if (url == null || url.length() == 0) url = currentPageUrlForRequest;
+            String host = hostOfUrl(url);
+            String h = host == null ? "" : host.toLowerCase(Locale.US);
+            if (h.startsWith("www.")) h = h.substring(4);
+
+            // Domain contoh yang memang tampil desktop dan sering perlu geser horizontal.
+            if (h.equals("h-metrics.com") || h.endsWith(".h-metrics.com")) return true;
+
+            // Universal: saat halaman terdeteksi lebih lebar dari viewport atau masuk compatibility/desktop,
+            // custom swipe navigation dimatikan agar tidak back otomatis.
+            if (webHorizontalGestureGuard) {
+                String guardHost = webHorizontalGestureGuardHost == null ? "" : webHorizontalGestureGuardHost;
+                if (guardHost.length() == 0 || sameOrSubDomain(host, guardHost)) return true;
+            }
+            if (desktopMode) return true;
+            if (isSiteCompatibilityModeActiveForUrl(url) || isStrictSiteCompatibilityUrl(url) || isReloadLoopGuardActiveForUrl(url)) return true;
+        } catch (Exception ignored) {
         }
         return false;
     }

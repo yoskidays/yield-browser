@@ -1,13 +1,14 @@
-# Yield Browser v0.9.67
+# Yield Browser v0.9.70
 
-Source revisi Yield Browser v0.9.67.
+Source revisi Yield Browser v0.9.70.
 
-Fokus update:
-- Build fix Universal Blank Compatibility untuk Java 8/source 8.
-- Universal Desktop/Mobile Mode Hard Reload untuk situs yang sebelumnya dianggap popup/ad host seperti invest-tracing.com.
-- Mobile viewport reset agar setelah Desktop Mode OFF, situs seperti YouTube tidak menyisakan layout desktop yang sempit/terpotong.
-- YouTube Delayed Skip-Only: iklan awal tetap dicoba klik Skip/Lewati, lalu script tidur sampai video utama stabil, dan aktif lagi sebagai monitor Skip-Only setelah video berjalan ±2 menit.
+Fokus update: **YouTube Auto Cycle Ad Bypass**.
 
-Tidak disentuh:
-- Lordborg/Instant Monitor/Universal Blank flow yang sudah ada.
-- Direct Image Guard, Night Mode, Translate, Download Manager, dan kontrol fullscreen video.
+Alur YouTube:
+- saat iklan terdeteksi, Yield mencoba klik tombol Skip/Lewati;
+- jika tombol belum muncul, Yield membantu maju +10 detik hanya saat sinyal iklan kuat;
+- setelah iklan selesai, engine YouTube AdBlock masuk mode tidur;
+- setelah video utama berjalan sekitar 2 menit, engine aktif lagi untuk iklan tengah/belakang;
+- siklus ini berulang setiap kali iklan muncul.
+
+Tidak memakai playbackRate, mute paksa, force play, atau manipulasi style video utama.
