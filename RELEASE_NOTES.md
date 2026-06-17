@@ -1,9 +1,9 @@
-# Yield Browser v0.9.56
+# Yield Browser v0.9.58
 
-- Revisi khusus YouTube Safe AdBlock v6.
-- Menghapus efek agresif YouTube v5 yang bisa membuat video utama hitam/stuck.
-- Tidak lagi mempercepat, mute, currentTime jump, atau force play video YouTube.
-- Memperkuat klik tombol Skip/Lewati dengan event touch/pointer/mouse.
-- Membersihkan style YouTube lama dari v4/v5 yang dapat menyembunyikan player.
-- Menyembunyikan sponsor card bawah video secara lebih konservatif tanpa menyentuh area player.
-- Tidak mengubah AdBlock situs lain, Lordborg compatibility, Desktop/Mobile, Night Mode, Download, Translate, atau kontrol video fullscreen.
+## Build Fix
+- Fixed `settings.gradle` so it is guaranteed to be a valid UTF-8 Gradle text file.
+- Prevents GitHub Actions build failure caused by `settings.gradle` being accidentally overwritten by PNG/binary content.
+
+## YouTube Safe AdBlock
+- Keeps the latest YouTube ad recovery changes from v0.9.57.
+- Does not modify general site adblock, Lordborg compatibility, direct image guard, desktop/mobile mode, night mode, fullscreen video controls, translate, or download manager.
