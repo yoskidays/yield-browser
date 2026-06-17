@@ -1,10 +1,19 @@
-# Yield Browser v0.9.51
+# Yield Browser v0.9.53
 
-## Video Fullscreen Control Simplified
+## YouTube Safe AdBlock v3
 
-- Menghapus alur tombol/mode `Lans` dari kontrol video.
-- Kontrol video sekarang hanya memakai mode `Full` untuk masuk fullscreen video.
-- Saat video fullscreen aktif, tombol berubah menjadi `Exit` untuk keluar dari fullscreen.
-- Tombol Back HP saat fullscreen sekarang otomatis mengembalikan browser dan video ke tampilan normal portrait.
-- Kontrol video dibuat lebih compact agar tombol `Full/Exit` tidak kepotong saat layar portrait.
-- Tidak menyentuh fitur stabil lain: Desktop/Mobile, Adblock, Lordborg/site compatibility, Direct Image Guard, Night Mode, Translate, dan Download Manager.
+- Revisi khusus untuk iklan YouTube agar lebih smooth seperti browser adblock modern.
+- Deteksi iklan YouTube diperketat agar tidak mudah salah membaca video utama sebagai iklan.
+- Skip/Lewati iklan otomatis diperkuat.
+- Iklan dimute dan dipercepat tanpa memblokir resource video utama.
+- Tidak memblokir `googlevideo.com`, `ytimg.com`, `youtubei/player`, atau script inti player YouTube.
+- Tidak mengubah adblock situs lain yang sudah stabil.
+
+## Tidak diubah
+
+- Adblock situs umum dan situs seperti Lordborg.
+- Smart redirect context dan direct image guard.
+- Desktop/Mobile mode.
+- Night mode.
+- Kontrol video fullscreen.
+- Translate dan download manager.

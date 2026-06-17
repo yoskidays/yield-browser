@@ -1,22 +1,8 @@
-# Yield Browser
+# Yield Browser v0.9.53
 
-Yield Browser adalah browser Android ringan dengan fitur browsing modern, adblock, mode desktop/mobile, translate, mode malam, kontrol video, dan download manager.
+Update khusus YouTube Safe AdBlock v3.
 
-## Versi Saat Ini
-**v0.9.51**
-
-## Status Stabil
-Fitur utama yang sudah distabilkan:
-- Desktop/Mobile mode ON/OFF
-- Adblock dan site compatibility untuk situs berat iklan seperti Lordborg
-- Direct image guard agar halaman komik tidak berubah menjadi file `.jpeg` mentah
-- Night mode ON/OFF
-- Kontrol video dengan mode Fullscreen saja
-- Bookmark, history, pintasan, dan menu utama
-
-## Catatan Rilis
-Catatan rilis hanya disimpan pada satu file terbaru:
-
-`RELEASE_NOTES.md`
-
-File release note versi lama sudah dihapus agar project tetap rapi dan tidak menumpuk.
+- YouTube adblock dibuat lebih smooth dengan deteksi iklan yang lebih selektif.
+- Tidak memblokir mentah googlevideo.com, ytimg.com, atau player inti YouTube.
+- Fokus pada mute, percepat, skip otomatis, dan sembunyikan overlay iklan YouTube.
+- Adblock situs umum, Lordborg/site compatibility, direct image guard, desktop/mobile, night mode, kontrol video, translate, dan download manager tidak diubah.
