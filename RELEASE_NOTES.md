@@ -1,19 +1,10 @@
-# Yield Browser v0.9.59
+# Yield Browser v0.9.60
 
-## YouTube Safe AdBlock v8
-- Fix khusus YouTube saat iklan stuck di layar hitam/blank.
-- Klik tombol Skip/Lewati diperluas, termasuk tombol mobile yang hanya muncul sebagai teks/role button.
-- Jika iklan belum bisa dilewati, video iklan diputar dan dipercepat sementara agar tidak berhenti di layar hitam.
-- Restore speed, mute, dan volume setelah sinyal iklan hilang.
-- Tetap tidak memblokir resource inti YouTube seperti googlevideo.com, ytimg.com, youtubei/player, dan script player utama.
+## Compatibility Desktop Mode Fix
 
-## Tidak Disentuh
-- Adblock situs umum.
-- Lordborg / heavy ads compatibility.
-- Smart redirect context.
-- Direct image guard.
-- Desktop/Mobile mode.
-- Night Mode.
-- Kontrol video fullscreen.
-- Translate.
-- Download manager.
+- Memperbaiki Desktop Mode pada situs compatibility seperti Lordborg dan situs sejenis.
+- Saat mode kompatibel aktif, toggle Desktop ON sekarang tetap menerapkan desktop profile/viewport.
+- Request situs compatibility di Desktop Mode memakai User-Agent desktop minimal tanpa header Sec-CH agresif agar tidak memicu security/blank.
+- Mobile Mode pada situs compatibility tetap kembali normal saat Desktop OFF.
+- Tidak mengubah adblock situs umum yang sudah stabil.
+- Tidak mengubah YouTube adblock, Night Mode, Direct Image Guard, Download Manager, Translate, dan kontrol video fullscreen.

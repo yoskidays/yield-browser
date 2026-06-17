@@ -1,5 +1,7 @@
-# Yield Browser v0.9.59
+# Yield Browser v0.9.60
 
-Source revisi fokus khusus YouTube Safe AdBlock v8.
+Yield Browser adalah browser Android ringan dengan fokus pada browsing, adblock, download manager, mode desktop/mobile, mode malam, dan kontrol video.
 
-Adblock situs umum, Lordborg compatibility, direct image guard, desktop/mobile mode, night mode, fullscreen video control, translate, dan download manager tidak diubah.
+## Catatan versi ini
+
+Versi v0.9.60 memperbaiki Desktop Mode khusus pada situs compatibility seperti Lordborg dan situs sejenis. Fitur stabil lain tidak diubah.

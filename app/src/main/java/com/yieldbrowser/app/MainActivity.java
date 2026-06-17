@@ -8374,6 +8374,16 @@ private void showDownloadSettingsPanel() {
                     // seperti lordborg.com blank saat user klik menu internal. Guard cukup mematikan
                     // injection/restore agresif, sementara load utama tetap dibiarkan selesai.
                     try { if (progressBar != null) progressBar.setVisibility(View.GONE); } catch (Exception ignored) {}
+                    // v0.9.60: Compatibility mode tidak boleh mematikan Desktop Mode.
+                    // Untuk situs model Lordborg, tetap terapkan desktop profile/viewport saat toggle Desktop ON,
+                    // tapi hanya di domain compatibility agar situs lain yang sudah stabil tidak berubah.
+                    if (desktopMode) {
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 280);
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1200);
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 2600);
+                    } else {
+                        mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 280);
+                    }
                 }
                 super.onPageStarted(view, url, favicon);
                 if (pendingHideKeyboardAfterNavigation) {
@@ -8436,6 +8446,17 @@ private void showDownloadSettingsPanel() {
                 if (isStrictSiteCompatibilityUrl(finalUrl)) {
                     applyPlainCompatibilitySettingsForUrl(finalUrl);
                     cancelSmoothSearchTransition();
+                }
+                if (pageReloadGuarded) {
+                    // v0.9.60: situs compatibility tetap harus mengikuti Desktop/Mobile toggle.
+                    // Jangan inject adblock/fitur berat, cukup profile + viewport sesuai mode aktif.
+                    if (desktopMode) {
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 350);
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1200);
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 2600);
+                    } else {
+                        mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 350);
+                    }
                 }
                 if (!pageReloadGuarded) {
                     applyViewportForCurrentMode();
@@ -8918,7 +8939,12 @@ private void showDownloadSettingsPanel() {
             if (isStrictSiteCompatibilityUrl(cleanUrl)) {
                 enableSiteCompatibilityModeForUrl(cleanUrl, "strict-site");
                 applyPlainCompatibilitySettingsForUrl(cleanUrl);
-                webView.loadUrl(cleanUrl);
+                loadCompatibilityUrlWithCurrentMode(cleanUrl);
+                if (desktopMode) {
+                    mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 350);
+                    mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1300);
+                    mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 2800);
+                }
                 scheduleCompatibilityLoadFallback(cleanUrl);
                 return;
             }
@@ -9189,6 +9215,25 @@ private void showDownloadSettingsPanel() {
             if (Build.VERSION.SDK_INT >= 21) cm.setAcceptThirdPartyCookies(webView, true);
             try { webView.setBackgroundColor(Color.WHITE); } catch (Exception ignored) {}
         } catch (Exception ignored) {
+        }
+    }
+
+
+    private void loadCompatibilityUrlWithCurrentMode(String cleanUrl) {
+        if (webView == null || cleanUrl == null || cleanUrl.trim().length() == 0) return;
+        try {
+            if (desktopMode) {
+                // Minimal desktop request untuk situs compatibility: cukup UA desktop + bahasa.
+                // Hindari header Sec-CH custom yang dulu bisa memicu security/blank di situs berat iklan.
+                Map<String, String> headers = new LinkedHashMap<>();
+                headers.put("User-Agent", getDesktopUserAgent());
+                headers.put("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7");
+                webView.loadUrl(cleanUrl, headers);
+            } else {
+                webView.loadUrl(cleanUrl);
+            }
+        } catch (Exception e) {
+            try { webView.loadUrl(cleanUrl); } catch (Exception ignored) {}
         }
     }
 
