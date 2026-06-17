@@ -1,24 +1,22 @@
-# Yield Browser v0.9.43
+# Yield Browser
 
-Patch stabilitas untuk crash WebView thread pada `shouldInterceptRequest`.
+Yield Browser adalah browser Android ringan dengan fitur browsing modern, adblock, mode desktop/mobile, translate, mode malam, kontrol video, dan download manager.
 
-## Perubahan
-- Fix crash: `A WebView method was called on thread ThreadPoolForeg`.
-- `shouldInterceptRequest()` tidak lagi memanggil `WebView.getUrl()` dari background thread.
-- URL halaman aktif disimpan di cache `volatile` dari thread utama (`onPageStarted`, `onPageFinished`, dan `loadBrowserUrl`).
-- Desktop/Mobile mode v0.9.40 tetap tidak disentuh.
-- Lordborg navigation compatibility v0.9.42 tetap dipertahankan.
+## Versi Saat Ini
+**v0.9.49**
 
-## Test utama
-1. Buka Google dan klik hasil `lordborg.com` dengan AdBlock ON.
-2. Buka langsung `https://lordborg.com`.
-3. Klik menu internal Lordborg.
-4. Pastikan aplikasi tidak force close.
-5. Pastikan Desktop/Mobile mode tetap stabil.
+## Status Stabil
+Fitur utama yang sudah distabilkan:
+- Desktop/Mobile mode ON/OFF
+- Adblock dan site compatibility
+- Direct image guard agar halaman komik tidak berubah menjadi file `.jpeg` mentah
+- Night mode ON/OFF
+- Full Video dan Landscape Video toggle
+- Bookmark, history, pintasan, dan menu utama
 
-## v0.9.45
-Fix direct image navigation guard: prevents comic pages from being replaced by raw .jpeg/.jpg web image pages; temporary direct-link tabs are restored.
+## Catatan Rilis
+Catatan rilis hanya disimpan pada satu file terbaru:
 
+`RELEASE_NOTES.md`
 
-## v0.9.47
-Night Mode ON/OFF state fix: ForceDark/AlgorithmicDarkening sync, light guard for history/back-forward pages, and hard reload when toggling night mode.
+File release note versi lama sudah dihapus agar project tetap rapi dan tidak menumpuk.

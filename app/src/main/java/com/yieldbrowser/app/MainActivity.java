@@ -165,6 +165,7 @@ public class MainActivity extends Activity {
     private LinearLayout videoControlsBar;
     private TextView videoSpeedLabel;
     private TextView videoQualityLabel;
+    private TextView videoModeToggleButton;
     private String selectedVideoQuality = "Auto";
     private boolean videoControlsManualHidden = false;
     private ViewGroup videoControlsOriginalParent;
@@ -2663,6 +2664,7 @@ private void showDownloadSettingsPanel() {
         if (videoControlsBar != null) videoControlsBar.setVisibility(View.VISIBLE);
         if (videoSpeedLabel != null) videoSpeedLabel.setText(formatVideoSpeed(videoSpeed));
         if (videoQualityLabel != null) videoQualityLabel.setText(selectedVideoQuality == null ? "Auto" : selectedVideoQuality);
+        updateVideoModeToggleButton();
     }
 
     private LinearLayout createVideoControlsBar() {
@@ -2701,30 +2703,18 @@ private void showDownloadSettingsPanel() {
         qualityParams.setMargins(dp(4), 0, 0, 0);
         bar.addView(videoQualityLabel, qualityParams);
 
-        TextView landscape = new TextView(this);
-        landscape.setText("Land");
-        landscape.setTextColor(Color.WHITE);
-        landscape.setTextSize(11);
-        landscape.setTypeface(Typeface.DEFAULT_BOLD);
-        landscape.setGravity(Gravity.CENTER);
-        landscape.setContentDescription("Landscape video mode");
-        landscape.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
-        landscape.setOnClickListener(v -> toggleVideoLandscapeMode());
-        LinearLayout.LayoutParams landscapeParams = new LinearLayout.LayoutParams(dp(46), dp(42));
-        landscapeParams.setMargins(dp(4), 0, 0, 0);
-        bar.addView(landscape, landscapeParams);
-
-        TextView full = new TextView(this);
-        full.setText("Full");
-        full.setTextColor(Color.WHITE);
-        full.setTextSize(12);
-        full.setTypeface(Typeface.DEFAULT_BOLD);
-        full.setGravity(Gravity.CENTER);
-        full.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
-        full.setOnClickListener(v -> enterVideoFullscreen());
-        LinearLayout.LayoutParams fullParams = new LinearLayout.LayoutParams(dp(48), dp(42));
-        fullParams.setMargins(dp(4), 0, 0, 0);
-        bar.addView(full, fullParams);
+        videoModeToggleButton = new TextView(this);
+        videoModeToggleButton.setText("Full");
+        videoModeToggleButton.setTextColor(Color.WHITE);
+        videoModeToggleButton.setTextSize(12);
+        videoModeToggleButton.setTypeface(Typeface.DEFAULT_BOLD);
+        videoModeToggleButton.setGravity(Gravity.CENTER);
+        videoModeToggleButton.setContentDescription("Masuk layar penuh video");
+        videoModeToggleButton.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
+        videoModeToggleButton.setOnClickListener(v -> toggleVideoFullLandscapeButton());
+        LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(dp(56), dp(42));
+        modeParams.setMargins(dp(4), 0, 0, 0);
+        bar.addView(videoModeToggleButton, modeParams);
 
         TextView close = new TextView(this);
         close.setText("×");
@@ -2813,11 +2803,105 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+    private void toggleVideoFullLandscapeButton() {
+        // Satu tombol untuk dua arah: Full -> Lans, Lans -> Full.
+        // Kalau sedang fullscreen, tombol berubah menjadi Lans dan mengembalikan
+        // player ke mode landscape video biasa. Kalau tidak fullscreen, tombol
+        // berubah menjadi Full dan masuk ke layar penuh.
+        if (isVideoFullscreenActive()) {
+            exitVideoFullscreenToLandscapeMode();
+            updateVideoModeToggleButton();
+            mainHandler.postDelayed(() -> updateVideoModeToggleButton(), 250);
+            return;
+        }
+        enterVideoFullscreen();
+        updateVideoModeToggleButton();
+        mainHandler.postDelayed(() -> updateVideoModeToggleButton(), 300);
+        mainHandler.postDelayed(() -> updateVideoModeToggleButton(), 900);
+    }
+
+    private void updateVideoModeToggleButton() {
+        try {
+            if (videoModeToggleButton == null) return;
+            if (isVideoFullscreenActive()) {
+                videoModeToggleButton.setText("Lans");
+                videoModeToggleButton.setContentDescription("Kembali ke landscape video");
+            } else {
+                videoModeToggleButton.setText("Full");
+                videoModeToggleButton.setContentDescription("Masuk layar penuh video");
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     private void toggleVideoLandscapeMode() {
+        // Kalau tombol Land ditekan saat video sedang fullscreen, jangan toggle landscape
+        // langsung. Pada beberapa player, kontrol video berada di overlay fullscreen.
+        // Jika landscape dimatikan saat custom fullscreen masih aktif, kontrol bisa
+        // kembali ke parent lama di belakang video fullscreen dan terlihat hilang.
+        // Browser stabil biasanya melakukan urutan: keluar fullscreen -> kembali ke
+        // landscape video biasa.
+        if (isVideoFullscreenActive()) {
+            exitVideoFullscreenToLandscapeMode();
+            return;
+        }
+
         if (videoLandscapeModeActive) {
             exitVideoLandscapeMode();
         } else {
             enterVideoLandscapeMode();
+        }
+    }
+
+    private boolean isVideoFullscreenActive() {
+        try {
+            if (fullscreenVideoView != null) return true;
+            return topBarView != null
+                    && topBarView.getVisibility() == View.GONE
+                    && webView != null
+                    && webView.getVisibility() == View.VISIBLE;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void exitVideoFullscreenToLandscapeMode() {
+        try {
+            // Paksa status tujuan ke landscape sebelum custom/fullscreen ditutup.
+            // Ini membuat restoreAfterVideoFullscreen() mengembalikan orientasi ke
+            // landscape video biasa, bukan fullscreen tersembunyi/normal portrait.
+            videoLandscapeModeActive = true;
+            fullscreenStartedFromVideoLandscape = true;
+
+            if (fullscreenVideoView != null) {
+                try {
+                    FrameLayout decor = (FrameLayout) getWindow().getDecorView();
+                    decor.removeView(fullscreenVideoView);
+                } catch (Exception ignored) {}
+                fullscreenVideoView = null;
+                if (fullscreenVideoCallback != null) {
+                    try { fullscreenVideoCallback.onCustomViewHidden(); } catch (Exception ignored) {}
+                    fullscreenVideoCallback = null;
+                }
+            }
+
+            restoreAfterVideoFullscreen();
+            videoLandscapeModeActive = true;
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+            restoreVideoControlsFromFullscreenOverlay();
+            if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
+            if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
+            updateVideoModeToggleButton();
+            videoControlsManualHidden = false;
+            mainHandler.postDelayed(() -> { updateVideoModeToggleButton(); checkAndShowVideoControls(); }, 180);
+            Toast.makeText(this, "Kembali ke mode landscape video", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            try {
+                restoreAfterVideoFullscreen();
+                enterVideoLandscapeMode();
+            } catch (Exception ignored) {}
         }
     }
 
@@ -2846,6 +2930,7 @@ private void showDownloadSettingsPanel() {
             restoreVideoControlsFromFullscreenOverlay();
             if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
             if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
+            updateVideoModeToggleButton();
             videoControlsManualHidden = false;
             checkAndShowVideoControls();
             Toast.makeText(this, "Mode landscape video aktif. Tekan Full untuk layar penuh.", Toast.LENGTH_SHORT).show();
@@ -2874,6 +2959,7 @@ private void showDownloadSettingsPanel() {
             restoreVideoControlsFromFullscreenOverlay();
             if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
             if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
+            updateVideoModeToggleButton();
             checkAndShowVideoControls();
             if (showToast) Toast.makeText(this, "Mode landscape video selesai", Toast.LENGTH_SHORT).show();
         } catch (Exception ignored) {
@@ -2918,6 +3004,8 @@ private void showDownloadSettingsPanel() {
                 if (result.contains("not_supported") || result.contains("error")) {
                     openAppVideoFullscreenFallback();
                 } else {
+                    updateVideoModeToggleButton();
+                    mainHandler.postDelayed(() -> updateVideoModeToggleButton(), 250);
                     Toast.makeText(this, "Mode layar penuh video", Toast.LENGTH_SHORT).show();
                 }
             });
@@ -2946,6 +3034,7 @@ private void showDownloadSettingsPanel() {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
             if (topBarView != null) topBarView.setVisibility(View.GONE);
             if (bottomNavView != null) bottomNavView.setVisibility(View.GONE);
+            updateVideoModeToggleButton();
             videoControlsManualHidden = false;
             checkAndShowVideoControls();
             Toast.makeText(this, "Mode layar penuh aktif. Tekan Back untuk keluar.", Toast.LENGTH_SHORT).show();
@@ -2975,6 +3064,7 @@ private void showDownloadSettingsPanel() {
             restoreVideoControlsFromFullscreenOverlay();
             if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
             if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
+            updateVideoModeToggleButton();
             videoControlsManualHidden = false;
             checkAndShowVideoControls();
         } catch (Exception ignored) {
@@ -3008,6 +3098,7 @@ private void showDownloadSettingsPanel() {
             videoControlsInFullscreen = true;
             videoControlsManualHidden = false;
             videoControlsBar.bringToFront();
+            updateVideoModeToggleButton();
             videoControlsBar.setVisibility(View.VISIBLE);
         } catch (Exception ignored) {
         }
@@ -3034,6 +3125,7 @@ private void showDownloadSettingsPanel() {
 
             videoControlsBar.setBackgroundColor(Color.parseColor("#101217"));
             videoControlsInFullscreen = false;
+            updateVideoModeToggleButton();
             videoControlsOriginalParent = null;
             videoControlsOriginalLayoutParams = null;
             videoControlsOriginalIndex = -1;
@@ -8450,6 +8542,7 @@ private void showDownloadSettingsPanel() {
                 if (topBarView != null) topBarView.setVisibility(View.GONE);
                 if (bottomNavView != null) bottomNavView.setVisibility(View.GONE);
                 moveVideoControlsToFullscreenOverlay();
+                updateVideoModeToggleButton();
                 checkAndShowVideoControls();
             }
 
@@ -8467,6 +8560,7 @@ private void showDownloadSettingsPanel() {
                 }
 
                 restoreAfterVideoFullscreen();
+                updateVideoModeToggleButton();
             }
         });
     }
@@ -10414,6 +10508,7 @@ private void showDownloadSettingsPanel() {
                 fullscreenVideoCallback = null;
             }
             restoreAfterVideoFullscreen();
+            updateVideoModeToggleButton();
             return;
         }
         if (topBarView != null && topBarView.getVisibility() == View.GONE && webView != null && webView.getVisibility() == View.VISIBLE) {
