@@ -1,10 +1,10 @@
-# Yield Browser v0.9.50
+# Yield Browser v0.9.51
 
-## Smart Redirect Context Fix
+## Video Fullscreen Control Simplified
 
-- Memperbaiki situs mirip Lordborg yang link/menu-nya gagal diklik karena dianggap direct ads.
-- Domain seperti `invest-tracing.com` sekarang dibedakan berdasarkan konteks:
-  - jika muncul dari redirect otomatis/pop-up tersembunyi, tetap diarahkan ke tab sementara dan auto-close;
-  - jika dibuka dari klik user, address bar, atau hasil pencarian, diizinkan masuk dengan compatibility mode.
-- Proteksi direct image `.jpg/.jpeg/.png/.webp/.gif` tetap aktif agar tab utama tidak berubah menjadi gambar mentah.
-- Adblock situs umum tetap dipertahankan; YouTube, Desktop/Mobile, Night Mode, Download Manager, dan kontrol video tidak disentuh.
+- Menghapus alur tombol/mode `Lans` dari kontrol video.
+- Kontrol video sekarang hanya memakai mode `Full` untuk masuk fullscreen video.
+- Saat video fullscreen aktif, tombol berubah menjadi `Exit` untuk keluar dari fullscreen.
+- Tombol Back HP saat fullscreen sekarang otomatis mengembalikan browser dan video ke tampilan normal portrait.
+- Kontrol video dibuat lebih compact agar tombol `Full/Exit` tidak kepotong saat layar portrait.
+- Tidak menyentuh fitur stabil lain: Desktop/Mobile, Adblock, Lordborg/site compatibility, Direct Image Guard, Night Mode, Translate, dan Download Manager.

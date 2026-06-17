@@ -2671,7 +2671,7 @@ private void showDownloadSettingsPanel() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(8), dp(6), dp(8), dp(6));
+        bar.setPadding(dp(4), dp(5), dp(4), dp(5));
         bar.setBackgroundColor(Color.parseColor("#101217"));
 
         bar.addView(videoTextButton("−10s", "Mundur 10 detik", v -> seekVideoBySeconds(-10)));
@@ -2682,38 +2682,38 @@ private void showDownloadSettingsPanel() {
         videoSpeedLabel = new TextView(this);
         videoSpeedLabel.setText("1x");
         videoSpeedLabel.setTextColor(Color.parseColor("#111111"));
-        videoSpeedLabel.setTextSize(14);
+        videoSpeedLabel.setTextSize(12);
         videoSpeedLabel.setTypeface(Typeface.DEFAULT_BOLD);
         videoSpeedLabel.setGravity(Gravity.CENTER);
         videoSpeedLabel.setBackground(roundRect(COLOR_ACCENT, dp(18), 0, Color.TRANSPARENT));
         videoSpeedLabel.setOnClickListener(v -> showVideoSpeedDialog());
-        LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(dp(52), dp(42));
-        speedParams.setMargins(dp(4), 0, 0, 0);
+        LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(dp(38), dp(40));
+        speedParams.setMargins(dp(2), 0, 0, 0);
         bar.addView(videoSpeedLabel, speedParams);
 
         videoQualityLabel = new TextView(this);
         videoQualityLabel.setText(selectedVideoQuality == null ? "Auto" : selectedVideoQuality);
         videoQualityLabel.setTextColor(Color.WHITE);
-        videoQualityLabel.setTextSize(12);
+        videoQualityLabel.setTextSize(10);
         videoQualityLabel.setTypeface(Typeface.DEFAULT_BOLD);
         videoQualityLabel.setGravity(Gravity.CENTER);
         videoQualityLabel.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
         videoQualityLabel.setOnClickListener(v -> showVideoQualityDialog());
-        LinearLayout.LayoutParams qualityParams = new LinearLayout.LayoutParams(dp(56), dp(42));
-        qualityParams.setMargins(dp(4), 0, 0, 0);
+        LinearLayout.LayoutParams qualityParams = new LinearLayout.LayoutParams(dp(42), dp(40));
+        qualityParams.setMargins(dp(2), 0, 0, 0);
         bar.addView(videoQualityLabel, qualityParams);
 
         videoModeToggleButton = new TextView(this);
         videoModeToggleButton.setText("Full");
         videoModeToggleButton.setTextColor(Color.WHITE);
-        videoModeToggleButton.setTextSize(12);
+        videoModeToggleButton.setTextSize(11);
         videoModeToggleButton.setTypeface(Typeface.DEFAULT_BOLD);
         videoModeToggleButton.setGravity(Gravity.CENTER);
         videoModeToggleButton.setContentDescription("Masuk layar penuh video");
         videoModeToggleButton.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
         videoModeToggleButton.setOnClickListener(v -> toggleVideoFullLandscapeButton());
-        LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(dp(56), dp(42));
-        modeParams.setMargins(dp(4), 0, 0, 0);
+        LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(dp(44), dp(40));
+        modeParams.setMargins(dp(2), 0, 0, 0);
         bar.addView(videoModeToggleButton, modeParams);
 
         TextView close = new TextView(this);
@@ -2730,8 +2730,8 @@ private void showDownloadSettingsPanel() {
                 checkAndShowVideoControls();
             }, 2500);
         });
-        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(34), dp(42));
-        closeParams.setMargins(dp(4), 0, 0, 0);
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(24), dp(40));
+        closeParams.setMargins(dp(2), 0, 0, 0);
         bar.addView(close, closeParams);
 
         return bar;
@@ -2741,15 +2741,15 @@ private void showDownloadSettingsPanel() {
         TextView button = new TextView(this);
         button.setText(text);
         button.setTextColor(Color.WHITE);
-        button.setTextSize(11);
+        button.setTextSize(10);
         button.setTypeface(Typeface.DEFAULT_BOLD);
         button.setGravity(Gravity.CENTER);
         button.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
         button.setOnClickListener(listener);
         button.setContentDescription(label);
 
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(42));
-        params.setMargins(dp(3), 0, dp(3), 0);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(38), dp(40));
+        params.setMargins(dp(2), 0, dp(2), 0);
         button.setLayoutParams(params);
         return button;
     }
@@ -2764,10 +2764,10 @@ private void showDownloadSettingsPanel() {
         ImageView icon = new ImageView(this);
         icon.setImageResource(iconRes);
         icon.setColorFilter(Color.WHITE);
-        wrap.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        wrap.addView(icon, new LinearLayout.LayoutParams(dp(20), dp(20)));
 
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(46), dp(42));
-        params.setMargins(dp(4), 0, dp(4), 0);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(34), dp(40));
+        params.setMargins(dp(2), 0, dp(2), 0);
         wrap.setLayoutParams(params);
         return wrap;
     }
@@ -2804,12 +2804,10 @@ private void showDownloadSettingsPanel() {
     }
 
     private void toggleVideoFullLandscapeButton() {
-        // Satu tombol untuk dua arah: Full -> Lans, Lans -> Full.
-        // Kalau sedang fullscreen, tombol berubah menjadi Lans dan mengembalikan
-        // player ke mode landscape video biasa. Kalau tidak fullscreen, tombol
-        // berubah menjadi Full dan masuk ke layar penuh.
+        // v0.9.51: mode Lans dihapus. Tombol ini hanya mengatur Fullscreen Video.
+        // Full -> masuk fullscreen landscape. Exit/Back -> kembali ke browser normal portrait.
         if (isVideoFullscreenActive()) {
-            exitVideoFullscreenToLandscapeMode();
+            exitVideoFullscreenToPortraitMode();
             updateVideoModeToggleButton();
             mainHandler.postDelayed(() -> updateVideoModeToggleButton(), 250);
             return;
@@ -2824,8 +2822,8 @@ private void showDownloadSettingsPanel() {
         try {
             if (videoModeToggleButton == null) return;
             if (isVideoFullscreenActive()) {
-                videoModeToggleButton.setText("Lans");
-                videoModeToggleButton.setContentDescription("Kembali ke landscape video");
+                videoModeToggleButton.setText("Exit");
+                videoModeToggleButton.setContentDescription("Keluar dari layar penuh video");
             } else {
                 videoModeToggleButton.setText("Full");
                 videoModeToggleButton.setContentDescription("Masuk layar penuh video");
@@ -2835,22 +2833,8 @@ private void showDownloadSettingsPanel() {
     }
 
     private void toggleVideoLandscapeMode() {
-        // Kalau tombol Land ditekan saat video sedang fullscreen, jangan toggle landscape
-        // langsung. Pada beberapa player, kontrol video berada di overlay fullscreen.
-        // Jika landscape dimatikan saat custom fullscreen masih aktif, kontrol bisa
-        // kembali ke parent lama di belakang video fullscreen dan terlihat hilang.
-        // Browser stabil biasanya melakukan urutan: keluar fullscreen -> kembali ke
-        // landscape video biasa.
-        if (isVideoFullscreenActive()) {
-            exitVideoFullscreenToLandscapeMode();
-            return;
-        }
-
-        if (videoLandscapeModeActive) {
-            exitVideoLandscapeMode();
-        } else {
-            enterVideoLandscapeMode();
-        }
+        // Mode Lans sudah dihapus. Jika ada pemanggilan lama, arahkan ke tombol fullscreen.
+        toggleVideoFullLandscapeButton();
     }
 
     private boolean isVideoFullscreenActive() {
@@ -2865,13 +2849,10 @@ private void showDownloadSettingsPanel() {
         }
     }
 
-    private void exitVideoFullscreenToLandscapeMode() {
+    private void exitVideoFullscreenToPortraitMode() {
         try {
-            // Paksa status tujuan ke landscape sebelum custom/fullscreen ditutup.
-            // Ini membuat restoreAfterVideoFullscreen() mengembalikan orientasi ke
-            // landscape video biasa, bukan fullscreen tersembunyi/normal portrait.
-            videoLandscapeModeActive = true;
-            fullscreenStartedFromVideoLandscape = true;
+            videoLandscapeModeActive = false;
+            fullscreenStartedFromVideoLandscape = false;
 
             if (fullscreenVideoView != null) {
                 try {
@@ -2886,21 +2867,18 @@ private void showDownloadSettingsPanel() {
             }
 
             restoreAfterVideoFullscreen();
-            videoLandscapeModeActive = true;
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+            forcePortraitAfterVideoFullscreen();
             restoreVideoControlsFromFullscreenOverlay();
             if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
             if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
             updateVideoModeToggleButton();
             videoControlsManualHidden = false;
             mainHandler.postDelayed(() -> { updateVideoModeToggleButton(); checkAndShowVideoControls(); }, 180);
-            Toast.makeText(this, "Kembali ke mode landscape video", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Keluar dari fullscreen video", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             try {
                 restoreAfterVideoFullscreen();
-                enterVideoLandscapeMode();
+                forcePortraitAfterVideoFullscreen();
             } catch (Exception ignored) {}
         }
     }
@@ -2971,7 +2949,8 @@ private void showDownloadSettingsPanel() {
             Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
             return;
         }
-        fullscreenStartedFromVideoLandscape = videoLandscapeModeActive;
+        videoLandscapeModeActive = false;
+        fullscreenStartedFromVideoLandscape = false;
 
         String js =
                 "(function(){"
@@ -3019,7 +2998,8 @@ private void showDownloadSettingsPanel() {
             if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) {
                 restoreHiddenWebPage();
             }
-            fullscreenStartedFromVideoLandscape = videoLandscapeModeActive;
+            videoLandscapeModeActive = false;
+            fullscreenStartedFromVideoLandscape = false;
             originalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
             originalRequestedOrientation = getRequestedOrientation();
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
@@ -3054,19 +3034,24 @@ private void showDownloadSettingsPanel() {
         try {
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
             getWindow().getDecorView().setSystemUiVisibility(originalSystemUiVisibility);
-            if (fullscreenStartedFromVideoLandscape) {
-                videoLandscapeModeActive = true;
-                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-            } else {
-                setRequestedOrientation(originalRequestedOrientation);
-            }
-            fullscreenStartedFromVideoLandscape = false;
+            forcePortraitAfterVideoFullscreen();
             restoreVideoControlsFromFullscreenOverlay();
             if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
             if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
             updateVideoModeToggleButton();
             videoControlsManualHidden = false;
             checkAndShowVideoControls();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void forcePortraitAfterVideoFullscreen() {
+        try {
+            videoLandscapeModeActive = false;
+            fullscreenStartedFromVideoLandscape = false;
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
         } catch (Exception ignored) {
         }
     }
@@ -8528,7 +8513,8 @@ private void showDownloadSettingsPanel() {
 
                 fullscreenVideoView = view;
                 fullscreenVideoCallback = callback;
-                fullscreenStartedFromVideoLandscape = videoLandscapeModeActive;
+                videoLandscapeModeActive = false;
+                fullscreenStartedFromVideoLandscape = false;
                 originalSystemUiVisibility = getWindow().getDecorView().getSystemUiVisibility();
                 originalRequestedOrientation = getRequestedOrientation();
 
@@ -10537,26 +10523,17 @@ private void showDownloadSettingsPanel() {
     @Override
     public void onBackPressed() {
         if (fullscreenVideoView != null) {
-            try {
-                FrameLayout decor = (FrameLayout) getWindow().getDecorView();
-                decor.removeView(fullscreenVideoView);
-            } catch (Exception ignored) {}
-            fullscreenVideoView = null;
-            if (fullscreenVideoCallback != null) {
-                fullscreenVideoCallback.onCustomViewHidden();
-                fullscreenVideoCallback = null;
-            }
-            restoreAfterVideoFullscreen();
-            updateVideoModeToggleButton();
+            exitVideoFullscreenToPortraitMode();
             return;
         }
         if (topBarView != null && topBarView.getVisibility() == View.GONE && webView != null && webView.getVisibility() == View.VISIBLE) {
-            exitAppVideoFullscreenFallback();
+            exitVideoFullscreenToPortraitMode();
             return;
         }
 
         if (videoLandscapeModeActive) {
-            exitVideoLandscapeMode();
+            exitVideoLandscapeMode(false);
+            forcePortraitAfterVideoFullscreen();
             return;
         }
 
