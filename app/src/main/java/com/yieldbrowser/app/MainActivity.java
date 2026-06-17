@@ -8299,6 +8299,14 @@ private void showDownloadSettingsPanel() {
                 // v0.9.44: compatibility mode bersifat universal per-domain. Jika aktif, jangan
                 // intercept resource sama sekali untuk halaman itu. Ini menyelesaikan situs yang
                 // reload/blank karena mendeteksi resource diblokir walau user sedang mencoba masuk.
+                // v0.9.63: YouTube player tidak boleh diblokir di network layer sama sekali.
+                // Pada Android WebView, memblokir doubleclick/google ads metadata dari halaman YouTube
+                // sering membuat player utama menunggu iklan lalu layar menjadi hitam/stuck.
+                // Jadi khusus YouTube, semua request dibiarkan lewat dan ad handling hanya dilakukan
+                // oleh script YouTube Safe AdBlock yang klik Skip / speed iklan secara aman.
+                if (isYouTubePageUrl(pageUrl) || isYouTubePageUrl(u)) {
+                    return super.shouldInterceptRequest(view, request);
+                }
                 if (isStrictSiteCompatibilityUrl(pageUrl) || isStrictSiteCompatibilityUrl(u) || isSiteCompatibilityModeActiveForUrl(pageUrl)) {
                     return super.shouldInterceptRequest(view, request);
                 }
@@ -9876,9 +9884,9 @@ private void showDownloadSettingsPanel() {
     private void injectYouTubeSafeAdBlockV6() {
         if (webView == null || !adBlock) return;
         if (!isYouTubePageUrl(getEffectiveCurrentUrl())) return;
-        // v0.9.62: YouTube-only Safe AdBlock v11.
-        // Fix utama: jangan menghapus class/DOM player dan jangan loncat currentTime.
-        // Speed hanya saat sinyal iklan kuat, lalu YouTube dibiarkan transisi natural ke video utama.
+        // v0.9.63: YouTube-only Safe AdBlock v12.
+        // Fix utama: network layer YouTube dilepas total dari pemblokiran agar player utama tidak hitam/stuck.
+        // Script ini hanya menangani Skip/Lewati dan speed saat sinyal iklan kuat.
         String js = "javascript:"
                 + "(function(){\n"
                 + "try{\n"

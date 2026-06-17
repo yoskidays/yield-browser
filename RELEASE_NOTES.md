@@ -1,11 +1,10 @@
-# Yield Browser v0.9.62
+# Yield Browser v0.9.63
 
-## YouTube Main Video Black Fix v2
+## YouTube Network Safe Fix
 
 - Khusus YouTube saja.
 - Adblock situs umum, Lordborg/site compatibility, direct image guard, desktop/mobile, night mode, video fullscreen, translate, dan download tidak disentuh.
-- Menghapus manipulasi YouTube yang berisiko membuat video utama hitam setelah iklan.
-- Tidak lagi melompat `currentTime` saat iklan.
-- Tidak lagi menghapus class/DOM player YouTube secara paksa.
-- Iklan YouTube tetap dipercepat dan tombol Skip/Lewati tetap dicoba otomatis saat sinyal iklan kuat.
-- Setelah iklan selesai, speed/mute dipulihkan secara natural dan player diberi recovery ringan tanpa reload paksa.
+- Pada halaman YouTube, request network tidak lagi diblokir oleh adblock global.
+- Tujuannya mencegah player utama YouTube hitam/stuck setelah iklan karena metadata/resource iklan diblokir terlalu kasar di Android WebView.
+- YouTube AdBlock tetap berjalan lewat script aman: klik Skip/Lewati dan speed iklan hanya saat sinyal iklan kuat.
+- Tidak memblokir `googlevideo.com`, `ytimg.com`, `youtubei/player`, maupun request eksternal YouTube yang dibutuhkan player.
