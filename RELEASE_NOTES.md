@@ -1,13 +1,26 @@
-# Yield Browser v0.9.71
+# Yield Browser v0.9.72
 
-## Edge-only Gesture Fix + YouTube Lewati Click Fix
+## Video Controls + YouTube Skip Fix
 
-- Memperbaiki gesture slide/back yang terlalu sensitif pada mode mobile biasa.
-- Custom swipe Back/Forward sekarang hanya aktif jika sentuhan dimulai dari pinggir layar.
-- Pada situs desktop-only/horizontal-scroll seperti `h-metrics.com`, area edge dibuat lebih sempit agar scroll horizontal tidak mudah terbaca sebagai Back.
-- Tombol Back HP tetap normal.
-- Memperkuat auto klik tombol YouTube `Lewati` / `Skip` pada mobile player.
-- Klik YouTube sekarang mencoba parent clickable dan fallback klik koordinat tengah tombol.
-- Mode cooldown YouTube tidak lagi tidur kalau iklan masih terlihat, sehingga tombol `Lewati` tetap bisa diklik.
-- Tetap tidak memakai playbackRate 16x, mute paksa, force play, atau blokir resource inti YouTube.
-- Fitur v0.9.70 tetap dipertahankan.
+- Menghapus toast seek video (+10s / -10s) yang menutup tombol kontrol saat portrait.
+- Menggabungkan tombol Play dan Pause menjadi satu tombol toggle.
+  - Saat video play, tombol berubah menjadi Pause.
+  - Saat video pause, tombol berubah menjadi Play.
+- Tombol Fullscreen dibuat lebih responsif dengan fallback otomatis jika request fullscreen WebView tidak langsung aktif.
+- Saat fullscreen/landscape, jarak dan ukuran tombol kontrol video dibuat sedikit lebih lega.
+- Saat kembali portrait, layout kontrol kembali compact seperti semula.
+- YouTube Skip/Lewati diperkuat dengan fallback native tap dari Android WebView supaya tombol iklan lebih mungkin terpencet seperti tap user.
+- Tetap tidak memakai playbackRate 16x, mute paksa, force play video utama, atau blokir resource YouTube inti.
+
+## Dipertahankan
+
+- YouTube Auto Cycle Ad Bypass v0.9.70/v0.9.71.
+- Edge Gesture Guard.
+- Universal Blank Compatibility.
+- Desktop/Mobile universal fix.
+- Search Engine fix.
+- Lordborg, Instant Monitor, Invest-tracing compatibility.
+- Direct Image Guard.
+- Night Mode.
+- Translate.
+- Download Manager.

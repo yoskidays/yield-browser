@@ -166,6 +166,8 @@ public class MainActivity extends Activity {
     private TextView videoSpeedLabel;
     private TextView videoQualityLabel;
     private TextView videoModeToggleButton;
+    private ImageView videoPlayPauseIcon;
+    private View videoPlayPauseButton;
     private String selectedVideoQuality = "Auto";
     private boolean videoControlsManualHidden = false;
     private ViewGroup videoControlsOriginalParent;
@@ -452,7 +454,10 @@ public class MainActivity extends Activity {
     private class VideoBridge {
         @JavascriptInterface
         public void onVideoPlaying() {
-            runOnUiThread(() -> showVideoControlsIfAllowed());
+            runOnUiThread(() -> {
+                updateVideoPlayPauseButtonState(true);
+                showVideoControlsIfAllowed();
+            });
         }
 
         @JavascriptInterface
@@ -466,8 +471,18 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void onVideoStopped() {
             runOnUiThread(() -> {
-                if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
+                // Jangan sembunyikan kontrol saat user menekan Pause.
+                // Tombol Play/Pause cukup berubah ikon agar kontrol tetap bisa dipakai lagi.
+                updateVideoPlayPauseButtonState(false);
+                if (videoControlsBar != null && videoControlsEnabled && webView != null && webView.getVisibility() == View.VISIBLE) {
+                    videoControlsBar.setVisibility(View.VISIBLE);
+                }
             });
+        }
+
+        @JavascriptInterface
+        public void tapAtRatio(double xRatio, double yRatio) {
+            runOnUiThread(() -> nativeTapWebViewAtRatio(xRatio, yRatio));
         }
     }
 
@@ -2681,6 +2696,7 @@ private void showDownloadSettingsPanel() {
         if (videoSpeedLabel != null) videoSpeedLabel.setText(formatVideoSpeed(videoSpeed));
         if (videoQualityLabel != null) videoQualityLabel.setText(selectedVideoQuality == null ? "Auto" : selectedVideoQuality);
         updateVideoModeToggleButton();
+        refreshVideoPlayPauseButtonState();
     }
 
     private LinearLayout createVideoControlsBar() {
@@ -2691,8 +2707,8 @@ private void showDownloadSettingsPanel() {
         bar.setBackgroundColor(Color.parseColor("#101217"));
 
         bar.addView(videoTextButton("−10s", "Mundur 10 detik", v -> seekVideoBySeconds(-10)));
-        bar.addView(videoButton(R.drawable.ic_video_play, "Play", v -> controlVideo("play")));
-        bar.addView(videoButton(R.drawable.ic_video_pause, "Pause", v -> controlVideo("pause")));
+        videoPlayPauseButton = videoButton(R.drawable.ic_video_play, "Play/Pause", v -> controlVideo("toggle"));
+        bar.addView(videoPlayPauseButton);
         bar.addView(videoTextButton("+10s", "Maju 10 detik", v -> seekVideoBySeconds(10)));
 
         videoSpeedLabel = new TextView(this);
@@ -2781,11 +2797,71 @@ private void showDownloadSettingsPanel() {
         icon.setImageResource(iconRes);
         icon.setColorFilter(Color.WHITE);
         wrap.addView(icon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        if ("Play/Pause".equals(label)) videoPlayPauseIcon = icon;
 
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(34), dp(40));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(36), dp(40));
         params.setMargins(dp(2), 0, dp(2), 0);
         wrap.setLayoutParams(params);
         return wrap;
+    }
+
+    private void updateVideoPlayPauseButtonState(boolean playing) {
+        try {
+            if (videoPlayPauseIcon == null) return;
+            videoPlayPauseIcon.setImageResource(playing ? R.drawable.ic_video_pause : R.drawable.ic_video_play);
+            if (videoPlayPauseButton != null) {
+                videoPlayPauseButton.setContentDescription(playing ? "Pause" : "Play");
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void refreshVideoPlayPauseButtonState() {
+        try {
+            if (webView == null || videoPlayPauseIcon == null) return;
+            webView.evaluateJavascript("(function(){try{var v=document.querySelector('video');return !!(v&&!v.paused&&!v.ended);}catch(e){return false;}})();", value -> updateVideoPlayPauseButtonState("true".equals(value)));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void applyVideoControlsFullscreenLayout(boolean fullscreen) {
+        try {
+            if (videoControlsBar == null) return;
+            videoControlsBar.setPadding(dp(fullscreen ? 8 : 4), dp(5), dp(fullscreen ? 8 : 4), dp(5));
+            for (int i = 0; i < videoControlsBar.getChildCount(); i++) {
+                View child = videoControlsBar.getChildAt(i);
+                ViewGroup.LayoutParams raw = child.getLayoutParams();
+                if (!(raw instanceof LinearLayout.LayoutParams)) continue;
+                LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) raw;
+                int margin = fullscreen ? dp(5) : dp(2);
+                lp.setMargins(margin, 0, margin, 0);
+                if (child == videoPlayPauseButton) lp.width = dp(fullscreen ? 46 : 36);
+                else if (child == videoModeToggleButton) lp.width = dp(fullscreen ? 54 : 44);
+                else if (child == videoSpeedLabel) lp.width = dp(fullscreen ? 46 : 38);
+                else if (child == videoQualityLabel) lp.width = dp(fullscreen ? 52 : 42);
+                else lp.width = dp(fullscreen ? 48 : 38);
+                child.setLayoutParams(lp);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void nativeTapWebViewAtRatio(double xRatio, double yRatio) {
+        try {
+            if (webView == null) return;
+            if (xRatio < 0 || yRatio < 0 || xRatio > 1 || yRatio > 1) return;
+            final float x = (float) (webView.getWidth() * xRatio);
+            final float y = (float) (webView.getHeight() * yRatio);
+            if (x < 1 || y < 1 || x > webView.getWidth() - 1 || y > webView.getHeight() - 1) return;
+            long now = android.os.SystemClock.uptimeMillis();
+            MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0);
+            MotionEvent up = MotionEvent.obtain(now, now + 70, MotionEvent.ACTION_UP, x, y, 0);
+            webView.dispatchTouchEvent(down);
+            webView.dispatchTouchEvent(up);
+            down.recycle();
+            up.recycle();
+        } catch (Exception ignored) {
+        }
     }
 
     private void updateVideoControlsVisibility() {
@@ -2804,7 +2880,7 @@ private void showDownloadSettingsPanel() {
         }
         String js = "javascript:(function(){var v=document.querySelector('video');if(v){try{v.currentTime=Math.max(0,Math.min((v.duration||999999),v.currentTime+" + seconds + "));}catch(e){} }})()";
         runPageScript(js);
-        Toast.makeText(this, (seconds > 0 ? "Maju " : "Mundur ") + Math.abs(seconds) + " detik", Toast.LENGTH_SHORT).show();
+        refreshVideoPlayPauseButtonState();
     }
 
     private void checkAndShowVideoControls() {
@@ -3000,8 +3076,11 @@ private void showDownloadSettingsPanel() {
                     openAppVideoFullscreenFallback();
                 } else {
                     updateVideoModeToggleButton();
-                    mainHandler.postDelayed(() -> updateVideoModeToggleButton(), 250);
-                    Toast.makeText(this, "Mode layar penuh video", Toast.LENGTH_SHORT).show();
+                    mainHandler.postDelayed(() -> {
+                        if (!isVideoFullscreenActive()) openAppVideoFullscreenFallback();
+                        updateVideoModeToggleButton();
+                    }, 450);
+                    mainHandler.postDelayed(() -> updateVideoModeToggleButton(), 900);
                 }
             });
         } catch (Exception e) {
@@ -3030,10 +3109,10 @@ private void showDownloadSettingsPanel() {
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
             if (topBarView != null) topBarView.setVisibility(View.GONE);
             if (bottomNavView != null) bottomNavView.setVisibility(View.GONE);
+            moveVideoControlsToFullscreenOverlay();
             updateVideoModeToggleButton();
             videoControlsManualHidden = false;
             checkAndShowVideoControls();
-            Toast.makeText(this, "Mode layar penuh aktif. Tekan Back untuk keluar.", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Mode fullscreen tidak didukung di halaman ini", Toast.LENGTH_SHORT).show();
         }
@@ -3094,6 +3173,7 @@ private void showDownloadSettingsPanel() {
             );
             lp.setMargins(dp(8), 0, dp(8), dp(22));
             videoControlsBar.setBackground(roundRect(Color.parseColor("#D0101217"), dp(24), dp(1), Color.parseColor("#30343C")));
+            applyVideoControlsFullscreenLayout(true);
             decor.addView(videoControlsBar, lp);
 
             videoControlsInFullscreen = true;
@@ -3125,6 +3205,7 @@ private void showDownloadSettingsPanel() {
             }
 
             videoControlsBar.setBackgroundColor(Color.parseColor("#101217"));
+            applyVideoControlsFullscreenLayout(false);
             videoControlsInFullscreen = false;
             updateVideoModeToggleButton();
             videoControlsOriginalParent = null;
@@ -3486,13 +3567,20 @@ private void showDownloadSettingsPanel() {
 
         String js;
         if ("play".equals(action)) {
-            js = "javascript:(function(){var v=document.querySelector('video');if(v){v.play();'play';}else{'no_video';}})()";
+            js = "(function(){var v=document.querySelector('video');if(v){v.play();'play';}else{'no_video';}})()";
         } else if ("pause".equals(action)) {
-            js = "javascript:(function(){var v=document.querySelector('video');if(v){v.pause();'pause';}else{'no_video';}})()";
+            js = "(function(){var v=document.querySelector('video');if(v){v.pause();'pause';}else{'no_video';}})()";
+        } else if ("toggle".equals(action)) {
+            js = "(function(){try{var v=document.querySelector('video');if(!v)return 'no_video';if(v.paused||v.ended){v.play();return 'play';}else{v.pause();return 'pause';}}catch(e){return 'error';}})()";
         } else {
-            js = "javascript:(function(){var v=document.querySelector('video');if(v){v.pause();try{v.currentTime=0;}catch(e){}'stop';}else{'no_video';}})()";
+            js = "(function(){var v=document.querySelector('video');if(v){v.pause();try{v.currentTime=0;}catch(e){}'stop';}else{'no_video';}})()";
         }
-        runPageScript(js);
+        try {
+            webView.evaluateJavascript(js, value -> refreshVideoPlayPauseButtonState());
+        } catch (Exception e) {
+            runPageScript("javascript:" + js);
+            refreshVideoPlayPauseButtonState();
+        }
     }
 
     private void cycleVideoSpeed() {
@@ -10133,10 +10221,10 @@ private void showDownloadSettingsPanel() {
                 + "  function adInfo(){try{var p=player();var pt=playerText();var skip=qsa('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button,.ytm-ad-skip-button,.videoAdUiSkipButton,.ytp-ad-skip-button-container',p||document).some(visible);var ui=qsa('.ytp-ad-player-overlay,.ytp-ad-player-overlay-instream-info,.ytp-ad-preview-container,.ytp-ad-text,.ytp-ad-simple-ad-badge,.ytp-ad-badge,.video-ads.ytp-ad-module,.ytp-ad-action-interstitial',p||document).some(visible);var word=/(bersponsor|sponsored|kunjungi pengiklan|visit advertiser|lewati iklan|lewati|skip ad|iklan\\s*\\u2022|ad\\s*1\\s*of|ad\\s*2\\s*of|1\\s*dari\\s*2|2\\s*dari\\s*2)/i.test(pt);return {ad:!!(skip||ui||word),skip:skip,ui:ui,word:word};}catch(e){return {ad:false,skip:false,ui:false,word:false};}}\n"
                 + "  function fire(el,type){try{var ev;if(type.indexOf('touch')===0&&typeof TouchEvent!=='undefined'){ev=new TouchEvent(type,{bubbles:true,cancelable:true});}else if(type.indexOf('pointer')===0&&typeof PointerEvent!=='undefined'){ev=new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,pointerType:'touch',isPrimary:true});}else{ev=new MouseEvent(type,{bubbles:true,cancelable:true,view:window});}el.dispatchEvent(ev);return true;}catch(e){return false;}}\n"
                 + "  function strongClick(el){try{if(!el)return false;['pointerover','pointerenter','pointerdown','touchstart','mousedown','pointerup','touchend','mouseup','click'].forEach(function(ev){fire(el,ev);});try{el.click();}catch(e){}return true;}catch(e){try{el.click();return true;}catch(x){return false;}}}\n"
-                + "  function coordinateClick(el){try{if(!el||!el.getBoundingClientRect)return false;var r=el.getBoundingClientRect();if(r.width<2||r.height<2)return false;var x=Math.max(1,Math.min(window.innerWidth-2,r.left+r.width/2));var y=Math.max(1,Math.min(window.innerHeight-2,r.top+r.height/2));var target=document.elementFromPoint(x,y)||el;['pointerdown','touchstart','mousedown','pointerup','touchend','mouseup','click'].forEach(function(type){try{var ev;if(type.indexOf('pointer')===0&&typeof PointerEvent!=='undefined'){ev=new PointerEvent(type,{bubbles:true,cancelable:true,clientX:x,clientY:y,pointerId:1,pointerType:'touch',isPrimary:true});}else{ev=new MouseEvent(type,{bubbles:true,cancelable:true,view:window,clientX:x,clientY:y});}target.dispatchEvent(ev);}catch(e){}});try{target.click();}catch(e){}return true;}catch(e){return false;}}\n"
+                + "  function coordinateClick(el){try{if(!el||!el.getBoundingClientRect)return false;var r=el.getBoundingClientRect();if(r.width<2||r.height<2)return false;var x=Math.max(1,Math.min(window.innerWidth-2,r.left+r.width/2));var y=Math.max(1,Math.min(window.innerHeight-2,r.top+r.height/2));var target=document.elementFromPoint(x,y)||el;['pointerdown','touchstart','mousedown','pointerup','touchend','mouseup','click'].forEach(function(type){try{var ev;if(type.indexOf('pointer')===0&&typeof PointerEvent!=='undefined'){ev=new PointerEvent(type,{bubbles:true,cancelable:true,clientX:x,clientY:y,pointerId:1,pointerType:'touch',isPrimary:true});}else{ev=new MouseEvent(type,{bubbles:true,cancelable:true,view:window,clientX:x,clientY:y});}target.dispatchEvent(ev);}catch(e){}});try{target.click();}catch(e){}try{if(window.YieldVideoBridge&&window.innerWidth>0&&window.innerHeight>0){window.YieldVideoBridge.tapAtRatio(x/window.innerWidth,y/window.innerHeight);}}catch(e){}return true;}catch(e){return false;}}\n"
                 + "  function clickBest(el){try{var best=el;var t=el;for(var i=0;i<7&&t;i++,t=t.parentElement){var tag=(t.tagName||'').toLowerCase();var role=(t.getAttribute&&t.getAttribute('role')||'').toLowerCase();var cls=String(t.className||'').toLowerCase();var tx=txt(t);if(tag==='button'||role==='button'||cls.indexOf('skip')>-1||cls.indexOf('ytp-ad-skip')>-1||tx.indexOf('lewati')>-1||tx.indexOf('skip')>-1){best=t;break;}}var a=strongClick(best), b=coordinateClick(best);return a||b;}catch(e){return strongClick(el)||coordinateClick(el);}}\n"
                 + "  function findSkipTargets(){try{var p=player();var roots=[p,document];var out=[];var sels=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button','.ytp-skip-ad-button__button','.ytm-ad-skip-button','.videoAdUiSkipButton','.ytp-ad-skip-button-container','.ytp-ad-skip-button-text','.ytp-ad-skip-button-icon','button[aria-label]','button','div[role=button]','a[role=button]','tp-yt-paper-button','span','div'];roots.forEach(function(root){if(!root)return;sels.forEach(function(sel){qsa(sel,root).forEach(function(el){if(out.indexOf(el)<0)out.push(el);});});});return out;}catch(e){return [];} }\n"
-                + "  function clickSkip(){try{var now=Date.now();if(now-(S.lastSkip||0)<300)return false;var info=adInfo();var list=findSkipTargets();for(var i=0;i<list.length;i++){var el=list[i];if(!visible(el))continue;var t=txt(el), c=String(el.className||'').toLowerCase(), a=String(el.getAttribute&&el.getAttribute('aria-label')||'').toLowerCase();var ok=(t.indexOf('lewati')>-1||t.indexOf('skip')>-1||t.indexOf('abaikan')>-1||a.indexOf('lewati')>-1||a.indexOf('skip')>-1||c.indexOf('skip')>-1||c.indexOf('ytp-ad-skip')>-1);if(!ok)continue;var safe=inPlayer(el)||c.indexOf('skip')>-1||info.ad;if(safe){S.lastSkip=now;var r=clickBest(el);if(r)enterCooldownPending('skip');return r;}}return false;}catch(e){return false;}}\n"
+                + "  function clickSkip(){try{var now=Date.now();if(now-(S.lastSkip||0)<180)return false;var info=adInfo();var list=findSkipTargets();for(var i=0;i<list.length;i++){var el=list[i];if(!visible(el))continue;var t=txt(el), c=String(el.className||'').toLowerCase(), a=String(el.getAttribute&&el.getAttribute('aria-label')||'').toLowerCase();var ok=(t.indexOf('lewati')>-1||t.indexOf('skip')>-1||t.indexOf('abaikan')>-1||a.indexOf('lewati')>-1||a.indexOf('skip')>-1||c.indexOf('skip')>-1||c.indexOf('ytp-ad-skip')>-1);if(!ok)continue;var safe=inPlayer(el)||c.indexOf('skip')>-1||info.ad;if(safe){S.lastSkip=now;var r=clickBest(el);if(r)enterCooldownPending('skip');return r;}}return false;}catch(e){return false;}}\n"
                 + "  function yieldForward10Assist(){try{var now=Date.now();if(now-(S.lastAssist||0)<850)return false;var info=adInfo();if(!info.ad)return false;var v=video();if(!v)return false;var cur=(typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;var dur=(typeof v.duration==='number'&&isFinite(v.duration))?v.duration:999999;var next=Math.max(0,Math.min(dur-0.15,cur+10));if(next<=cur+0.2)return false;S.lastAssist=now;v.currentTime=next;try{v.dispatchEvent(new Event('seeking'));v.dispatchEvent(new Event('timeupdate'));}catch(e){}return true;}catch(e){return false;}}\n"
                 + "  function enterCooldownPending(reason){try{S.phase='cooldown_pending';S.hadAd=false;S.coolStart=Date.now();setTimeout(function(){try{if(adInfo().ad){S.phase='assist';return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;S.phase='cooldown';S.coolBase=ct;S.coolTarget=ct+120;S.coolStart=Date.now();}catch(e){S.phase='cooldown';S.coolStart=Date.now();S.coolTarget=999999;}},2200);}catch(e){}}\n"
                 + "  function cooldownDone(){try{if(S.phase!=='cooldown')return false;var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;if(ct>=(S.coolTarget||0)||Date.now()-(S.coolStart||0)>150000){S.phase='monitor';return true;}return false;}catch(e){return false;}}\n"
