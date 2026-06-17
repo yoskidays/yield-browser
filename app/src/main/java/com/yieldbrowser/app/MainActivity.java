@@ -287,9 +287,14 @@ public class MainActivity extends Activity {
     private String reloadLoopGuardKey = "";
     private long reloadLoopGuardUntilMs = 0L;
     private long reloadLoopToastLastMs = 0L;
-    // v0.9.46: situs yang sensitif/anti-adblock/anti-redirect butuh mode WebView polos.
+    // v0.9.46/v0.9.64: situs yang sensitif/anti-adblock/anti-redirect butuh mode WebView polos.
     // Mode ini tidak mengirim header buatan, tidak melakukan inject, dan tidak intercept resource.
-    private static final String STRICT_COMPAT_HOST_LORDBORG = "lordborg.com";
+    // v0.9.64 menambah domain seperti instant-monitor.com yang blank saat AdBlock ON,
+    // tanpa mengubah adblock situs lain yang sudah stabil.
+    private static final String[] STRICT_COMPAT_HOSTS = new String[]{
+            "lordborg.com",
+            "instant-monitor.com"
+    };
     // v0.9.42: navigasi klik user/search result tidak boleh dianggap redirect iklan.
     private String trustedMainFrameHost = "";
     private long trustedMainFrameUntilMs = 0L;
@@ -300,6 +305,12 @@ public class MainActivity extends Activity {
     private String siteCompatibilityHost = "";
     private long siteCompatibilityUntilMs = 0L;
     private long siteCompatibilityToastLastMs = 0L;
+    // v0.9.65: universal blank-page compatibility recovery.
+    // Jika halaman menjadi blank hanya saat AdBlock ON, host akan otomatis
+    // direload sekali dalam compatibility mode tanpa perlu didaftarkan manual.
+    private String autoCompatibilityRecoveryHost = "";
+    private String autoCompatibilityRecoveryKey = "";
+    private long autoCompatibilityRecoveryUntilMs = 0L;
 
 
     // ===== Data models =====
@@ -8482,6 +8493,7 @@ private void showDownloadSettingsPanel() {
                         mainHandler.postDelayed(() -> { injectPremiumAdBlock(); injectYouTubeSafeAdBlockV6(); }, 1800);
                         mainHandler.postDelayed(() -> { injectPremiumAdBlock(); injectYouTubeSafeAdBlockV6(); }, 5200);
                     }
+                    scheduleUniversalBlankCompatibilityRecovery(finalUrl);
                     updateVideoControlsVisibility();
                 }
                 TabInfo currentTab = getCurrentTab();
@@ -9191,11 +9203,24 @@ private void showDownloadSettingsPanel() {
         try {
             String host = hostOfUrl(url);
             if (host == null || host.length() == 0) return false;
-            if (host.equals(STRICT_COMPAT_HOST_LORDBORG) || host.endsWith("." + STRICT_COMPAT_HOST_LORDBORG)) return true;
+            if (isKnownStrictCompatibilityHost(host)) return true;
             return isSiteCompatibilityModeActiveForUrl(url);
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private boolean isKnownStrictCompatibilityHost(String host) {
+        try {
+            if (host == null || host.length() == 0) return false;
+            String h = host.toLowerCase(Locale.US);
+            if (h.startsWith("www.")) h = h.substring(4);
+            for (String base : STRICT_COMPAT_HOSTS) {
+                if (h.equals(base) || h.endsWith("." + base)) return true;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private void applyPlainCompatibilitySettingsForUrl(String url) {
@@ -9264,6 +9289,134 @@ private void showDownloadSettingsPanel() {
                 }
             } catch (Exception ignored) {}
         }, 3500);
+    }
+
+    private String decodeEvaluateJavascriptString(String value) {
+        try {
+            if (value == null) return "";
+            Object parsed = new org.json.JSONTokener(value).nextValue();
+            return parsed == null ? "" : String.valueOf(parsed);
+        } catch (Exception e) {
+            return value == null ? "" : value;
+        }
+    }
+
+    private boolean isUniversalCompatibilityCandidateUrl(String url) {
+        try {
+            if (!adBlock) return false;
+            if (!isHttpOrHttpsUrl(url)) return false;
+            if (isStrictSiteCompatibilityUrl(url) || isSiteCompatibilityModeActiveForUrl(url)) return false;
+            if (isImageResourceUrl(url) || isMediaResourceUrl(url)) return false;
+            String lowerUrl = url == null ? "" : url.toLowerCase(Locale.US);
+            if (lowerUrl.contains(".pdf") || lowerUrl.contains("application/pdf")) return false;
+            String host = hostOfUrl(url);
+            if (host == null || host.length() == 0) return false;
+            String h = host.toLowerCase(Locale.US);
+            if (h.startsWith("www.")) h = h.substring(4);
+            if (h.equals("youtube.com") || h.endsWith(".youtube.com") || h.equals("youtu.be")) return false;
+            if (h.equals("google.com") || h.endsWith(".google.com") || h.equals("google.co.id") || h.endsWith(".google.co.id")) return false;
+            if (h.equals("bing.com") || h.endsWith(".bing.com")) return false;
+            if (h.equals("duckduckgo.com") || h.endsWith(".duckduckgo.com")) return false;
+            if (h.equals("startpage.com") || h.endsWith(".startpage.com")) return false;
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean shouldRetryCompatibilityRecovery(String url) {
+        try {
+            String host = hostOfUrl(url);
+            if (host == null || host.length() == 0) return false;
+            String key = navigationLoopKey(url);
+            long now = System.currentTimeMillis();
+            if (host.equals(autoCompatibilityRecoveryHost)
+                    && key.equals(autoCompatibilityRecoveryKey)
+                    && now < autoCompatibilityRecoveryUntilMs) {
+                return false;
+            }
+            autoCompatibilityRecoveryHost = host;
+            autoCompatibilityRecoveryKey = key;
+            autoCompatibilityRecoveryUntilMs = now + 300000L;
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isLikelyBlankCompatibilityReport(String report) {
+        try {
+            String raw = report == null ? "" : report.trim();
+            if (raw.length() == 0) return false;
+            String[] parts = raw.split("\\|", -1);
+            if (parts.length < 7) return false;
+            int textLen = Integer.parseInt(parts[0]);
+            int nodeCount = Integer.parseInt(parts[1]);
+            int mediaCount = Integer.parseInt(parts[2]);
+            int linkCount = Integer.parseInt(parts[3]);
+            int htmlLen = Integer.parseInt(parts[4]);
+            int scrollHeight = Integer.parseInt(parts[5]);
+            String readyState = parts[6];
+            boolean complete = "complete".equalsIgnoreCase(readyState) || "interactive".equalsIgnoreCase(readyState);
+            if (!complete) return false;
+            boolean stronglyBlank = textLen <= 8 && mediaCount == 0 && nodeCount <= 18 && htmlLen <= 1600;
+            boolean sparseBlank = textLen <= 20 && mediaCount == 0 && nodeCount <= 30 && linkCount <= 8 && htmlLen <= 3000;
+            boolean viewportBlank = textLen <= 8 && mediaCount == 0 && nodeCount <= 40 && scrollHeight >= 300;
+            return stronglyBlank || sparseBlank || viewportBlank;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void scheduleUniversalBlankCompatibilityRecovery(String url) {
+        try {
+            if (webView == null) return;
+            if (!isUniversalCompatibilityCandidateUrl(url)) return;
+            final String expectedHost = hostOfUrl(url);
+            final String expectedKey = navigationLoopKey(url);
+            if (expectedHost.length() == 0 || expectedKey.length() == 0) return;
+            mainHandler.postDelayed(() -> {
+                try {
+                    if (webView == null) return;
+                    String activeUrl = getEffectiveCurrentUrl();
+                    if (activeUrl == null || activeUrl.length() == 0) activeUrl = currentPageUrlForRequest;
+                    String activeHost = hostOfUrl(activeUrl);
+                    String activeKey = navigationLoopKey(activeUrl);
+                    if (!sameOrSubDomain(activeHost, expectedHost)) return;
+                    if (!expectedKey.equals(activeKey)) return;
+                    if (isStrictSiteCompatibilityUrl(activeUrl) || isSiteCompatibilityModeActiveForUrl(activeUrl)) return;
+                    String js = "(function(){try{var b=document.body, d=document.documentElement; if(!b){return '0|0|0|0|0|0|'+document.readyState;}"
+                            + "var t=((b.innerText||'').replace(/\s+/g,'')).length;"
+                            + "var n=b.querySelectorAll('*').length;"
+                            + "var m=b.querySelectorAll('img,svg,canvas,video,iframe,object,embed').length;"
+                            + "var l=b.querySelectorAll('a').length;"
+                            + "var h=(b.innerHTML||'').length;"
+                            + "var s=Math.max(b.scrollHeight||0,(d&&d.scrollHeight)||0);"
+                            + "return [t,n,m,l,h,s,document.readyState].join('|');"
+                            + "}catch(e){return '0|0|0|0|0|0|error';}})();";
+                    webView.evaluateJavascript(js, value -> {
+                        try {
+                            if (webView == null) return;
+                            String currentUrl = getEffectiveCurrentUrl();
+                            if (currentUrl == null || currentUrl.length() == 0) currentUrl = currentPageUrlForRequest;
+                            String currentHost = hostOfUrl(currentUrl);
+                            String currentKey = navigationLoopKey(currentUrl);
+                            if (!sameOrSubDomain(currentHost, expectedHost)) return;
+                            if (!expectedKey.equals(currentKey)) return;
+                            String decoded = decodeEvaluateJavascriptString(value);
+                            if (!isLikelyBlankCompatibilityReport(decoded)) return;
+                            if (!shouldRetryCompatibilityRecovery(currentUrl)) return;
+                            enableSiteCompatibilityModeForUrl(currentUrl, "auto-blank-recovery");
+                            applyPlainCompatibilitySettingsForUrl(currentUrl);
+                            loadCompatibilityUrlWithCurrentMode(currentUrl);
+                        } catch (Exception ignored) {
+                        }
+                    });
+                } catch (Exception ignored) {
+                }
+            }, 1600L);
+        } catch (Exception ignored) {
+        }
     }
 
     private boolean isReloadLoopGuardActiveForUrl(String url) {

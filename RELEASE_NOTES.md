@@ -1,10 +1,13 @@
-# Yield Browser v0.9.63
+# Yield Browser v0.9.65
 
-## YouTube Network Safe Fix
+## Universal Blank Site Compatibility
 
-- Khusus YouTube saja.
-- Adblock situs umum, Lordborg/site compatibility, direct image guard, desktop/mobile, night mode, video fullscreen, translate, dan download tidak disentuh.
-- Pada halaman YouTube, request network tidak lagi diblokir oleh adblock global.
-- Tujuannya mencegah player utama YouTube hitam/stuck setelah iklan karena metadata/resource iklan diblokir terlalu kasar di Android WebView.
-- YouTube AdBlock tetap berjalan lewat script aman: klik Skip/Lewati dan speed iklan hanya saat sinyal iklan kuat.
-- Tidak memblokir `googlevideo.com`, `ytimg.com`, `youtubei/player`, maupun request eksternal YouTube yang dibutuhkan player.
+- Menambahkan **Universal Blank Compatibility Recovery** agar situs yang blank saat AdBlock ON tidak perlu ditambahkan domain satu-satu lagi.
+- Jika halaman HTTP/HTTPS selesai dimuat tetapi terdeteksi hampir kosong/blank, Yield akan otomatis:
+  - mengaktifkan mode kompatibel untuk host tersebut,
+  - memuat ulang halaman **sekali** dengan profile compatibility,
+  - dan tetap menjaga popup/redirect iklan lintas-domain masuk ke tab sementara.
+- Sistem ini **tidak menyentuh YouTube** dan **tidak mengubah flow adblock situs lain** yang sudah stabil.
+- Situs strict compatibility yang sudah ada seperti **lordborg.com** dan **instant-monitor.com** tetap didukung.
+- Desktop mode pada situs compatibility tetap mengikuti toggle Desktop ON/OFF yang sudah ada.
+- Recovery otomatis diberi cooldown per host/url agar tidak memicu reload loop baru.
