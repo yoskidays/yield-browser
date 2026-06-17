@@ -1,9 +1,19 @@
-# Yield Browser v0.9.58
+# Yield Browser v0.9.59
 
-## Build Fix
-- Fixed `settings.gradle` so it is guaranteed to be a valid UTF-8 Gradle text file.
-- Prevents GitHub Actions build failure caused by `settings.gradle` being accidentally overwritten by PNG/binary content.
+## YouTube Safe AdBlock v8
+- Fix khusus YouTube saat iklan stuck di layar hitam/blank.
+- Klik tombol Skip/Lewati diperluas, termasuk tombol mobile yang hanya muncul sebagai teks/role button.
+- Jika iklan belum bisa dilewati, video iklan diputar dan dipercepat sementara agar tidak berhenti di layar hitam.
+- Restore speed, mute, dan volume setelah sinyal iklan hilang.
+- Tetap tidak memblokir resource inti YouTube seperti googlevideo.com, ytimg.com, youtubei/player, dan script player utama.
 
-## YouTube Safe AdBlock
-- Keeps the latest YouTube ad recovery changes from v0.9.57.
-- Does not modify general site adblock, Lordborg compatibility, direct image guard, desktop/mobile mode, night mode, fullscreen video controls, translate, or download manager.
+## Tidak Disentuh
+- Adblock situs umum.
+- Lordborg / heavy ads compatibility.
+- Smart redirect context.
+- Direct image guard.
+- Desktop/Mobile mode.
+- Night Mode.
+- Kontrol video fullscreen.
+- Translate.
+- Download manager.

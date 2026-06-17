@@ -1,8 +1,5 @@
-# Yield Browser v0.9.57
+# Yield Browser v0.9.59
 
-Source revisi v0.9.57. Fokus revisi: YouTube Safe AdBlock v7 untuk mengurangi stuck pada iklan YouTube tanpa mengubah adblock situs lain yang sudah stabil.
+Source revisi fokus khusus YouTube Safe AdBlock v8.
 
-## Catatan
-
-- Build disarankan lewat GitHub Actions yang sudah tersedia.
-- Release notes diringkas dalam `RELEASE_NOTES.md`.
+Adblock situs umum, Lordborg compatibility, direct image guard, desktop/mobile mode, night mode, fullscreen video control, translate, dan download manager tidak diubah.
