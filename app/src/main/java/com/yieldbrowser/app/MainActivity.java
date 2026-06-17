@@ -8000,6 +8000,7 @@ private void showDownloadSettingsPanel() {
         try {
             String url = getSafeReloadUrlForModeChange();
             if (url == null || url.trim().length() == 0) url = getEffectiveCurrentUrl();
+            url = normalizeUrlForCurrentBrowserMode(url);
 
             if (webView != null && webView.getVisibility() == View.VISIBLE && url != null && url.length() > 0) {
                 // v0.9.40: reload di browser mode harus hard reload, bukan webView.reload().
@@ -8196,12 +8197,16 @@ private void showDownloadSettingsPanel() {
     private void hardReloadUrlWithCurrentBrowserMode(String targetUrl, boolean showWebPage) {
         if (targetUrl == null || targetUrl.trim().length() == 0) return;
         try {
+            targetUrl = normalizeUrlForCurrentBrowserMode(targetUrl);
             if (addressBar != null) addressBar.setText(targetUrl);
             recreateBrowserWebViewForMode(targetUrl, showWebPage);
+            if (!desktopMode) scheduleMobileViewportReset();
         } catch (Exception e) {
             try {
+                targetUrl = normalizeUrlForCurrentBrowserMode(targetUrl);
                 applyBrowserSettings();
                 loadBrowserUrl(targetUrl);
+                if (!desktopMode) scheduleMobileViewportReset();
             } catch (Exception ignored) {}
         }
     }
@@ -8941,7 +8946,8 @@ private void showDownloadSettingsPanel() {
     private void loadBrowserUrl(String url) {
         if (webView == null || url == null) return;
         String cleanUrl = url.trim();
-        if (cleanUrl.length() == 0) return;
+        cleanUrl = normalizeUrlForCurrentBrowserMode(cleanUrl);
+        if (cleanUrl == null || cleanUrl.length() == 0) return;
 
         String lower = cleanUrl.toLowerCase(Locale.US);
         if (lower.startsWith("javascript:") || lower.startsWith("about:") || lower.startsWith("data:")) {
@@ -9015,6 +9021,7 @@ private void showDownloadSettingsPanel() {
             String targetUrl = getSafeReloadUrlForModeChange();
             boolean wasShowingWeb = webView != null && webView.getVisibility() == View.VISIBLE;
             desktopMode = !desktopMode;
+            targetUrl = normalizeUrlForCurrentBrowserMode(targetUrl);
             saveSettings();
 
             if (targetUrl != null && targetUrl.length() > 0) {
@@ -9050,28 +9057,65 @@ private void showDownloadSettingsPanel() {
     }
 
     private String getSafeReloadUrlForModeChange() {
+        String currentWebUrl = webView != null ? webView.getUrl() : "";
+        String currentAddressUrl = addressBar != null ? addressBar.getText().toString() : "";
         String[] candidates = new String[]{
-                webView != null ? webView.getUrl() : "",
-                addressBar != null ? addressBar.getText().toString() : "",
+                currentWebUrl,
+                currentAddressUrl,
                 lastSafeHttpUrl
         };
 
-        for (String candidate : candidates) {
+        for (int i = 0; i < candidates.length; i++) {
+            String candidate = candidates[i];
             String clean = extractOriginalUrl(candidate);
             if (clean == null || clean.trim().length() == 0) clean = candidate;
-            if (isSafeUrlForModeReload(clean)) return clean;
+            boolean explicitCurrentPage = i < 2;
+            if (isSafeUrlForModeReload(clean, explicitCurrentPage)) return clean;
         }
         return null;
     }
 
     private boolean isSafeUrlForModeReload(String url) {
+        return isSafeUrlForModeReload(url, false);
+    }
+
+    private boolean isSafeUrlForModeReload(String url, boolean explicitCurrentPage) {
         if (!isHttpOrHttpsUrl(url)) return false;
         if (isExternalSchemeUrl(url)) return false;
-        if (isMediaResourceUrl(url)) return true;
+        if (isImageResourceUrl(url) || isMediaResourceUrl(url)) return false;
+        String lower = url == null ? "" : url.toLowerCase(Locale.US);
+        if (lower.startsWith("javascript:") || lower.startsWith("data:") || lower.startsWith("about:")) return false;
+        // v0.9.67: Desktop/Mobile toggle adalah aksi user eksplisit.
+        // Untuk halaman yang sedang dibuka seperti invest-tracing.com, jangan ditolak hanya
+        // karena host-nya masuk daftar popup/ad. Jika ditolak, toggle tidak reload dan UA lama tersisa.
+        if (explicitCurrentPage) return true;
         if (isLikelyAdClickUrl(url)) return false;
         if (isKnownPopupHost(url)) return false;
         if (isAdUrl(url)) return false;
         return true;
+    }
+
+    private String normalizeUrlForCurrentBrowserMode(String url) {
+        try {
+            if (url == null) return null;
+            String clean = extractOriginalUrl(url);
+            if (clean == null || clean.trim().length() == 0) clean = url;
+            if (!isHttpOrHttpsUrl(clean)) return clean;
+            if (isYouTubePageUrl(clean)) {
+                if (desktopMode) {
+                    clean = clean.replace("https://m.youtube.com", "https://www.youtube.com")
+                            .replace("http://m.youtube.com", "https://www.youtube.com");
+                } else {
+                    clean = clean.replace("https://www.youtube.com", "https://m.youtube.com")
+                            .replace("http://www.youtube.com", "https://m.youtube.com")
+                            .replace("https://youtube.com", "https://m.youtube.com")
+                            .replace("http://youtube.com", "https://m.youtube.com");
+                }
+            }
+            return clean;
+        } catch (Exception e) {
+            return url;
+        }
     }
 
     private void applyBrowserSettings() {
@@ -9493,6 +9537,25 @@ private void showDownloadSettingsPanel() {
     private void applyMobileViewportIfNeeded() {
         if (desktopMode || webView == null) return;
         try { applyMobileProfile(webView.getSettings()); } catch (Exception ignored) {}
+        injectMobileViewportReset();
+    }
+
+    private void injectMobileViewportReset() {
+        if (desktopMode || webView == null) return;
+        String js = "javascript:(function(){try{"
+                + "var h=document.head||document.getElementsByTagName('head')[0]||document.documentElement;"
+                + "var m=document.querySelector('meta[name=viewport]');"
+                + "if(!m){m=document.createElement('meta');m.name='viewport';h.appendChild(m);}"
+                + "m.setAttribute('content','width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes');"
+                + "document.documentElement.style.removeProperty('min-width');"
+                + "document.documentElement.style.removeProperty('width');"
+                + "if(document.body){document.body.style.removeProperty('min-width');document.body.style.removeProperty('width');}"
+                + "try{window.dispatchEvent(new Event('resize'));}catch(e){}"
+                + "}catch(e){}})()";
+        try {
+            if (Build.VERSION.SDK_INT >= 19) webView.evaluateJavascript(js.replace("javascript:", ""), null);
+            else webView.loadUrl(js);
+        } catch (Exception ignored) {}
     }
 
     private void applyDesktopViewportIfNeeded() {
@@ -10037,39 +10100,34 @@ private void showDownloadSettingsPanel() {
     private void injectYouTubeSafeAdBlockV6() {
         if (webView == null || !adBlock) return;
         if (!isYouTubePageUrl(getEffectiveCurrentUrl())) return;
-        // v0.9.66: YouTube-only Smart Auto Bypass.
-        // Setelah iklan di-skip/selesai, script YouTube masuk recovery/bypass sementara
-        // supaya video utama bisa play normal dan tidak hitam/stuck.
+        // v0.9.67: YouTube Delayed Skip-Only.
+        // Awal video hanya cari tombol Skip/Lewati. Setelah video utama mulai, script tidur
+        // sampai currentTime >= 120 detik, lalu monitor ringan untuk midroll. Tidak speed,
+        // tidak mute, tidak force play, dan tidak menyentuh video utama.
         String js = "javascript:"
                 + "(function(){\n"
                 + "try{\n"
                 + "  var host=(location.hostname||'').toLowerCase();\n"
                 + "  if(host.indexOf('youtube.com')<0 && host.indexOf('youtu.be')<0) return;\n"
                 + "  var W=window;\n"
-                + "  W.__yieldYTAdStateV13=W.__yieldYTAdStateV13||{installed:false,active:false,lastAd:0,lastSkip:0,oldMuted:false,oldRate:1,oldVolume:1,oldPaused:false,adTicks:0,lastRecover:0,bypassUntil:0};\n"
-                + "  var S=W.__yieldYTAdStateV13;\n"
+                + "  W.__yieldYTSkipOnlyV67=W.__yieldYTSkipOnlyV67||{installed:false,phase:'initial',lastSkip:0,lastUrl:'',lastRun:0};\n"
+                + "  var S=W.__yieldYTSkipOnlyV67;\n"
+                + "  var cur=location.href; if(S.lastUrl!==cur){S.lastUrl=cur;S.phase='initial';S.lastSkip=0;}\n"
                 + "  function qsa(sel,root){try{return Array.prototype.slice.call((root||document).querySelectorAll(sel));}catch(e){return [];} }\n"
                 + "  function txt(el){try{return ((el&&((el.innerText||el.textContent||el.getAttribute('aria-label')||el.getAttribute('title')||'')))+'').replace(/\\s+/g,' ').trim().toLowerCase();}catch(e){return '';} }\n"
-                + "  function visible(el){try{if(!el)return false;var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return r.width>3&&r.height>3&&cs.display!=='none'&&cs.visibility!=='hidden'&&parseFloat(cs.opacity||'1')>0.01;}catch(e){return !!el;} }\n"
+                + "  function visible(el){try{if(!el)return false;var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return r.width>4&&r.height>4&&cs.display!=='none'&&cs.visibility!=='hidden'&&parseFloat(cs.opacity||'1')>0.01;}catch(e){return !!el;} }\n"
                 + "  function player(){return document.querySelector('#movie_player,.html5-video-player,ytd-player,ytm-player,#player-container-id,#player-container,#player');}\n"
                 + "  function video(){try{return document.querySelector('#movie_player video,.html5-video-player video,ytd-player video,ytm-player video,#player video,video');}catch(e){return null;}}\n"
                 + "  function inPlayer(el){try{return !!(el&&el.closest&&el.closest('#movie_player,.html5-video-player,ytd-player,ytm-player,#player-container-id,#player-container,#player'));}catch(e){return false;} }\n"
-                + "  function cleanOldYieldStyles(){try{['yield-yt-safe-ad-style','yield-yt-safe-v4-style','yield-yt-safe-v5-style','yield-yt-safe-v6-style','yield-yt-safe-v7-style','yield-yt-safe-v8-style','yield-yt-safe-v9-style','yield-yt-safe-v10-style'].forEach(function(id){var n=document.getElementById(id);if(n)n.remove();});}catch(e){} }\n"
-                + "  function restoreOwnStyles(){try{cleanOldYieldStyles();var v=video();if(v){['display','visibility','opacity','height','min-height','max-height','overflow','pointer-events','filter','transform'].forEach(function(p){try{v.style.removeProperty(p);}catch(e){}});try{v.style.setProperty('visibility','visible');v.style.setProperty('opacity','1');}catch(e){}}}catch(e){} }\n"
-                + "  function playerText(){try{var p=player();return p?txt(p):'';}catch(e){return '';} }\n"
-                + "  function adBits(){try{var p=player();if(!p)return {strict:false,skip:false,ui:false,text:false};var pt=playerText();var skip=qsa('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button,.ytm-ad-skip-button,.videoAdUiSkipButton',p).some(visible);var ui=qsa('.ytp-ad-player-overlay,.ytp-ad-player-overlay-instream-info,.ytp-ad-preview-container,.ytp-ad-text,.ytp-ad-simple-ad-badge,.ytp-ad-badge,.ytp-ad-action-interstitial,.video-ads.ytp-ad-module',p).some(visible);var text=/(bersponsor|sponsored|kunjungi pengiklan|visit advertiser|lewati iklan|skip ad|iklan\\s*\\u2022|ad\\s*1\\s*of|ad\\s*2\\s*of|1\\s*dari\\s*2|2\\s*dari\\s*2)/i.test(pt);return {strict:!!(skip||ui||text),skip:skip,ui:ui,text:text};}catch(e){return {strict:false,skip:false,ui:false,text:false};}}\n"
                 + "  function fire(el,type){try{var ev;if(type.indexOf('touch')===0&&typeof TouchEvent!=='undefined'){ev=new TouchEvent(type,{bubbles:true,cancelable:true});}else if(type.indexOf('pointer')===0&&typeof PointerEvent!=='undefined'){ev=new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,pointerType:'touch',isPrimary:true});}else{ev=new MouseEvent(type,{bubbles:true,cancelable:true,view:window});}el.dispatchEvent(ev);return true;}catch(e){return false;}}\n"
                 + "  function strongClick(el){try{if(!el)return false;['pointerdown','touchstart','mousedown','pointerup','touchend','mouseup','click'].forEach(function(ev){fire(el,ev);});try{el.click();}catch(e){}return true;}catch(e){try{el.click();return true;}catch(x){return false;}}}\n"
                 + "  function findSkipTargets(){try{var p=player();var roots=[p,document];var out=[];var sels=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button','.ytp-skip-ad-button__button','.ytm-ad-skip-button','.videoAdUiSkipButton','button[aria-label]','button','div[role=button]','a[role=button]','tp-yt-paper-button'];roots.forEach(function(root){if(!root)return;sels.forEach(function(sel){qsa(sel,root).forEach(function(el){if(out.indexOf(el)<0)out.push(el);});});});return out;}catch(e){return [];} }\n"
-                + "  function clickSkip(){try{var now=Date.now();if(now-(S.lastSkip||0)<300)return false;var words=/(^|\\b)(skip|lewati|abaikan|skip ad|lewati iklan)(\\b|$)/i;var list=findSkipTargets();for(var i=0;i<list.length;i++){var el=list[i];if(!visible(el))continue;var t=txt(el), c=String(el.className||'').toLowerCase(), a=String(el.getAttribute&&el.getAttribute('aria-label')||'').toLowerCase();var ok=words.test(t)||words.test(a)||c.indexOf('skip')>-1;if(ok&&inPlayer(el)){S.lastSkip=now;S.bypassUntil=now+8000;S.active=false;return strongClick(el);} }return false;}catch(e){return false;}}\n"
-                + "  function speedAd(bits){try{var now=Date.now();if(now<(S.bypassUntil||0))return;var v=video();if(!v||!bits||!bits.strict)return;if(!S.active){S.active=true;S.oldMuted=!!v.muted;S.oldRate=v.playbackRate||1;S.oldVolume=(typeof v.volume==='number'?v.volume:1);S.oldPaused=!!v.paused;S.adTicks=0;}S.lastAd=Date.now();S.adTicks=(S.adTicks||0)+1;try{v.muted=true;if(typeof v.volume==='number')v.volume=0;}catch(e){}try{v.playbackRate=16;v.defaultPlaybackRate=16;}catch(e){}try{if(v.paused&&v.play)v.play().catch(function(){});}catch(e){} }catch(e){} }\n"
-                + "  function restoreAfterAd(bits){try{var v=video();restoreOwnStyles();if(!v)return;if(S.active && Date.now()-(S.lastAd||0)>900){try{var r=(S.oldRate&&S.oldRate>0&&S.oldRate<=2)?S.oldRate:1;v.playbackRate=r;v.defaultPlaybackRate=r;}catch(e){}try{v.muted=!!S.oldMuted;if(typeof v.volume==='number')v.volume=(typeof S.oldVolume==='number'?S.oldVolume:1);}catch(e){}S.active=false;S.adTicks=0;S.bypassUntil=Date.now()+8000;try{window.dispatchEvent(new Event('resize'));v.dispatchEvent(new Event('timeupdate'));v.dispatchEvent(new Event('canplay'));}catch(e){}}}catch(e){} }\n"
-                + "  function mainVideoSoftRecover(bits){try{if(bits&&bits.strict)return;var v=video();if(!v)return;restoreOwnStyles();if(!v.paused){try{if((v.readyState||0)<2 && Date.now()-(S.lastRecover||0)>2500){S.lastRecover=Date.now();window.dispatchEvent(new Event('resize'));v.dispatchEvent(new Event('stalled'));v.dispatchEvent(new Event('waiting'));v.dispatchEvent(new Event('canplay'));}}catch(e){}}}catch(e){} }\n"
-                + "  function hideNonPlayerSponsor(){try{var re=/(bersponsor|sponsored|shop now|kunjungi pengiklan|visit advertiser)/i;var candidates=[];qsa('ytm-promoted-video-renderer,ytm-promoted-sparkles-web-renderer,ytm-promoted-sparkles-text-search-renderer,ytm-ad-slot-renderer,ytm-display-ad-renderer,ytd-display-ad-renderer,ytd-promoted-video-renderer,ytd-ad-slot-renderer').forEach(function(e){candidates.push(e);});qsa('span,div,a,button').forEach(function(n){try{if(inPlayer(n))return;var t=(n.innerText||n.textContent||n.getAttribute('aria-label')||'')+'';if(!re.test(t))return;var p=n;for(var i=0;i<6&&p&&p!==document.body;i++,p=p.parentElement){if(inPlayer(p)||p.querySelector('video'))break;var r=p.getBoundingClientRect?p.getBoundingClientRect():{width:0,height:9999};if(r.width>100&&r.height>20&&r.height<260){candidates.push(p);break;}}}catch(e){}});candidates.forEach(function(el){try{if(!el||inPlayer(el)||el.querySelector('video'))return;el.style.setProperty('display','none','important');el.style.setProperty('visibility','hidden','important');el.style.setProperty('max-height','0px','important');el.style.setProperty('overflow','hidden','important');el.style.setProperty('pointer-events','none','important');}catch(e){}});}catch(e){} }\n"
-                + "  function run(){try{var b=adBits();if(b.strict){clickSkip();speedAd(b);}else{restoreAfterAd(b);mainVideoSoftRecover(b);}hideNonPlayerSponsor();}catch(e){}}\n"
-                + "  W.__yieldYTAdRun=run;\n"
-                + "  if(!S.installed){S.installed=true;try{var t=null;var mo=new MutationObserver(function(){clearTimeout(t);t=setTimeout(run,120);});mo.observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','aria-label']});}catch(e){} ['yt-navigate-start','yt-navigate-finish','yt-page-data-updated','spfdone','visibilitychange','touchend','pointerup','play','pause'].forEach(function(ev){try{document.addEventListener(ev,function(){setTimeout(run,60);setTimeout(run,450);setTimeout(run,1200);},true);}catch(e){}});setInterval(run,300);}\n"
-                + "  setTimeout(run,20);setTimeout(run,180);setTimeout(run,600);setTimeout(run,1400);setTimeout(run,3000);\n"
+                + "  function clickSkip(){try{var now=Date.now();if(now-(S.lastSkip||0)<650)return false;var words=/(^|\\b)(skip|lewati|abaikan|skip ad|lewati iklan)(\\b|$)/i;var list=findSkipTargets();for(var i=0;i<list.length;i++){var el=list[i];if(!visible(el))continue;var t=txt(el), c=String(el.className||'').toLowerCase(), a=String(el.getAttribute&&el.getAttribute('aria-label')||'').toLowerCase();var ok=words.test(t)||words.test(a)||c.indexOf('skip')>-1;if(ok&&inPlayer(el)){S.lastSkip=now;S.phase='cooldown';return strongClick(el);} }return false;}catch(e){return false;}}\n"
+                + "  function updatePhase(){try{var v=video();if(!v)return;var ct=(typeof v.currentTime==='number')?v.currentTime:0;if(S.phase==='initial'&&ct>=5){S.phase='cooldown';}if(ct>=120){S.phase='monitor';}}catch(e){}}\n"
+                + "  function run(){try{updatePhase();if(S.phase==='initial'||S.phase==='monitor'){clickSkip();}}catch(e){}}\n"
+                + "  W.__yieldYTSkipOnlyRun=run;\n"
+                + "  if(!S.installed){S.installed=true;try{var t=null;var mo=new MutationObserver(function(){clearTimeout(t);t=setTimeout(run,180);});mo.observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','aria-label','title']});}catch(e){} ['yt-navigate-start','yt-navigate-finish','yt-page-data-updated','spfdone','visibilitychange','touchend','pointerup','play','timeupdate'].forEach(function(ev){try{document.addEventListener(ev,function(){setTimeout(run,90);setTimeout(run,550);},true);}catch(e){}});setInterval(run,900);}\n"
+                + "  setTimeout(run,120);setTimeout(run,700);setTimeout(run,1600);setTimeout(run,3600);\n"
                 + "}catch(e){}\n"
                 + "})();\n";
         runPageScript(js);

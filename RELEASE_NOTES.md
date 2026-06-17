@@ -1,34 +1,27 @@
-# Yield Browser v0.9.66
+# Yield Browser v0.9.67
 
-## Build Fix + YouTube Smart Auto Bypass
+## Build Fix + Universal Desktop Mode + YouTube Delayed Skip-Only
 
 ### Build Fix
+- Memastikan regex JavaScript pada Universal Blank Compatibility aman untuk Java source 8.
 
-- Memperbaiki error compile Java 8 pada Universal Blank Compatibility.
-- Regex JavaScript `\s+` sekarang di-escape aman di dalam string Java sehingga tidak dianggap fitur text block/source 15.
+### Universal Desktop/Mobile Mode
+- Desktop/Mobile toggle sekarang memperlakukan halaman aktif sebagai navigasi yang dipercaya.
+- Situs seperti `invest-tracing.com` tidak lagi gagal reload hanya karena host-nya masuk daftar popup/ad.
+- Hard reload tetap memakai profile mode yang benar.
+- Saat kembali ke Mobile Mode, viewport desktop lama dibersihkan agar layout mobile tidak sempit/terpotong.
+- YouTube mobile diarahkan kembali ke `m.youtube.com` saat Desktop Mode OFF dan ke `www.youtube.com` saat Desktop Mode ON.
 
-### Universal Blank Compatibility
+### YouTube Delayed Skip-Only
+- Awal video: hanya klik tombol Skip/Lewati jika muncul.
+- Setelah video utama berjalan sekitar 5 detik, script masuk cooldown/tidur agar player tidak hitam.
+- Setelah video berjalan ±2 menit, monitor Skip-Only aktif lagi untuk iklan tengah video.
+- Tidak ada speed, mute, force play, currentTime jump, network block, atau style manipulation pada video utama.
 
-- Tetap mempertahankan deteksi halaman blank saat AdBlock ON.
-- Host yang blank otomatis masuk compatibility mode tanpa perlu tambah domain satu-satu.
-- Recovery diberi cooldown agar tidak membuat reload-loop baru.
-
-### YouTube Smart Auto Bypass
-
-- Khusus YouTube saja.
-- Saat iklan terdeteksi, Yield tetap mencoba klik Skip/Lewati dan speed iklan jika diperlukan.
-- Setelah tombol Skip diklik atau iklan selesai, YouTube AdBlock masuk bypass/recovery sementara sekitar 8 detik.
-- Tujuannya agar video utama YouTube bisa play normal dan tidak blank/hitam karena script adblock masih menempel.
-
-### Tidak disentuh
-
-- AdBlock situs umum.
-- Lordborg / situs sejenis.
-- Instant Monitor compatibility.
-- Smart redirect context.
-- Direct image guard.
-- Desktop/Mobile mode.
+### Tidak Diubah
+- AdBlock situs umum yang sudah stabil.
+- Lordborg/Instant Monitor compatibility.
+- Direct Image Guard.
 - Night Mode.
-- Kontrol video fullscreen.
-- Translate.
-- Download Manager.
+- Kontrol fullscreen video.
+- Translate dan Download Manager.
