@@ -1,10 +1,11 @@
-# Yield Browser v0.9.61
+# Yield Browser v0.9.62
 
-## YouTube Main Video Blank Fix
+## YouTube Main Video Black Fix v2
 
-- Revisi khusus YouTube Safe AdBlock.
-- Speed/mute hanya aktif saat sinyal iklan YouTube benar-benar kuat.
-- Memperbaiki kondisi setelah iklan dilewati: video utama hitam/blank.
-- Membersihkan sisa overlay/class iklan YouTube yang tertinggal setelah iklan selesai.
-- Tidak memblokir resource inti YouTube seperti googlevideo.com, ytimg.com, youtubei/player, dan script player.
-- Tidak menyentuh adblock situs umum, Lordborg/site compatibility, direct image guard, desktop/mobile mode, night mode, fullscreen control, translate, atau download manager.
+- Khusus YouTube saja.
+- Adblock situs umum, Lordborg/site compatibility, direct image guard, desktop/mobile, night mode, video fullscreen, translate, dan download tidak disentuh.
+- Menghapus manipulasi YouTube yang berisiko membuat video utama hitam setelah iklan.
+- Tidak lagi melompat `currentTime` saat iklan.
+- Tidak lagi menghapus class/DOM player YouTube secara paksa.
+- Iklan YouTube tetap dipercepat dan tombol Skip/Lewati tetap dicoba otomatis saat sinyal iklan kuat.
+- Setelah iklan selesai, speed/mute dipulihkan secara natural dan player diberi recovery ringan tanpa reload paksa.
