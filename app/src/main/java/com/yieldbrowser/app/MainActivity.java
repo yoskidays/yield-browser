@@ -281,6 +281,8 @@ public class MainActivity extends Activity {
     // shouldInterceptRequest berjalan di thread Chromium, jadi dilarang memanggil WebView.getUrl() di sana.
     private volatile String currentPageUrlForRequest = "";
     private boolean pendingHideKeyboardAfterNavigation = false;
+    // v0.9.75: saat membuat tab baru kosong, showHome tidak boleh menyimpan URL WebView lama ke tab baru.
+    private boolean skipNextShowHomeTabSave = false;
     private boolean historyClearLock = false;
 
     // v0.9.41: guard untuk situs yang memaksa reload berulang.
@@ -540,7 +542,7 @@ public class MainActivity extends Activity {
 
         videoControlsBar = createVideoControlsBar();
         videoControlsBar.setVisibility(View.GONE);
-        root.addView(videoControlsBar, new LinearLayout.LayoutParams(-1, dp(58)));
+        root.addView(videoControlsBar, new LinearLayout.LayoutParams(-1, dp(66)));
 
         bottomNavView = createBottomNav();
         root.addView(bottomNavView, new LinearLayout.LayoutParams(-1, dp(64)));
@@ -1148,8 +1150,10 @@ content.addView(space(dp(36)));
 
     private void saveCurrentTabState() {
         if (tabs.isEmpty()) return;
+        if (skipNextShowHomeTabSave) return;
         TabInfo tab = getCurrentTab();
         try {
+            if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) return;
             if (webView != null && webView.getVisibility() == View.VISIBLE && webView.getUrl() != null) {
                 String url = extractOriginalUrl(webView.getUrl());
                 tab.url = url == null ? "" : url;
@@ -1178,6 +1182,7 @@ content.addView(space(dp(36)));
         updateTabsCountUi();
         addressBar.setText("");
         if (homeSearchInput != null) homeSearchInput.setText("");
+        skipNextShowHomeTabSave = true;
         showHome();
         Toast.makeText(this, "Tab baru dibuat", Toast.LENGTH_SHORT).show();
     }
@@ -1196,6 +1201,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
+        skipNextShowHomeTabSave = true;
         showHome();
         Toast.makeText(this, "Tab privat aktif", Toast.LENGTH_SHORT).show();
     }
@@ -1209,6 +1215,8 @@ content.addView(space(dp(36)));
 
         if (tab.url == null || tab.url.length() == 0) {
             addressBar.setText("");
+            if (homeSearchInput != null) homeSearchInput.setText("");
+            skipNextShowHomeTabSave = true;
             showHome();
         } else {
             addressBar.setText(tab.url);
@@ -1233,6 +1241,8 @@ content.addView(space(dp(36)));
             tabs.add(new TabInfo("Tab utama", "", false));
             currentTabIndex = 0;
             addressBar.setText("");
+            if (homeSearchInput != null) homeSearchInput.setText("");
+            skipNextShowHomeTabSave = true;
             showHome();
         } else {
             if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
@@ -2703,7 +2713,7 @@ private void showDownloadSettingsPanel() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(4), dp(5), dp(4), dp(5));
+        bar.setPadding(dp(6), dp(6), dp(6), dp(6));
         bar.setBackgroundColor(Color.parseColor("#101217"));
 
         bar.addView(videoTextButton("−10s", "Mundur 10 detik", v -> seekVideoBySeconds(-10)));
@@ -2714,44 +2724,44 @@ private void showDownloadSettingsPanel() {
         videoSpeedLabel = new TextView(this);
         videoSpeedLabel.setText("1x");
         videoSpeedLabel.setTextColor(Color.parseColor("#111111"));
-        videoSpeedLabel.setTextSize(12);
+        videoSpeedLabel.setTextSize(13);
         videoSpeedLabel.setTypeface(Typeface.DEFAULT_BOLD);
         videoSpeedLabel.setGravity(Gravity.CENTER);
         videoSpeedLabel.setBackground(roundRect(COLOR_ACCENT, dp(18), 0, Color.TRANSPARENT));
         videoSpeedLabel.setOnClickListener(v -> showVideoSpeedDialog());
-        LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(dp(38), dp(40));
-        speedParams.setMargins(dp(2), 0, 0, 0);
+        LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+        speedParams.setMargins(dp(3), 0, dp(3), 0);
         bar.addView(videoSpeedLabel, speedParams);
 
         videoQualityLabel = new TextView(this);
         videoQualityLabel.setText(selectedVideoQuality == null ? "Auto" : selectedVideoQuality);
         videoQualityLabel.setTextColor(Color.WHITE);
-        videoQualityLabel.setTextSize(10);
+        videoQualityLabel.setTextSize(11);
         videoQualityLabel.setTypeface(Typeface.DEFAULT_BOLD);
         videoQualityLabel.setGravity(Gravity.CENTER);
         videoQualityLabel.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
         videoQualityLabel.setOnClickListener(v -> showVideoQualityDialog());
-        LinearLayout.LayoutParams qualityParams = new LinearLayout.LayoutParams(dp(42), dp(40));
-        qualityParams.setMargins(dp(2), 0, 0, 0);
+        LinearLayout.LayoutParams qualityParams = new LinearLayout.LayoutParams(dp(52), dp(48));
+        qualityParams.setMargins(dp(3), 0, dp(3), 0);
         bar.addView(videoQualityLabel, qualityParams);
 
         videoModeToggleButton = new TextView(this);
         videoModeToggleButton.setText("Full");
         videoModeToggleButton.setTextColor(Color.WHITE);
-        videoModeToggleButton.setTextSize(11);
+        videoModeToggleButton.setTextSize(12);
         videoModeToggleButton.setTypeface(Typeface.DEFAULT_BOLD);
         videoModeToggleButton.setGravity(Gravity.CENTER);
         videoModeToggleButton.setContentDescription("Masuk layar penuh video");
         videoModeToggleButton.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
         videoModeToggleButton.setOnClickListener(v -> toggleVideoFullLandscapeButton());
-        LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(dp(44), dp(40));
-        modeParams.setMargins(dp(2), 0, 0, 0);
+        LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(dp(56), dp(48));
+        modeParams.setMargins(dp(3), 0, dp(3), 0);
         bar.addView(videoModeToggleButton, modeParams);
 
         TextView close = new TextView(this);
         close.setText("×");
         close.setTextColor(Color.WHITE);
-        close.setTextSize(22);
+        close.setTextSize(24);
         close.setGravity(Gravity.CENTER);
         close.setOnClickListener(v -> {
             videoControlsManualHidden = true;
@@ -2762,8 +2772,8 @@ private void showDownloadSettingsPanel() {
                 checkAndShowVideoControls();
             }, 2500);
         });
-        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(24), dp(40));
-        closeParams.setMargins(dp(2), 0, 0, 0);
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(36), dp(48));
+        closeParams.setMargins(dp(3), 0, dp(3), 0);
         bar.addView(close, closeParams);
 
         return bar;
@@ -2773,15 +2783,15 @@ private void showDownloadSettingsPanel() {
         TextView button = new TextView(this);
         button.setText(text);
         button.setTextColor(Color.WHITE);
-        button.setTextSize(10);
+        button.setTextSize(11);
         button.setTypeface(Typeface.DEFAULT_BOLD);
         button.setGravity(Gravity.CENTER);
         button.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
         button.setOnClickListener(listener);
         button.setContentDescription(label);
 
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(38), dp(40));
-        params.setMargins(dp(2), 0, dp(2), 0);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(48));
+        params.setMargins(dp(3), 0, dp(3), 0);
         button.setLayoutParams(params);
         return button;
     }
@@ -2796,11 +2806,11 @@ private void showDownloadSettingsPanel() {
         ImageView icon = new ImageView(this);
         icon.setImageResource(iconRes);
         icon.setColorFilter(Color.WHITE);
-        wrap.addView(icon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        wrap.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
         if ("Play/Pause".equals(label)) videoPlayPauseIcon = icon;
 
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(36), dp(40));
-        params.setMargins(dp(2), 0, dp(2), 0);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(48));
+        params.setMargins(dp(3), 0, dp(3), 0);
         wrap.setLayoutParams(params);
         return wrap;
     }
@@ -2827,19 +2837,19 @@ private void showDownloadSettingsPanel() {
     private void applyVideoControlsFullscreenLayout(boolean fullscreen) {
         try {
             if (videoControlsBar == null) return;
-            videoControlsBar.setPadding(dp(fullscreen ? 8 : 4), dp(5), dp(fullscreen ? 8 : 4), dp(5));
+            videoControlsBar.setPadding(dp(fullscreen ? 12 : 6), dp(fullscreen ? 7 : 6), dp(fullscreen ? 12 : 6), dp(fullscreen ? 7 : 6));
             for (int i = 0; i < videoControlsBar.getChildCount(); i++) {
                 View child = videoControlsBar.getChildAt(i);
                 ViewGroup.LayoutParams raw = child.getLayoutParams();
                 if (!(raw instanceof LinearLayout.LayoutParams)) continue;
                 LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) raw;
-                int margin = fullscreen ? dp(5) : dp(2);
+                int margin = fullscreen ? dp(7) : dp(3);
                 lp.setMargins(margin, 0, margin, 0);
-                if (child == videoPlayPauseButton) lp.width = dp(fullscreen ? 46 : 36);
-                else if (child == videoModeToggleButton) lp.width = dp(fullscreen ? 54 : 44);
-                else if (child == videoSpeedLabel) lp.width = dp(fullscreen ? 46 : 38);
-                else if (child == videoQualityLabel) lp.width = dp(fullscreen ? 52 : 42);
-                else lp.width = dp(fullscreen ? 48 : 38);
+                if (child == videoPlayPauseButton) lp.width = dp(fullscreen ? 60 : 48);
+                else if (child == videoModeToggleButton) lp.width = dp(fullscreen ? 70 : 56);
+                else if (child == videoSpeedLabel) lp.width = dp(fullscreen ? 60 : 48);
+                else if (child == videoQualityLabel) lp.width = dp(fullscreen ? 66 : 52);
+                else lp.width = dp(fullscreen ? 62 : 48);
                 child.setLayoutParams(lp);
             }
         } catch (Exception ignored) {
@@ -3652,16 +3662,39 @@ private void showDownloadSettingsPanel() {
         list.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(list);
 
-        if (historyData.isEmpty()) {
-            TextView empty = new TextView(this);
-            empty.setText("Riwayat masih kosong.");
-            empty.setTextColor(COLOR_SUBTEXT);
-            empty.setTextSize(16);
-            empty.setPadding(0, dp(20), 0, 0);
-            list.addView(empty);
-        } else {
+        renderHistoryList(list, dialog);
+
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        dialog.setContentView(root);
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_BACK && event != null && event.getAction() == KeyEvent.ACTION_UP) {
+                d.dismiss();
+                return true;
+            }
+            return false;
+        });
+        dialog.show();
+        applyDarkFullscreenDialog(dialog);
+    }
+
+    private void renderHistoryList(LinearLayout list, Dialog dialog) {
+        if (list == null) return;
+        try {
+            list.removeAllViews();
+            if (historyData.isEmpty()) {
+                TextView empty = new TextView(this);
+                empty.setText("Riwayat masih kosong.");
+                empty.setTextColor(COLOR_SUBTEXT);
+                empty.setTextSize(16);
+                empty.setPadding(0, dp(20), 0, 0);
+                list.addView(empty);
+                return;
+            }
+
             String lastHeader = "";
-            for (HistoryItemData item : historyData) {
+            ArrayList<HistoryItemData> snapshot = new ArrayList<>(historyData);
+            for (HistoryItemData item : snapshot) {
+                if (item == null) continue;
                 String header = historyDayLabel(item.time);
                 if (!header.equals(lastHeader)) {
                     TextView section = new TextView(this);
@@ -3673,17 +3706,35 @@ private void showDownloadSettingsPanel() {
                     list.addView(section, sp);
                     lastHeader = header;
                 }
-                list.addView(historyRow(item, dialog));
+                list.addView(historyRow(item, dialog, list));
             }
+        } catch (Exception ignored) {
         }
+    }
 
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        dialog.setContentView(root);
-        dialog.show();
-        applyDarkFullscreenDialog(dialog);
+    private void removeHistoryItemExact(HistoryItemData item) {
+        if (item == null) return;
+        try {
+            String targetUrl = item.url == null ? "" : item.url;
+            long targetTime = item.time;
+            for (int i = historyData.size() - 1; i >= 0; i--) {
+                HistoryItemData old = historyData.get(i);
+                if (old == null) continue;
+                String oldUrl = old.url == null ? "" : old.url;
+                if (old == item || (oldUrl.equals(targetUrl) && old.time == targetTime)) {
+                    historyData.remove(i);
+                }
+            }
+        } catch (Exception ignored) {
+            try { historyData.remove(item); } catch (Exception ignored2) {}
+        }
     }
 
     private View historyRow(HistoryItemData item, Dialog dialog) {
+        return historyRow(item, dialog, null);
+    }
+
+    private View historyRow(HistoryItemData item, Dialog dialog, LinearLayout parentList) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -3732,10 +3783,21 @@ private void showDownloadSettingsPanel() {
         delete.setTextColor(Color.parseColor("#C9CED8"));
         delete.setTextSize(24);
         delete.setGravity(Gravity.CENTER);
+        delete.setClickable(true);
+        delete.setFocusable(true);
+        delete.setOnTouchListener((v, event) -> {
+            if (event != null && event.getAction() == MotionEvent.ACTION_UP) v.performClick();
+            return true;
+        });
         delete.setOnClickListener(v -> {
-            historyData.remove(item);
+            removeHistoryItemExact(item);
             saveBrowserHistory();
-            switchDialogSmooth(dialog, () -> showHistoryPanel());
+            if (parentList != null) {
+                renderHistoryList(parentList, dialog);
+            } else {
+                try { if (dialog != null && dialog.isShowing()) dialog.dismiss(); } catch (Exception ignored) {}
+                showHistoryPanel();
+            }
         });
         row.addView(delete, new LinearLayout.LayoutParams(dp(36), dp(36)));
         return row;
@@ -4454,9 +4516,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private void persistHistoryEverywhere() {
-        if (historyData.isEmpty()) return;
         String value = serializeHistoryList(historyData);
-        if (value.length() == 0) return;
 
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putString(KEY_BROWSER_HISTORY, value)
@@ -4515,6 +4575,7 @@ private void showDownloadSettingsPanel() {
     private void recordWebViewBackForwardHistory() {
         try {
             if (historyClearLock) return;
+            if (isCurrentPrivateTab()) return;
             if (webView == null) return;
             WebBackForwardList list = webView.copyBackForwardList();
             if (list == null) return;
@@ -4534,6 +4595,7 @@ private void showDownloadSettingsPanel() {
     private void recordCurrentPageToHistory() {
         try {
             if (historyClearLock) return;
+            if (isCurrentPrivateTab()) return;
             if (webView == null) return;
             String url = webView.getUrl();
             if (shouldRecordHistoryUrl(url)) {
@@ -4544,12 +4606,14 @@ private void showDownloadSettingsPanel() {
     }
 
     private void addBrowserHistory(String title, String url) {
+        if (isCurrentPrivateTab()) return;
         if (!shouldRecordHistoryUrl(url)) return;
         String cleanUrl = extractOriginalUrl(url);
         if (cleanUrl == null || cleanUrl.length() == 0) return;
 
         for (int i = historyData.size() - 1; i >= 0; i--) {
-            if (cleanUrl.equals(historyData.get(i).url)) {
+            HistoryItemData old = historyData.get(i);
+            if (old == null || cleanUrl.equals(old.url)) {
                 historyData.remove(i);
             }
         }
@@ -10196,7 +10260,7 @@ private void showDownloadSettingsPanel() {
     private void injectYouTubeSafeAdBlockV6() {
         if (webView == null || !adBlock) return;
         if (!isYouTubePageUrl(getEffectiveCurrentUrl())) return;
-        // v0.9.71: YouTube Auto Cycle Ad Bypass + stronger Skip click.
+        // v0.9.73: YouTube Auto Cycle Ad Bypass + auto resume main video after ad.
         // Alur: iklan terdeteksi -> bantu klik Skip/Lewati atau majukan +10 detik
         // dengan mekanisme yang sama seperti kontrol +10s Yield -> setelah iklan lewat,
         // engine tidur sampai video utama berjalan sekitar 2 menit -> aktif lagi untuk iklan berikutnya.
@@ -10208,7 +10272,7 @@ private void showDownloadSettingsPanel() {
                 + "  var host=(location.hostname||'').toLowerCase();\n"
                 + "  if(host.indexOf('youtube.com')<0 && host.indexOf('youtu.be')<0) return;\n"
                 + "  var W=window;\n"
-                + "  W.__yieldYTAutoCycleV70=W.__yieldYTAutoCycleV70||{installed:false,lastUrl:'',phase:'initial',lastSkip:0,lastAssist:0,lastAdSeen:0,hadAd:false,coolStart:0,coolBase:0,coolTarget:0};\n"
+                + "  W.__yieldYTAutoCycleV70=W.__yieldYTAutoCycleV70||{installed:false,lastUrl:'',phase:'initial',lastSkip:0,lastAssist:0,lastAdSeen:0,hadAd:false,coolStart:0,coolBase:0,coolTarget:0,lastResume:0};\n"
                 + "  var S=W.__yieldYTAutoCycleV70;\n"
                 + "  var cur=location.href; if(S.lastUrl!==cur){S.lastUrl=cur;S.phase='initial';S.lastSkip=0;S.lastAssist=0;S.lastAdSeen=0;S.hadAd=false;S.coolStart=0;S.coolBase=0;S.coolTarget=0;}\n"
                 + "  function qsa(sel,root){try{return Array.prototype.slice.call((root||document).querySelectorAll(sel));}catch(e){return [];} }\n"
@@ -10225,10 +10289,11 @@ private void showDownloadSettingsPanel() {
                 + "  function clickBest(el){try{var best=el;var t=el;for(var i=0;i<7&&t;i++,t=t.parentElement){var tag=(t.tagName||'').toLowerCase();var role=(t.getAttribute&&t.getAttribute('role')||'').toLowerCase();var cls=String(t.className||'').toLowerCase();var tx=txt(t);if(tag==='button'||role==='button'||cls.indexOf('skip')>-1||cls.indexOf('ytp-ad-skip')>-1||tx.indexOf('lewati')>-1||tx.indexOf('skip')>-1){best=t;break;}}var a=strongClick(best), b=coordinateClick(best);return a||b;}catch(e){return strongClick(el)||coordinateClick(el);}}\n"
                 + "  function findSkipTargets(){try{var p=player();var roots=[p,document];var out=[];var sels=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button','.ytp-skip-ad-button__button','.ytm-ad-skip-button','.videoAdUiSkipButton','.ytp-ad-skip-button-container','.ytp-ad-skip-button-text','.ytp-ad-skip-button-icon','button[aria-label]','button','div[role=button]','a[role=button]','tp-yt-paper-button','span','div'];roots.forEach(function(root){if(!root)return;sels.forEach(function(sel){qsa(sel,root).forEach(function(el){if(out.indexOf(el)<0)out.push(el);});});});return out;}catch(e){return [];} }\n"
                 + "  function clickSkip(){try{var now=Date.now();if(now-(S.lastSkip||0)<180)return false;var info=adInfo();var list=findSkipTargets();for(var i=0;i<list.length;i++){var el=list[i];if(!visible(el))continue;var t=txt(el), c=String(el.className||'').toLowerCase(), a=String(el.getAttribute&&el.getAttribute('aria-label')||'').toLowerCase();var ok=(t.indexOf('lewati')>-1||t.indexOf('skip')>-1||t.indexOf('abaikan')>-1||a.indexOf('lewati')>-1||a.indexOf('skip')>-1||c.indexOf('skip')>-1||c.indexOf('ytp-ad-skip')>-1);if(!ok)continue;var safe=inPlayer(el)||c.indexOf('skip')>-1||info.ad;if(safe){S.lastSkip=now;var r=clickBest(el);if(r)enterCooldownPending('skip');return r;}}return false;}catch(e){return false;}}\n"
+                + "  function resumeMainIfPaused(reason){try{var now=Date.now();var info=adInfo();if(info.ad)return false;var v=video();if(!v||!v.paused)return false;if(now-(S.lastResume||0)<1200)return false;var recentAd=(now-(S.lastAdSeen||0)<14000)||(S.phase==='cooldown_pending')||(S.phase==='cooldown'&&now-(S.coolStart||0)<12000);if(!recentAd)return false;S.lastResume=now;var p=player();var btns=[];['.ytp-large-play-button','.ytp-play-button','button[aria-label*=\"Play\"]','button[aria-label*=\"Putar\"]','button[title*=\"Play\"]','button[title*=\"Putar\"]'].forEach(function(sel){qsa(sel,p||document).forEach(function(b){if(btns.indexOf(b)<0)btns.push(b);});});for(var i=0;i<btns.length;i++){var b=btns[i];var tx=txt(b);var cls=String(b.className||'').toLowerCase();var ar=String(b.getAttribute&&b.getAttribute('aria-label')||'').toLowerCase();if(visible(b)&&(tx.indexOf('pause')<0&&tx.indexOf('jeda')<0&&ar.indexOf('pause')<0&&ar.indexOf('jeda')<0)){clickBest(b);break;}}try{if(v.play)v.play().catch(function(){});}catch(e){}try{if(v.paused&&v.getBoundingClientRect){var r=v.getBoundingClientRect();var x=Math.max(1,Math.min(window.innerWidth-2,r.left+r.width/2));var y=Math.max(1,Math.min(window.innerHeight-2,r.top+r.height/2));if(window.YieldVideoBridge&&window.innerWidth>0&&window.innerHeight>0){window.YieldVideoBridge.tapAtRatio(x/window.innerWidth,y/window.innerHeight);}}}catch(e){}try{v.dispatchEvent(new Event('play'));v.dispatchEvent(new Event('canplay'));}catch(e){}return true;}catch(e){return false;}}\n"
                 + "  function yieldForward10Assist(){try{var now=Date.now();if(now-(S.lastAssist||0)<850)return false;var info=adInfo();if(!info.ad)return false;var v=video();if(!v)return false;var cur=(typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;var dur=(typeof v.duration==='number'&&isFinite(v.duration))?v.duration:999999;var next=Math.max(0,Math.min(dur-0.15,cur+10));if(next<=cur+0.2)return false;S.lastAssist=now;v.currentTime=next;try{v.dispatchEvent(new Event('seeking'));v.dispatchEvent(new Event('timeupdate'));}catch(e){}return true;}catch(e){return false;}}\n"
-                + "  function enterCooldownPending(reason){try{S.phase='cooldown_pending';S.hadAd=false;S.coolStart=Date.now();setTimeout(function(){try{if(adInfo().ad){S.phase='assist';return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;S.phase='cooldown';S.coolBase=ct;S.coolTarget=ct+120;S.coolStart=Date.now();}catch(e){S.phase='cooldown';S.coolStart=Date.now();S.coolTarget=999999;}},2200);}catch(e){}}\n"
+                + "  function enterCooldownPending(reason){try{S.phase='cooldown_pending';S.hadAd=false;S.coolStart=Date.now();setTimeout(function(){try{if(adInfo().ad){S.phase='assist';return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;S.phase='cooldown';S.coolBase=ct;S.coolTarget=ct+120;S.coolStart=Date.now();setTimeout(function(){try{resumeMainIfPaused('cooldown-start');}catch(e){}},120);setTimeout(function(){try{resumeMainIfPaused('cooldown-start-2');}catch(e){}},900);}catch(e){S.phase='cooldown';S.coolStart=Date.now();S.coolTarget=999999;}},2200);}catch(e){}}\n"
                 + "  function cooldownDone(){try{if(S.phase!=='cooldown')return false;var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;if(ct>=(S.coolTarget||0)||Date.now()-(S.coolStart||0)>150000){S.phase='monitor';return true;}return false;}catch(e){return false;}}\n"
-                + "  function run(){try{var now=Date.now();var info=adInfo();if(S.phase==='cooldown_pending'){if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}return;}if(S.phase==='cooldown'){if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}cooldownDone();return;}if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}if(S.phase==='assist'&&S.hadAd&&now-(S.lastAdSeen||0)>2600){enterCooldownPending('ad-ended');return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;if(S.phase==='initial'&&ct>8){enterCooldownPending('main-start');return;}}catch(e){}}\n"
+                + "  function run(){try{var now=Date.now();var info=adInfo();if(S.phase==='cooldown_pending'){if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}resumeMainIfPaused('pending');return;}if(S.phase==='cooldown'){if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}resumeMainIfPaused('cooldown');cooldownDone();return;}if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}if(S.phase==='assist'&&S.hadAd&&now-(S.lastAdSeen||0)>2600){enterCooldownPending('ad-ended');setTimeout(function(){try{resumeMainIfPaused('after-ad-ended');}catch(e){}},1000);return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;if(S.phase==='initial'&&ct>8){enterCooldownPending('main-start');return;}}catch(e){}}\n"
                 + "  W.__yieldYTAutoCycleRun=run;\n"
                 + "  if(!S.installed){S.installed=true;try{var timer=null;var mo=new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(run,60);});mo.observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','aria-label','title']});}catch(e){} ['yt-navigate-start','yt-navigate-finish','yt-page-data-updated','spfdone','visibilitychange','touchstart','touchend','pointerup','click','play','timeupdate'].forEach(function(ev){try{document.addEventListener(ev,function(){setTimeout(run,40);setTimeout(run,170);setTimeout(run,600);},true);}catch(e){}});setInterval(run,420);}\n"
                 + "  setTimeout(run,30);setTimeout(run,160);setTimeout(run,420);setTimeout(run,1000);setTimeout(run,2200);setTimeout(run,4200);\n"
@@ -10703,9 +10768,14 @@ private void showDownloadSettingsPanel() {
         }
         // Home hanya menyembunyikan halaman web, bukan menghapus state halaman.
         // Jadi kalau tidak sengaja kepencet Home, halaman terakhir masih bisa dikembalikan lewat gesture.
+        // Saat tab baru/privat baru dibuat, jangan simpan URL lama ke tab kosong baru.
         try {
-            if (!historyClearLock) saveCurrentTabState();
-        } catch (Exception ignored) {}
+            if (skipNextShowHomeTabSave) {
+                skipNextShowHomeTabSave = false;
+            } else if (!historyClearLock) {
+                saveCurrentTabState();
+            }
+        } catch (Exception ignored) { skipNextShowHomeTabSave = false; }
         try {
             if (webView != null) webView.stopLoading();
         } catch (Exception ignored) {}
