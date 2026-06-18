@@ -19,11 +19,14 @@ Revisi kecil khusus UI AdBlock dan YouTube:
 - YouTube auto assistant tetap otomatis: deteksi tombol Skip/Lewati, klik otomatis, lalu resume video utama satu kali bila kepause setelah iklan dilewati.
 - Bagian stabil seperti tab session, restore tab, adTab guard, lastSafeUrl, dan ad guard session tidak diubah.
 
-## v0.9.84 YouTube assistant +10s ad forward
+## v0.9.84 YouTube icon skip refinement
 
-Revisi kecil khusus YouTube:
-- Saat iklan YouTube terdeteksi, assistant mencoba maju +10 detik secara berkala.
-- Jika tombol Skip/Lewati muncul, tombol itu diklik otomatis.
-- Jika video utama kepause setelah iklan selesai/dilewati, video dibantu play lagi satu kali.
-- Jika tidak ada iklan, video tidak autoplay sendiri.
-- Bagian tab session, restore tab, adTab guard, lastSafeUrl, dan filter direct-link tidak diubah.
+Revisi kecil khusus YouTube Assistant:
+- Menambah deteksi tombol skip model baru/icon-only seperti tombol anak panah di pojok kanan player.
+- Tetap menghindari tombol iklan seperti `Kunjungi Situs`, `Kunjungi Pengiklan`, sponsor, menu, settings, dan kontrol player lain.
+- Tidak mengubah tab session, restore tab, adTab guard, lastSafeUrl, atau sistem stable lain.
+
+## v0.9.84 Smart Tab Isolation Guard
+
+Build ini menambahkan pengaman multi-tab berbasis domain per tab. Tujuannya agar ketika tab YouTube/video/website lain ditutup, URL dari tab tersebut tidak bisa tersimpan ke tab lain saat aplikasi keluar-masuk, switch tab, restore session, atau recover dari direct-link iklan.
+

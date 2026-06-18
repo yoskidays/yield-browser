@@ -286,6 +286,10 @@ public class MainActivity extends Activity {
     private boolean pendingHideKeyboardAfterNavigation = false;
     // v0.9.75: saat membuat tab baru kosong, showHome tidak boleh menyimpan URL WebView lama ke tab baru.
     private boolean skipNextShowHomeTabSave = false;
+    // v0.9.84-multitab: saat tab aktif ditutup, switch berikutnya tidak boleh menyimpan
+    // address bar/WebView lama ke tab pengganti. Ini mencegah tab lain ikut berubah
+    // menjadi URL tab video/YouTube yang baru ditutup.
+    private boolean skipNextSwitchTabStateSave = false;
     private boolean historyClearLock = false;
 
     // v0.9.41: guard untuk situs yang memaksa reload berulang.
@@ -427,6 +431,13 @@ public class MainActivity extends Activity {
         // yang muncul saat app dibuka ulang menimpa semua tab yang sebelumnya stabil.
         String lastSafeUrl = "";
         String lastSafeTitle = "";
+        // v0.9.84-smart-isolation: identitas domain per tab.
+        // Dipakai supaya URL/state dari WebView/tab lain tidak bisa menimpa tab ini.
+        String isolationHost = "";
+        String currentPageUrlForRequest = "";
+        String trustedNavigationHost = "";
+        long trustedNavigationUntilMs = 0L;
+        long domainSwitchAllowedUntilMs = 0L;
 
         TabInfo(String title, String url, boolean privateTab) {
             this(title, url, privateTab, false);
@@ -440,6 +451,8 @@ public class MainActivity extends Activity {
             if (url != null && url.length() > 0 && !adTab) {
                 this.lastSafeUrl = url;
                 this.lastSafeTitle = title != null ? title : url;
+                this.isolationHost = safeHostForTabIsolation(url);
+                this.currentPageUrlForRequest = url;
             }
         }
     }
@@ -1273,6 +1286,118 @@ content.addView(space(dp(36)));
         return getCurrentTab().privateTab;
     }
 
+    private static String safeHostForTabIsolation(String url) {
+        try {
+            if (url == null) return "";
+            String clean = url.trim();
+            if (clean.length() == 0) return "";
+            Uri uri = Uri.parse(clean);
+            String scheme = uri.getScheme();
+            if (scheme == null || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) return "";
+            String host = uri.getHost();
+            if (host == null) return "";
+            host = host.toLowerCase(Locale.US);
+            if (host.startsWith("www.")) host = host.substring(4);
+            return host;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private boolean isCurrentTabInfo(TabInfo tab) {
+        try {
+            return tab != null && !tabs.isEmpty() && currentTabIndex >= 0 && currentTabIndex < tabs.size() && tabs.get(currentTabIndex) == tab;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String getTabReferenceUrl(TabInfo tab) {
+        if (tab == null) return "";
+        String ref = cleanTabSessionUrl(tab.lastSafeUrl);
+        if (ref.length() == 0) ref = cleanTabSessionUrl(tab.url);
+        if (ref.length() == 0) ref = cleanTabSessionUrl(tab.currentPageUrlForRequest);
+        return ref;
+    }
+
+    private void prepareTabForMainFrameNavigation(TabInfo tab, String url) {
+        if (tab == null || url == null || url.trim().length() == 0) return;
+        try {
+            String clean = cleanTabSessionUrl(url);
+            if (!isHttpOrHttpsUrl(clean)) return;
+            String host = safeHostForTabIsolation(clean);
+            if (host.length() == 0) return;
+            long now = System.currentTimeMillis();
+            tab.trustedNavigationHost = host;
+            tab.trustedNavigationUntilMs = now + 15000L;
+            // Saat user mengetik URL / klik hasil pencarian / klik link nyata, izinkan transisi domain
+            // sebentar agar redirect login/CDN/front-door tidak dianggap bocor dari tab lain.
+            tab.domainSwitchAllowedUntilMs = now + 15000L;
+            tab.currentPageUrlForRequest = clean;
+        } catch (Exception ignored) {
+        }
+    }
+
+    private boolean isTrustedMainFrameNavigationForTab(TabInfo tab, String url) {
+        try {
+            if (tab == null || url == null || url.length() == 0) return false;
+            long now = System.currentTimeMillis();
+            String host = safeHostForTabIsolation(url);
+            if (host.length() == 0) return false;
+            if (tab.trustedNavigationHost != null && tab.trustedNavigationHost.length() > 0 && now <= tab.trustedNavigationUntilMs) {
+                String trusted = tab.trustedNavigationHost.toLowerCase(Locale.US);
+                if (sameOrSubDomain(host, trusted) || sameOrSubDomain(trusted, host)) return true;
+            }
+            return now <= tab.domainSwitchAllowedUntilMs && !isTemporaryDirectAdUrl(url) && !isKnownPopupHost(url) && !isLikelyAdClickUrl(url);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isSameIsolatedSite(String host, String baseHost) {
+        if (host == null || baseHost == null || host.length() == 0 || baseHost.length() == 0) return false;
+        return sameOrSubDomain(host, baseHost) || sameOrSubDomain(baseHost, host);
+    }
+
+    private boolean isTabIsolationAllowed(TabInfo tab, String url) {
+        try {
+            if (tab == null) return false;
+            String clean = cleanTabSessionUrl(url);
+            if (clean.length() == 0) return true;
+            if (!isRestorableTabSessionUrl(clean)) return false;
+            String targetHost = safeHostForTabIsolation(clean);
+            if (targetHost.length() == 0) return false;
+
+            String baseHost = tab.isolationHost == null ? "" : tab.isolationHost;
+            if (baseHost.length() == 0) {
+                String ref = getTabReferenceUrl(tab);
+                baseHost = safeHostForTabIsolation(ref);
+            }
+            if (baseHost.length() == 0) return true;
+            if (isSameIsolatedSite(targetHost, baseHost)) return true;
+            if (isTrustedMainFrameNavigationForTab(tab, clean) || isTrustedMainFrameNavigation(clean)) return true;
+            if (isSearchEngineResultNavigation(clean, getTabReferenceUrl(tab))) return true;
+            if (isStrictSiteCompatibilityUrl(clean) || isSiteCompatibilityModeActiveForUrl(clean)) return true;
+
+            // Kalau WebView/tab lama mencoba menyimpan direct-link, iklan, atau domain asing tanpa
+            // jendela navigasi user, jangan biarkan menimpa tab ini.
+            if (isTemporaryDirectAdUrl(clean) || isKnownPopupHost(clean) || isLikelyAdClickUrl(clean) || isAdUrl(clean)) return false;
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void syncTabIsolationAfterCommit(TabInfo tab, String url) {
+        if (tab == null || url == null) return;
+        try {
+            String host = safeHostForTabIsolation(url);
+            if (host.length() > 0) tab.isolationHost = host;
+            tab.currentPageUrlForRequest = cleanTabSessionUrl(url);
+        } catch (Exception ignored) {
+        }
+    }
+
     private String cleanTabSessionUrl(String url) {
         try {
             String clean = extractOriginalUrl(url);
@@ -1325,22 +1450,24 @@ content.addView(space(dp(36)));
     private boolean canCommitUrlToTab(TabInfo tab, String url) {
         String clean = cleanTabSessionUrl(url);
         if (clean.length() == 0) return true;
+        if (tab != null && tab.adTab) return true;
         if (!isRestorableTabSessionUrl(clean)) return false;
+        if (tab == null) return false;
 
-        String referenceUrl = "";
-        if (tab != null && tab.lastSafeUrl != null && tab.lastSafeUrl.length() > 0) {
-            referenceUrl = tab.lastSafeUrl;
-        } else if (lastSafeHttpUrl != null && lastSafeHttpUrl.length() > 0) {
-            referenceUrl = lastSafeHttpUrl;
-        }
+        // v0.9.84-smart-isolation: URL hanya boleh masuk ke tab pemiliknya sendiri.
+        // Jika domain berbeda tanpa navigasi user/trusted, anggap itu stale state dari tab lain,
+        // direct-link, atau efek WebView yang baru ditutup.
+        if (!isTabIsolationAllowed(tab, clean)) return false;
 
+        String referenceUrl = getTabReferenceUrl(tab);
         if (referenceUrl != null && referenceUrl.length() > 0) {
             String targetHost = normalizeHostForAdBlock(clean);
             String referenceHost = normalizeHostForAdBlock(referenceUrl);
             boolean sameSite = targetHost.length() > 0 && referenceHost.length() > 0
-                    && sameOrSubDomain(targetHost, referenceHost);
+                    && (sameOrSubDomain(targetHost, referenceHost) || sameOrSubDomain(referenceHost, targetHost));
             boolean compatibilityAllowed = isStrictSiteCompatibilityUrl(clean) || isSiteCompatibilityModeActiveForUrl(clean);
-            if (!sameSite && !compatibilityAllowed && isSuspiciousPopupNavigation(clean, referenceUrl)) {
+            boolean trustedForThisTab = isTrustedMainFrameNavigationForTab(tab, clean) || isTrustedMainFrameNavigation(clean);
+            if (!sameSite && !compatibilityAllowed && !trustedForThisTab && isSuspiciousPopupNavigation(clean, referenceUrl)) {
                 return false;
             }
         }
@@ -1353,6 +1480,7 @@ content.addView(space(dp(36)));
         String clean = cleanTabSessionUrl(candidateUrl);
         if (tab.adTab) {
             tab.url = clean;
+            tab.currentPageUrlForRequest = clean;
             if (candidateTitle != null && candidateTitle.trim().length() > 0) tab.title = candidateTitle;
             return;
         }
@@ -1360,6 +1488,7 @@ content.addView(space(dp(36)));
         if (clean.length() > 0 && canCommitUrlToTab(tab, clean)) {
             tab.url = clean;
             tab.lastSafeUrl = clean;
+            syncTabIsolationAfterCommit(tab, clean);
             String title = candidateTitle != null && candidateTitle.trim().length() > 0 ? candidateTitle : clean;
             tab.title = title;
             tab.lastSafeTitle = title;
@@ -1396,6 +1525,7 @@ content.addView(space(dp(36)));
                 String url = decode(parts[1]);
                 boolean privateTab = "1".equals(parts[2]);
                 boolean adTab = "1".equals(parts[3]);
+                String savedIsolationHost = parts.length >= 5 ? decode(parts[4]) : "";
                 if (adTab) continue; // tab iklan sementara tidak dipulihkan setelah restart.
                 if (title == null || title.trim().length() == 0) title = privateTab ? "Tab privat" : "Tab baru";
                 if (url == null) url = "";
@@ -1405,6 +1535,9 @@ content.addView(space(dp(36)));
                 if (url.length() > 0) {
                     restoredTab.lastSafeUrl = url;
                     restoredTab.lastSafeTitle = title;
+                    restoredTab.currentPageUrlForRequest = url;
+                    String host = savedIsolationHost != null && savedIsolationHost.length() > 0 ? savedIsolationHost : safeHostForTabIsolation(url);
+                    restoredTab.isolationHost = host == null ? "" : host;
                 }
                 restored.add(restoredTab);
             }
@@ -1436,14 +1569,17 @@ content.addView(space(dp(36)));
                     title = tab.lastSafeTitle;
                 }
                 if (sb.length() > 0) sb.append('\n');
+                String isolationHost = tab.isolationHost == null ? "" : tab.isolationHost;
+                if (isolationHost.length() == 0 && url.length() > 0) isolationHost = safeHostForTabIsolation(url);
                 sb.append(encode(title)).append('\t')
                         .append(encode(url)).append('\t')
                         .append(tab.privateTab ? "1" : "0").append('\t')
-                        .append("0");
+                        .append("0").append('\t')
+                        .append(encode(isolationHost));
                 savedCount++;
             }
             if (savedCount <= 0) {
-                sb.append(encode("Tab utama")).append('\t').append(encode("")).append('\t').append("0	0");
+                sb.append(encode("Tab utama")).append('\t').append(encode("")).append('\t').append("0\t0\t");
                 savedIndex = 0;
             }
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
@@ -1473,6 +1609,7 @@ content.addView(space(dp(36)));
                 if (navigationLoadingOverlay != null) navigationLoadingOverlay.bringToFront();
                 applyBrowserSettings();
                 currentPageUrlForRequest = tab.url;
+                tab.currentPageUrlForRequest = tab.url;
                 if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(tab.url);
                 else loadBrowserUrl(tab.url);
             } else {
@@ -1492,7 +1629,12 @@ content.addView(space(dp(36)));
         TabInfo tab = getCurrentTab();
         try {
             if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) return;
+            // v0.9.84-smart-isolation: jangan pernah menyimpan URL dari WebView yang bukan milik tab aktif.
+            // Ini menutup celah saat tab video ditutup, address bar/WebView lama masih membawa URL tab tertutup.
+            if (tab != null && tab.webView != null && webView != null && webView != tab.webView) return;
             if (webView != null && webView.getVisibility() == View.VISIBLE && webView.getUrl() != null) {
+                TabInfo owner = findTabByWebView(webView);
+                if (owner != null && owner != tab) return;
                 String url = extractOriginalUrl(webView.getUrl());
                 String title = webView.getTitle();
                 commitTabUrlIfSafe(tab, url, title);
@@ -1503,6 +1645,9 @@ content.addView(space(dp(36)));
                 } catch (Exception ignored) {
                 }
             } else if (addressBar != null && addressBar.getText() != null) {
+                // Address bar hanya fallback untuk tab kosong/tanpa live WebView. Kalau tab sudah punya
+                // WebView hidup, teks address bar bisa saja stale dari tab yang baru ditutup.
+                if (tab != null && tab.webView != null && hasLivePage(tab.webView)) return;
                 String maybeUrl = normalizeInputToUrl(addressBar.getText().toString().trim());
                 if (maybeUrl != null) commitTabUrlIfSafe(tab, maybeUrl, tab.title);
             }
@@ -1554,7 +1699,9 @@ content.addView(space(dp(36)));
 
     private void switchToTab(int index) {
         if (index < 0 || index >= tabs.size()) return;
-        saveCurrentTabState();
+        boolean saveBeforeSwitch = !skipNextSwitchTabStateSave;
+        skipNextSwitchTabStateSave = false;
+        if (saveBeforeSwitch) saveCurrentTabState();
         currentTabIndex = index;
         TabInfo tab = getCurrentTab();
         updateTabsCountUi();
@@ -1581,6 +1728,7 @@ content.addView(space(dp(36)));
                 }
                 if (navigationLoadingOverlay != null) navigationLoadingOverlay.bringToFront();
                 currentPageUrlForRequest = tab.url;
+                tab.currentPageUrlForRequest = tab.url;
                 scheduleNightModeSyncForPage(tab.url);
                 scheduleHorizontalGestureGuardCheck(tab.url);
                 if (isStrictSiteCompatibilityUrl(tab.url) || isSiteCompatibilityModeActiveForUrl(tab.url)) {
@@ -1601,6 +1749,7 @@ content.addView(space(dp(36)));
                     try {
                         applyBrowserSettings();
                         currentPageUrlForRequest = tab.url;
+                        tab.currentPageUrlForRequest = tab.url;
                         WebBackForwardList restoredList = target.restoreState(tab.webState);
                         restored = restoredList != null && restoredList.getSize() > 0;
                         if (restored) {
@@ -1648,6 +1797,10 @@ content.addView(space(dp(36)));
             if (currentTabIndex > index) currentTabIndex--;
             if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
             if (closingCurrent) {
+                // Jangan panggil saveCurrentTabState() di awal switchToTab, karena WebView/address bar
+                // masih bisa membawa URL tab yang baru ditutup. Kalau disimpan, tab pengganti
+                // akan tertimpa URL tab tertutup, terutama setelah restore aplikasi pada halaman video.
+                skipNextSwitchTabStateSave = true;
                 switchToTab(currentTabIndex);
             } else {
                 TabInfo active = getCurrentTab();
@@ -8646,6 +8799,7 @@ private void showDownloadSettingsPanel() {
                 if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
                 if (closingCurrent) {
                     currentTabIndex = Math.max(0, Math.min(fallbackIndex, tabs.size() - 1));
+                    skipNextSwitchTabStateSave = true;
                     switchToTab(currentTabIndex);
                 }
             }
@@ -8697,6 +8851,7 @@ private void showDownloadSettingsPanel() {
                 currentTabIndex = Math.max(0, Math.min(currentTabIndex, tabs.size() - 1));
             }
             if (changed && !tabs.isEmpty()) {
+                skipNextSwitchTabStateSave = true;
                 switchToTab(currentTabIndex);
             }
 
@@ -8783,6 +8938,9 @@ private void showDownloadSettingsPanel() {
                 if (view != webView) return false;
                 String u = request.getUrl().toString();
                 String currentUrl = view != null ? view.getUrl() : "";
+                TabInfo requestTab = findTabByWebView(view);
+                if (requestTab == null && view == webView) requestTab = getCurrentTab();
+                if ((currentUrl == null || currentUrl.length() == 0) && requestTab != null) currentUrl = getTabReferenceUrl(requestTab);
                 boolean mainFrame = request != null && request.isForMainFrame();
                 boolean hasGesture = false;
                 try { if (Build.VERSION.SDK_INT >= 24 && request != null) hasGesture = request.hasGesture(); } catch (Exception ignored) {}
@@ -8795,7 +8953,8 @@ private void showDownloadSettingsPanel() {
                 // v0.9.45: direct image main-frame harus dicegat sebelum normal user navigation
                 // atau compatibility mode. Kalau tidak, klik/redirect gambar komik (.jpg/.jpeg/.webp)
                 // bisa mengambil alih tab utama dan berubah menjadi halaman gambar mentah.
-                String referenceUrlForDirectImage = (currentUrl != null && currentUrl.length() > 0) ? currentUrl : lastSafeHttpUrl;
+                String referenceUrlForDirectImage = (currentUrl != null && currentUrl.length() > 0) ? currentUrl : getTabReferenceUrl(requestTab);
+                if ((referenceUrlForDirectImage == null || referenceUrlForDirectImage.length() == 0) && lastSafeHttpUrl != null) referenceUrlForDirectImage = lastSafeHttpUrl;
                 if (mainFrame && !isTrustedMainFrameNavigation(u) && isDirectImageMainFrameNavigation(u, referenceUrlForDirectImage)) {
                     restoreAfterBlockedNavigation(view, u, "Gambar/direct link dibuka di tab baru");
                     return true;
@@ -8807,6 +8966,7 @@ private void showDownloadSettingsPanel() {
                 // dibuka dengan compatibility mode agar link situs mirip Lordborg tidak mati.
                 if (mainFrame && isContextAllowedSuspiciousMainFrameNavigation(u, currentUrl, hasGesture)) {
                     markTrustedMainFrameNavigation(u);
+                    prepareTabForMainFrameNavigation(requestTab, u);
                     enableSiteCompatibilityModeForUrl(u, "user-context");
                     return false;
                 }
@@ -8827,6 +8987,7 @@ private void showDownloadSettingsPanel() {
                         return true;
                     }
                     markTrustedMainFrameNavigation(u);
+                    prepareTabForMainFrameNavigation(requestTab, u);
                     if (isStrictSiteCompatibilityUrl(u)) enableSiteCompatibilityModeForUrl(u, "strict-navigation");
                     return false;
                 }
@@ -8836,11 +8997,13 @@ private void showDownloadSettingsPanel() {
                 // ditahan akan membuat halaman blank atau balik ke home.
                 if (mainFrame && (isSiteCompatibilityModeActiveForUrl(u) || isSiteCompatibilityModeActiveForUrl(currentUrl))) {
                     markTrustedMainFrameNavigation(u);
+                    prepareTabForMainFrameNavigation(requestTab, u);
                     return false;
                 }
 
                 if (mainFrame && isNormalUserMainFrameNavigation(u, currentUrl, hasGesture)) {
                     markTrustedMainFrameNavigation(u);
+                    prepareTabForMainFrameNavigation(requestTab, u);
                     return false;
                 }
 
@@ -8865,13 +9028,13 @@ private void showDownloadSettingsPanel() {
                 // Jangan pernah memanggil WebView.getUrl()/getTitle()/method WebView apa pun di sini.
                 // Android akan crash: "A WebView method was called on thread 'ThreadPoolForeg'".
                 // Ambil URL halaman dari cache main-thread saja.
-                if (view != webView) return super.shouldInterceptRequest(view, request);
+                TabInfo requestOwner = findTabByWebView(view);
+                if (requestOwner == null && view != webView) return super.shouldInterceptRequest(view, request);
+                if (requestOwner == null) requestOwner = getCurrentTab();
                 String u = request.getUrl().toString();
-                String pageUrl = currentPageUrlForRequest != null ? currentPageUrlForRequest : "";
-                if ((pageUrl == null || pageUrl.length() == 0)) {
-                    TabInfo owner = findTabByWebView(view);
-                    if (owner != null && owner.url != null) pageUrl = owner.url;
-                }
+                String pageUrl = requestOwner != null && requestOwner.currentPageUrlForRequest != null ? requestOwner.currentPageUrlForRequest : "";
+                if ((pageUrl == null || pageUrl.length() == 0) && requestOwner != null) pageUrl = getTabReferenceUrl(requestOwner);
+                if ((pageUrl == null || pageUrl.length() == 0) && view == webView) pageUrl = currentPageUrlForRequest != null ? currentPageUrlForRequest : "";
                 if ((pageUrl == null || pageUrl.length() == 0) && lastSafeHttpUrl != null) pageUrl = lastSafeHttpUrl;
                 // v0.9.44: compatibility mode bersifat universal per-domain. Jika aktif, jangan
                 // intercept resource sama sekali untuk halaman itu. Ini menyelesaikan situs yang
@@ -8943,14 +9106,17 @@ private void showDownloadSettingsPanel() {
                     TabInfo owner = findTabByWebView(view);
                     if (owner != null) {
                         String inactiveUrl = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
-                        String inactiveTitle = view != null ? view.getTitle() : null;
-                        commitTabUrlIfSafe(owner, inactiveUrl, inactiveTitle);
+                        owner.currentPageUrlForRequest = inactiveUrl;
                     }
                     super.onPageStarted(view, url, favicon);
                     return;
                 }
-                String safeBeforePageStarted = lastSafeHttpUrl;
+                TabInfo activeOwner = findTabByWebView(view);
+                if (activeOwner == null) activeOwner = getCurrentTab();
+                String safeBeforePageStarted = getTabReferenceUrl(activeOwner);
+                if ((safeBeforePageStarted == null || safeBeforePageStarted.length() == 0) && lastSafeHttpUrl != null) safeBeforePageStarted = lastSafeHttpUrl;
                 currentPageUrlForRequest = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
+                if (activeOwner != null) activeOwner.currentPageUrlForRequest = currentPageUrlForRequest;
                 webHorizontalGestureGuard = false;
                 webHorizontalGestureGuardHost = hostOfUrl(currentPageUrlForRequest);
                 syncNightModeWebSettingsForUrl(currentPageUrlForRequest);
@@ -9001,7 +9167,8 @@ private void showDownloadSettingsPanel() {
                     String currentUrl = getEffectiveCurrentUrl();
                     String referenceUrlForDirectImage = (safeBeforePageStarted != null && safeBeforePageStarted.length() > 0)
                             ? safeBeforePageStarted
-                            : currentUrl;
+                            : getTabReferenceUrl(activeOwner);
+                    if ((referenceUrlForDirectImage == null || referenceUrlForDirectImage.length() == 0)) referenceUrlForDirectImage = currentUrl;
                     if (!isTrustedMainFrameNavigation(url) && isDirectImageMainFrameNavigation(url, referenceUrlForDirectImage)) {
                         restoreAfterBlockedNavigation(view, url, "Gambar/direct link dibuka di tab baru");
                         return;
@@ -9031,7 +9198,10 @@ private void showDownloadSettingsPanel() {
                 }
                 String shownUrl = extractOriginalUrl(url);
                 String finalUrl = shownUrl != null ? shownUrl : url;
+                TabInfo commitOwner = findTabByWebView(view);
+                if (commitOwner == null) commitOwner = getCurrentTab();
                 currentPageUrlForRequest = finalUrl;
+                if (commitOwner != null) commitOwner.currentPageUrlForRequest = finalUrl;
                 syncNightModeWebSettingsForUrl(finalUrl);
                 scheduleNightModeSyncForPage(finalUrl);
             }
@@ -9055,9 +9225,12 @@ private void showDownloadSettingsPanel() {
                 }
                 String shownUrl = extractOriginalUrl(url);
                 String finalUrl = shownUrl != null ? shownUrl : url;
+                TabInfo currentTab = findTabByWebView(view);
+                if (currentTab == null) currentTab = getCurrentTab();
                 currentPageUrlForRequest = finalUrl;
+                if (currentTab != null) currentTab.currentPageUrlForRequest = finalUrl;
                 scheduleHorizontalGestureGuardCheck(finalUrl);
-                if (shouldRecordHistoryUrl(finalUrl) && canCommitUrlToTab(getCurrentTab(), finalUrl)) {
+                if (shouldRecordHistoryUrl(finalUrl) && canCommitUrlToTab(currentTab, finalUrl)) {
                     lastSafeHttpUrl = finalUrl;
                 }
                 if (webView != null && webView.getVisibility() == View.VISIBLE) {
@@ -9099,8 +9272,8 @@ private void showDownloadSettingsPanel() {
                     scheduleUniversalBlankCompatibilityRecovery(finalUrl);
                     updateVideoControlsVisibility();
                 }
-                TabInfo currentTab = getCurrentTab();
-                if (shouldRecordHistoryUrl(finalUrl) && !currentTab.privateTab) {
+                if (currentTab == null) currentTab = getCurrentTab();
+                if (shouldRecordHistoryUrl(finalUrl) && currentTab != null && !currentTab.privateTab) {
                     addBrowserHistory(view.getTitle(), finalUrl);
                 }
                 if (shouldRecordHistoryUrl(finalUrl)) {
@@ -9557,8 +9730,11 @@ private void showDownloadSettingsPanel() {
         }
 
         try {
+            TabInfo activeLoadTab = getCurrentTab();
             currentPageUrlForRequest = cleanUrl;
+            if (activeLoadTab != null) activeLoadTab.currentPageUrlForRequest = cleanUrl;
             markTrustedMainFrameNavigation(cleanUrl);
+            prepareTabForMainFrameNavigation(activeLoadTab, cleanUrl);
 
             // v0.9.46: untuk situs sensitif seperti lordborg.com, jangan pakai header buatan
             // dan jangan inject/restore agresif. Beberapa situs anti-security menganggap custom
@@ -10399,13 +10575,20 @@ private void showDownloadSettingsPanel() {
 
     private void restoreAfterBlockedNavigation(WebView view, String blockedUrl, String reason) {
         try {
-            if (isTrustedMainFrameNavigation(blockedUrl)) {
+            TabInfo owner = findTabByWebView(view);
+            if (owner == null && view == webView) owner = getCurrentTab();
+            final TabInfo targetTab = owner;
+            final WebView targetView = view;
+            String tabSafeUrl = getTabReferenceUrl(targetTab);
+            if ((tabSafeUrl == null || tabSafeUrl.length() == 0) && lastSafeHttpUrl != null) tabSafeUrl = lastSafeHttpUrl;
+
+            if (isTrustedMainFrameNavigation(blockedUrl) || isTrustedMainFrameNavigationForTab(targetTab, blockedUrl)) {
                 return;
             }
             boolean blockedIsAdLike = isExternalSchemeUrl(blockedUrl) || isKnownPopupHost(blockedUrl)
-                    || isLikelyAdClickUrl(blockedUrl) || isSuspiciousPopupNavigation(blockedUrl, lastSafeHttpUrl);
-            if (!blockedIsAdLike && (isSiteCompatibilityModeActiveForUrl(blockedUrl) || isSiteCompatibilityModeActiveForUrl(lastSafeHttpUrl)
-                    || isReloadLoopGuardActiveForUrl(blockedUrl) || isReloadLoopGuardActiveForUrl(lastSafeHttpUrl))) {
+                    || isLikelyAdClickUrl(blockedUrl) || isSuspiciousPopupNavigation(blockedUrl, tabSafeUrl);
+            if (!blockedIsAdLike && (isSiteCompatibilityModeActiveForUrl(blockedUrl) || isSiteCompatibilityModeActiveForUrl(tabSafeUrl)
+                    || isReloadLoopGuardActiveForUrl(blockedUrl) || isReloadLoopGuardActiveForUrl(tabSafeUrl))) {
                 // v0.9.44/v0.9.46: jangan stopLoading/goBack pada host kompatibel jika targetnya
                 // memang halaman situs utama. Popup iklan tetap boleh dipindahkan ke tab sementara.
                 return;
@@ -10429,34 +10612,38 @@ private void showDownloadSettingsPanel() {
                 view.stopLoading();
             }
 
-            if (lastSafeHttpUrl != null && lastSafeHttpUrl.length() > 0) {
-                addressBar.setText(lastSafeHttpUrl);
+            final String fallbackUrl = tabSafeUrl;
+            if (isCurrentTabInfo(targetTab) && fallbackUrl != null && fallbackUrl.length() > 0) {
+                addressBar.setText(fallbackUrl);
             }
 
             mainHandler.postDelayed(() -> {
                 try {
-                    if (webView == null) return;
+                    WebView restoreView = targetView;
+                    if (restoreView == null && targetTab != null) restoreView = targetTab.webView;
+                    if (restoreView == null) return;
 
-                    String current = webView.getUrl();
+                    String current = restoreView.getUrl();
                     boolean currentBad = current == null
                             || current.length() == 0
                             || isExternalSchemeUrl(current)
                             || isLikelyAdClickUrl(current)
-                            || isDirectImageMainFrameNavigation(current, lastSafeHttpUrl)
+                            || isDirectImageMainFrameNavigation(current, fallbackUrl)
                             || (blockedUrl != null && blockedUrl.equals(current));
 
-                    // Hanya recover kalau tab utama sudah benar-benar berubah ke halaman iklan/error.
-                    // Kalau masih di halaman komik/asli, jangan reload dan jangan goBack.
+                    // Recover hanya pada WebView pemilik tab tersebut. Jangan pakai webView global,
+                    // karena global bisa sudah menunjuk tab lain setelah close/switch tab.
                     if (currentBad) {
-                        if (webView.canGoBack()) {
-                            webView.goBack();
-                        } else if (lastSafeHttpUrl != null && lastSafeHttpUrl.length() > 0) {
-                            loadBrowserUrl(lastSafeHttpUrl);
+                        if (restoreView.canGoBack()) {
+                            restoreView.goBack();
+                        } else if (fallbackUrl != null && fallbackUrl.length() > 0) {
+                            if (targetTab != null) prepareTabForMainFrameNavigation(targetTab, fallbackUrl);
+                            restoreView.loadUrl(fallbackUrl);
                         }
                     }
 
-                    if (lastSafeHttpUrl != null && lastSafeHttpUrl.length() > 0) {
-                        addressBar.setText(lastSafeHttpUrl);
+                    if (isCurrentTabInfo(targetTab) && fallbackUrl != null && fallbackUrl.length() > 0) {
+                        addressBar.setText(fallbackUrl);
                     }
                 } catch (Exception ignored) {
                 }
@@ -10771,7 +10958,12 @@ private void showDownloadSettingsPanel() {
                 + "  function cleanCards(){try{installStyle();qsa('ytd-display-ad-renderer,ytd-promoted-video-renderer,ytd-ad-slot-renderer,ytd-companion-slot-renderer,ytd-banner-promo-renderer,ytd-in-feed-ad-layout-renderer,ytd-promoted-sparkles-web-renderer,ytm-promoted-sparkles-web-renderer,ytm-promoted-video-renderer,ytm-ad-slot-renderer,ytm-companion-slot-renderer,ytm-in-feed-ad-layout-renderer,ytm-display-ad-renderer,#player-ads').forEach(function(e){try{if(e.querySelector&&e.querySelector('video'))return;e.style.setProperty('display','none','important');e.style.setProperty('visibility','hidden','important');e.style.setProperty('height','0px','important');e.style.setProperty('max-height','0px','important');e.style.setProperty('overflow','hidden','important');}catch(x){}});}catch(e){}}\n"
                 + "  function resumeAfterSkipOnce(){try{if(W.__yieldYTAssistantDisabled)return false;var t=now();if(!S.resumeUntil||t>S.resumeUntil)return false;if((S.lastResumeAt||0)>(S.lastSkipAt||0))return false;if((S.lastUserInputAt||0)>(S.lastSkipAt||0)+80)return false;if(adShowing())return false;var v=video();if(!v||v.ended||!v.paused)return false;S.lastResumeAt=t;var p=v.play&&v.play();if(p&&p.catch)p.catch(function(){});return true;}catch(e){return false;}}\n"
                 + "  function scheduleResumeAfterSkip(){try{if(W.__yieldYTAssistantDisabled)return;S.lastSkipAt=now();S.resumeUntil=S.lastSkipAt+4500;S.lastResumeAt=0;[550,1200,2200,3400].forEach(function(d){setTimeout(resumeAfterSkipOnce,d);});}catch(e){}}\n"
-                + "  function clickSkipOnly(){try{if(W.__yieldYTAssistantDisabled)return false;var sels=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button','.ytp-skip-ad-button__button','.ytm-ad-skip-button','button[aria-label*=\\\"Skip\\\"]','button[aria-label*=\\\"skip\\\"]','button[aria-label*=\\\"Lewati\\\"]','button[aria-label*=\\\"lewati\\\"]'];var clicked=false;sels.forEach(function(sel){qsa(sel).forEach(function(b){try{if(clicked||!visible(b)||b.disabled)return;var t=txt(b);var c=String(b.className||'').toLowerCase();if(t.indexOf('skip')>-1||t.indexOf('lewati')>-1||c.indexOf('skip')>-1){b.click();clicked=true;}}catch(x){}});});if(clicked)scheduleResumeAfterSkip();return clicked;}catch(e){return false;}}\n"
+                + "  function nodeInfo(el){try{var out='';var n=el;var p=player();for(var i=0;n&&i<5;i++,n=n.parentElement){if(p&&n===p&&n!==el)break;out+=' '+txt(n)+' '+String(n.className||'')+' '+String(n.id||'')+' '+String(n.getAttribute&&n.getAttribute('aria-label')||'')+' '+String(n.getAttribute&&n.getAttribute('title')||'')+' '+String(n.getAttribute&&n.getAttribute('data-title-no-tooltip')||'');}return out.toLowerCase();}catch(e){return '';}}\n"
+                + "  function badSkipTarget(el){try{var s=nodeInfo(el);return /(kunjungi|visit|situs|site|advertiser|pengiklan|sponsor|bersponsor|cta|call-to-action|menu|more|overflow|setting|quality|caption|subtitle|mute|volume|fullscreen|share|like|subscribe|search|account|buka apl|open app)/i.test(s)&&!/(skip|lewati|ad-skip|skip-ad|ytp-ad-skip)/i.test(s);}catch(e){return true;}}\n"
+                + "  function skipLike(el){try{return /(skip|lewati|ad-skip|skip-ad|ytp-ad-skip|ytp-skip-ad|ad_skip|skip_button|skipbutton)/i.test(nodeInfo(el));}catch(e){return false;}}\n"
+                + "  function tapSkip(el){try{if(!el||!visible(el)||el.disabled||badSkipTarget(el))return false;try{el.scrollIntoView&&el.scrollIntoView({block:'nearest',inline:'nearest'});}catch(x){}try{['pointerdown','mousedown','mouseup','touchstart','touchend','click'].forEach(function(ev){try{el.dispatchEvent(new Event(ev,{bubbles:true,cancelable:true}));}catch(e){}});}catch(x){}try{el.click&&el.click();}catch(x){}scheduleResumeAfterSkip();return true;}catch(e){return false;}}\n"
+                + "  function iconSkipFallback(root){try{if(!adShowing())return false;var p=player();if(!p)return false;var pr=p.getBoundingClientRect();var list=qsa('button,[role=button],.ytp-button,.ytp-ad-button-icon,.ytp-ad-skip-button-icon,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button',root||p);for(var i=0;i<list.length;i++){var b=list[i];try{if(!visible(b)||b.disabled||badSkipTarget(b))continue;var info=nodeInfo(b);if(/(skip|lewati|ad-skip|skip-ad|ytp-ad-skip|ytp-skip-ad|ad_skip)/i.test(info))return tapSkip(b);var r=b.getBoundingClientRect();var right=r.left>pr.left+pr.width*0.54&&r.right<=pr.right+8;var mid=r.top>pr.top+pr.height*0.18&&r.bottom<pr.bottom-pr.height*0.08;var size=r.width>=22&&r.height>=22&&r.width<=150&&r.height<=100;var icon=!!(b.querySelector&&b.querySelector('svg,path,use,yt-icon'))||/(icon|button|ytp)/i.test(String(b.className||''));if(right&&mid&&size&&icon)return tapSkip(b);}catch(x){}}return false;}catch(e){return false;}}\n"
+                + "  function clickSkipOnly(){try{if(W.__yieldYTAssistantDisabled)return false;var root=player()||document;var sels=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-ad-skip-button-container','.ytp-ad-skip-button-slot','.ytp-skip-ad-button','.ytp-skip-ad-button__button','.ytm-ad-skip-button','.ytp-ad-skip-button-icon','.ytp-ad-button-icon','button[aria-label*=\"Skip\"]','button[aria-label*=\"skip\"]','button[aria-label*=\"Lewati\"]','button[aria-label*=\"lewati\"]','[class*=\"ad-skip\"]','[class*=\"skip-ad\"]','[id*=\"ad-skip\"]','[id*=\"skip-ad\"]'];var clicked=false;sels.forEach(function(sel){qsa(sel,root).forEach(function(b){try{if(clicked||!visible(b)||b.disabled)return;if(skipLike(b)||/skip|lewati/i.test(txt(b))){clicked=tapSkip(b);}}catch(x){}});});if(!clicked)clicked=iconSkipFallback(root);return clicked;}catch(e){return false;}}\n"
                 + "  function forwardAd10sSafe(){try{if(W.__yieldYTAssistantDisabled)return false;if(!adShowing())return false;var v=video();if(!v||v.ended)return false;var t=now();S.lastAdSeenAt=t;S.hadAd=true;if(v.paused&&t-(S.lastAdPlayAt||0)>1200){S.lastAdPlayAt=t;try{var p0=v.play&&v.play();if(p0&&p0.catch)p0.catch(function(){});}catch(x){}}if(t-(S.lastAdSeekAt||0)<850)return false;var cur=Number(v.currentTime||0);var dur=Number(v.duration||0);if(!isFinite(cur))return false;S.lastAdSeekAt=t;try{var pl=player();if(pl&&pl.focus)pl.focus();var ev=new KeyboardEvent('keydown',{key:'l',code:'KeyL',keyCode:76,which:76,bubbles:true,cancelable:true});document.dispatchEvent(ev);}catch(x){}try{if(isFinite(dur)&&dur>0){v.currentTime=Math.min(Math.max(cur+10,cur),Math.max(0,dur-0.15));}else{v.currentTime=cur+10;}}catch(x){}return true;}catch(e){return false;}}\n"
                 + "  function run(){try{if(W.__yieldYTAssistantDisabled)return;cleanCards();var clicked=clickSkipOnly();if(!clicked)forwardAd10sSafe();resumeAfterSkipOnce();}catch(e){}}\n"
                 + "  W.__yieldYTPassiveRun=run;\n"
