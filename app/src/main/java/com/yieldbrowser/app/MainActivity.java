@@ -10744,10 +10744,10 @@ private void showDownloadSettingsPanel() {
     private void injectYouTubeSafeAdBlockV6() {
         if (webView == null || !adBlock) return;
         if (!isYouTubePlaybackUrl(getEffectiveCurrentUrl())) return;
-        // v0.9.86: YouTube passive guard + one-shot resume after Skip/Lewati.
-        // Tetap tidak autoplay saat halaman/video baru dibuka.
-        // Auto-play hanya dicoba sekali setelah tombol Skip/Lewati iklan berhasil diklik,
-        // supaya video utama lanjut jika YouTube menaruh player dalam kondisi pause.
+        // v0.9.87: YouTube assistant khusus iklan.
+        // Tidak autoplay saat halaman/video baru dibuka tanpa iklan.
+        // Saat iklan terdeteksi: coba maju +10 detik secara periodik, klik Skip/Lewati jika muncul,
+        // lalu auto-resume satu kali jika video utama kepause setelah iklan dilewati.
         String js = "javascript:"
                 + "(function(){\n"
                 + "try{\n"
@@ -10757,9 +10757,9 @@ private void showDownloadSettingsPanel() {
                 + "  W.__yieldYTAssistantDisabled=false;\n"
                 + "  W.__yieldYTNoForcePlay=true;\n"
                 + "  if(W.__yieldYTAutoCycleV70){try{W.__yieldYTAutoCycleV70.phase='monitor';W.__yieldYTAutoCycleV70.lastAdSeen=0;W.__yieldYTAutoCycleV70.coolStart=0;W.__yieldYTAutoCycleV70.hadAd=false;}catch(e){}}\n"
-                + "  W.__yieldYTPassiveResume=W.__yieldYTPassiveResume||{installed:false,lastUrl:'',lastSkipAt:0,resumeUntil:0,lastUserInputAt:0,lastResumeAt:0};\n"
+                + "  W.__yieldYTPassiveResume=W.__yieldYTPassiveResume||{installed:false,lastUrl:'',lastSkipAt:0,resumeUntil:0,lastUserInputAt:0,lastResumeAt:0,lastAdSeekAt:0,lastAdPlayAt:0,lastAdSeenAt:0,hadAd:false};\n"
                 + "  var S=W.__yieldYTPassiveResume;\n"
-                + "  if(S.lastUrl!==location.href){S.lastUrl=location.href;S.lastSkipAt=0;S.resumeUntil=0;S.lastUserInputAt=0;S.lastResumeAt=0;}\n"
+                + "  if(S.lastUrl!==location.href){S.lastUrl=location.href;S.lastSkipAt=0;S.resumeUntil=0;S.lastUserInputAt=0;S.lastResumeAt=0;S.lastAdSeekAt=0;S.lastAdPlayAt=0;S.lastAdSeenAt=0;S.hadAd=false;}\n"
                 + "  function now(){return Date.now?Date.now():(new Date()).getTime();}\n"
                 + "  function qsa(s,r){try{return Array.prototype.slice.call((r||document).querySelectorAll(s));}catch(e){return [];} }\n"
                 + "  function visible(el){try{if(!el)return false;var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return r.width>1&&r.height>1&&cs.display!=='none'&&cs.visibility!=='hidden'&&parseFloat(cs.opacity||'1')>0.01;}catch(e){return !!el;} }\n"
@@ -10772,7 +10772,8 @@ private void showDownloadSettingsPanel() {
                 + "  function resumeAfterSkipOnce(){try{if(W.__yieldYTAssistantDisabled)return false;var t=now();if(!S.resumeUntil||t>S.resumeUntil)return false;if((S.lastResumeAt||0)>(S.lastSkipAt||0))return false;if((S.lastUserInputAt||0)>(S.lastSkipAt||0)+80)return false;if(adShowing())return false;var v=video();if(!v||v.ended||!v.paused)return false;S.lastResumeAt=t;var p=v.play&&v.play();if(p&&p.catch)p.catch(function(){});return true;}catch(e){return false;}}\n"
                 + "  function scheduleResumeAfterSkip(){try{if(W.__yieldYTAssistantDisabled)return;S.lastSkipAt=now();S.resumeUntil=S.lastSkipAt+4500;S.lastResumeAt=0;[550,1200,2200,3400].forEach(function(d){setTimeout(resumeAfterSkipOnce,d);});}catch(e){}}\n"
                 + "  function clickSkipOnly(){try{if(W.__yieldYTAssistantDisabled)return false;var sels=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button','.ytp-skip-ad-button__button','.ytm-ad-skip-button','button[aria-label*=\\\"Skip\\\"]','button[aria-label*=\\\"skip\\\"]','button[aria-label*=\\\"Lewati\\\"]','button[aria-label*=\\\"lewati\\\"]'];var clicked=false;sels.forEach(function(sel){qsa(sel).forEach(function(b){try{if(clicked||!visible(b)||b.disabled)return;var t=txt(b);var c=String(b.className||'').toLowerCase();if(t.indexOf('skip')>-1||t.indexOf('lewati')>-1||c.indexOf('skip')>-1){b.click();clicked=true;}}catch(x){}});});if(clicked)scheduleResumeAfterSkip();return clicked;}catch(e){return false;}}\n"
-                + "  function run(){try{if(W.__yieldYTAssistantDisabled)return;cleanCards();clickSkipOnly();resumeAfterSkipOnce();}catch(e){}}\n"
+                + "  function forwardAd10sSafe(){try{if(W.__yieldYTAssistantDisabled)return false;if(!adShowing())return false;var v=video();if(!v||v.ended)return false;var t=now();S.lastAdSeenAt=t;S.hadAd=true;if(v.paused&&t-(S.lastAdPlayAt||0)>1200){S.lastAdPlayAt=t;try{var p0=v.play&&v.play();if(p0&&p0.catch)p0.catch(function(){});}catch(x){}}if(t-(S.lastAdSeekAt||0)<850)return false;var cur=Number(v.currentTime||0);var dur=Number(v.duration||0);if(!isFinite(cur))return false;S.lastAdSeekAt=t;try{var pl=player();if(pl&&pl.focus)pl.focus();var ev=new KeyboardEvent('keydown',{key:'l',code:'KeyL',keyCode:76,which:76,bubbles:true,cancelable:true});document.dispatchEvent(ev);}catch(x){}try{if(isFinite(dur)&&dur>0){v.currentTime=Math.min(Math.max(cur+10,cur),Math.max(0,dur-0.15));}else{v.currentTime=cur+10;}}catch(x){}return true;}catch(e){return false;}}\n"
+                + "  function run(){try{if(W.__yieldYTAssistantDisabled)return;cleanCards();var clicked=clickSkipOnly();if(!clicked)forwardAd10sSafe();resumeAfterSkipOnce();}catch(e){}}\n"
                 + "  W.__yieldYTPassiveRun=run;\n"
                 + "  if(!S.installed){S.installed=true;['pointerdown','touchstart','mousedown','keydown'].forEach(function(ev){try{document.addEventListener(ev,function(e){try{if(!e||e.isTrusted)S.lastUserInputAt=now();}catch(x){}},true);}catch(e){}});try{var tm=null;var mo=new MutationObserver(function(){clearTimeout(tm);tm=setTimeout(run,120);});mo.observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','aria-label','title']});}catch(e){} ['yt-navigate-finish','yt-page-data-updated','spfdone'].forEach(function(ev){try{document.addEventListener(ev,function(){setTimeout(run,120);setTimeout(run,700);},true);}catch(e){}});setInterval(run,900);}\n"
                 + "  setTimeout(run,80);setTimeout(run,400);setTimeout(run,1200);setTimeout(run,3000);\n"
@@ -10795,6 +10796,10 @@ private void showDownloadSettingsPanel() {
                 + "window.__yieldYTPassiveResume.lastSkipAt=0;"
                 + "window.__yieldYTPassiveResume.resumeUntil=0;"
                 + "window.__yieldYTPassiveResume.lastResumeAt=0;"
+                + "window.__yieldYTPassiveResume.lastAdSeekAt=0;"
+                + "window.__yieldYTPassiveResume.lastAdPlayAt=0;"
+                + "window.__yieldYTPassiveResume.lastAdSeenAt=0;"
+                + "window.__yieldYTPassiveResume.hadAd=false;"
                 + "}"
                 + "window.__yieldYTPassiveRun=function(){};"
                 + "var st=document.getElementById('yield-yt-passive-style');"
