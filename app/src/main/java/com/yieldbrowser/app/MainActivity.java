@@ -423,6 +423,10 @@ public class MainActivity extends Activity {
         transient WebView webView;
         // v0.9.78: simpan state ringan WebView per tab sebagai fallback restore.
         Bundle webState;
+        // v0.9.84: URL aman terakhir per tab. Ini mencegah direct-link/iklan
+        // yang muncul saat app dibuka ulang menimpa semua tab yang sebelumnya stabil.
+        String lastSafeUrl = "";
+        String lastSafeTitle = "";
 
         TabInfo(String title, String url, boolean privateTab) {
             this(title, url, privateTab, false);
@@ -433,6 +437,10 @@ public class MainActivity extends Activity {
             this.url = url;
             this.privateTab = privateTab;
             this.adTab = adTab;
+            if (url != null && url.length() > 0 && !adTab) {
+                this.lastSafeUrl = url;
+                this.lastSafeTitle = title != null ? title : url;
+            }
         }
     }
 
@@ -1265,6 +1273,113 @@ content.addView(space(dp(36)));
         return getCurrentTab().privateTab;
     }
 
+    private String cleanTabSessionUrl(String url) {
+        try {
+            String clean = extractOriginalUrl(url);
+            if (clean == null) clean = url;
+            return clean == null ? "" : clean.trim();
+        } catch (Exception e) {
+            return url == null ? "" : url.trim();
+        }
+    }
+
+    private boolean isTemporaryDirectAdUrl(String url) {
+        String clean = cleanTabSessionUrl(url);
+        if (clean.length() == 0) return false;
+        String lower = clean.toLowerCase(Locale.US);
+        if (isExternalSchemeUrl(lower) || isLikelyAdClickUrl(lower) || isAdUrl(lower)) return true;
+
+        String host = normalizeHostForAdBlock(clean);
+        // Marketplace short links sering muncul sebagai direct-link iklan/popup.
+        // Jangan blokir browsing-nya, tapi jangan biarkan tersimpan sebagai sesi tab normal.
+        if (host.equals("s.shopee.co.id") || host.equals("shope.ee")
+                || host.equals("s.lazada.co.id") || host.equals("c.lazada.co.id")
+                || host.equals("s.lazada.com") || host.equals("c.lazada.com")) {
+            return true;
+        }
+
+        return lower.contains("/popunder")
+                || lower.contains("/popup")
+                || lower.contains("clickunder")
+                || lower.contains("adclick")
+                || lower.contains("ad_click")
+                || lower.contains("adurl=")
+                || lower.contains("af_click")
+                || lower.contains("deep_and_deferred")
+                || lower.contains("navigate_url=")
+                || lower.contains("reactpath")
+                || lower.contains("click_id");
+    }
+
+    private boolean isRestorableTabSessionUrl(String url) {
+        String clean = cleanTabSessionUrl(url);
+        if (clean.length() == 0) return true;
+        String lower = clean.toLowerCase(Locale.US);
+        if (!isHttpOrHttpsUrl(clean)) return false;
+        if (lower.startsWith("about:") || lower.startsWith("javascript:")
+                || lower.startsWith("data:") || lower.startsWith("blob:")) return false;
+        if (isImageResourceUrl(clean)) return false;
+        return !isTemporaryDirectAdUrl(clean);
+    }
+
+    private boolean canCommitUrlToTab(TabInfo tab, String url) {
+        String clean = cleanTabSessionUrl(url);
+        if (clean.length() == 0) return true;
+        if (!isRestorableTabSessionUrl(clean)) return false;
+
+        String referenceUrl = "";
+        if (tab != null && tab.lastSafeUrl != null && tab.lastSafeUrl.length() > 0) {
+            referenceUrl = tab.lastSafeUrl;
+        } else if (lastSafeHttpUrl != null && lastSafeHttpUrl.length() > 0) {
+            referenceUrl = lastSafeHttpUrl;
+        }
+
+        if (referenceUrl != null && referenceUrl.length() > 0) {
+            String targetHost = normalizeHostForAdBlock(clean);
+            String referenceHost = normalizeHostForAdBlock(referenceUrl);
+            boolean sameSite = targetHost.length() > 0 && referenceHost.length() > 0
+                    && sameOrSubDomain(targetHost, referenceHost);
+            boolean compatibilityAllowed = isStrictSiteCompatibilityUrl(clean) || isSiteCompatibilityModeActiveForUrl(clean);
+            if (!sameSite && !compatibilityAllowed && isSuspiciousPopupNavigation(clean, referenceUrl)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void commitTabUrlIfSafe(TabInfo tab, String candidateUrl, String candidateTitle) {
+        if (tab == null) return;
+        String clean = cleanTabSessionUrl(candidateUrl);
+        if (tab.adTab) {
+            tab.url = clean;
+            if (candidateTitle != null && candidateTitle.trim().length() > 0) tab.title = candidateTitle;
+            return;
+        }
+
+        if (clean.length() > 0 && canCommitUrlToTab(tab, clean)) {
+            tab.url = clean;
+            tab.lastSafeUrl = clean;
+            String title = candidateTitle != null && candidateTitle.trim().length() > 0 ? candidateTitle : clean;
+            tab.title = title;
+            tab.lastSafeTitle = title;
+        } else if (clean.length() == 0) {
+            tab.url = "";
+        } else if (tab.lastSafeUrl != null && tab.lastSafeUrl.length() > 0) {
+            tab.url = tab.lastSafeUrl;
+            if (tab.lastSafeTitle != null && tab.lastSafeTitle.length() > 0) tab.title = tab.lastSafeTitle;
+        }
+    }
+
+    private String getSafeUrlForSession(TabInfo tab) {
+        if (tab == null) return "";
+        String url = cleanTabSessionUrl(tab.url);
+        if (url.length() > 0 && canCommitUrlToTab(tab, url)) return url;
+        String fallback = cleanTabSessionUrl(tab.lastSafeUrl);
+        if (fallback.length() > 0 && isRestorableTabSessionUrl(fallback)) return fallback;
+        return url.length() == 0 ? "" : null;
+    }
+
     private void restoreTabsSession() {
         try {
             SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
@@ -1284,7 +1399,14 @@ content.addView(space(dp(36)));
                 if (adTab) continue; // tab iklan sementara tidak dipulihkan setelah restart.
                 if (title == null || title.trim().length() == 0) title = privateTab ? "Tab privat" : "Tab baru";
                 if (url == null) url = "";
-                restored.add(new TabInfo(title, url, privateTab, false));
+                url = cleanTabSessionUrl(url);
+                if (url.length() > 0 && !isRestorableTabSessionUrl(url)) continue;
+                TabInfo restoredTab = new TabInfo(title, url, privateTab, false);
+                if (url.length() > 0) {
+                    restoredTab.lastSafeUrl = url;
+                    restoredTab.lastSafeTitle = title;
+                }
+                restored.add(restoredTab);
             }
             if (!restored.isEmpty()) {
                 tabs.clear();
@@ -1305,9 +1427,14 @@ content.addView(space(dp(36)));
             for (int i = 0; i < tabs.size(); i++) {
                 TabInfo tab = tabs.get(i);
                 if (tab == null || tab.adTab) continue;
+                String url = getSafeUrlForSession(tab);
+                if (url == null) continue;
                 if (i == currentTabIndex) savedIndex = savedCount;
                 String title = tab.title == null ? "" : tab.title;
-                String url = tab.url == null ? "" : tab.url;
+                if (url.length() > 0 && tab.lastSafeTitle != null && tab.lastSafeTitle.length() > 0
+                        && !canCommitUrlToTab(tab, tab.url)) {
+                    title = tab.lastSafeTitle;
+                }
                 if (sb.length() > 0) sb.append('\n');
                 sb.append(encode(title)).append('\t')
                         .append(encode(url)).append('\t')
@@ -1332,7 +1459,7 @@ content.addView(space(dp(36)));
             ensureDefaultTab();
             TabInfo tab = getCurrentTab();
             updateTabsCountUi();
-            if (tab.url != null && tab.url.length() > 0) {
+            if (tab.url != null && tab.url.length() > 0 && isRestorableTabSessionUrl(tab.url)) {
                 addressBar.setText(tab.url);
                 WebView target = ensureTabWebView(tab, View.VISIBLE);
                 webView = target;
@@ -1367,10 +1494,8 @@ content.addView(space(dp(36)));
             if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) return;
             if (webView != null && webView.getVisibility() == View.VISIBLE && webView.getUrl() != null) {
                 String url = extractOriginalUrl(webView.getUrl());
-                tab.url = url == null ? "" : url;
                 String title = webView.getTitle();
-                if (title != null && title.trim().length() > 0) tab.title = title;
-                else if (tab.url != null && tab.url.length() > 0) tab.title = tab.url;
+                commitTabUrlIfSafe(tab, url, title);
                 try {
                     Bundle state = new Bundle();
                     WebBackForwardList saved = webView.saveState(state);
@@ -1379,7 +1504,7 @@ content.addView(space(dp(36)));
                 }
             } else if (addressBar != null && addressBar.getText() != null) {
                 String maybeUrl = normalizeInputToUrl(addressBar.getText().toString().trim());
-                if (maybeUrl != null) tab.url = maybeUrl;
+                if (maybeUrl != null) commitTabUrlIfSafe(tab, maybeUrl, tab.title);
             }
         } catch (Exception ignored) {
         }
@@ -8815,8 +8940,8 @@ private void showDownloadSettingsPanel() {
                     TabInfo owner = findTabByWebView(view);
                     if (owner != null) {
                         String inactiveUrl = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
-                        owner.url = inactiveUrl == null ? "" : inactiveUrl;
-                        if (view != null && view.getTitle() != null && view.getTitle().trim().length() > 0) owner.title = view.getTitle();
+                        String inactiveTitle = view != null ? view.getTitle() : null;
+                        commitTabUrlIfSafe(owner, inactiveUrl, inactiveTitle);
                     }
                     super.onPageStarted(view, url, favicon);
                     return;
@@ -8898,7 +9023,7 @@ private void showDownloadSettingsPanel() {
                 super.onPageCommitVisible(view, url);
                 if (view != webView) {
                     TabInfo owner = findTabByWebView(view);
-                    if (owner != null) owner.url = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
+                    if (owner != null) commitTabUrlIfSafe(owner, extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url, owner.title);
                     return;
                 }
                 String shownUrl = extractOriginalUrl(url);
@@ -8914,9 +9039,8 @@ private void showDownloadSettingsPanel() {
                     TabInfo owner = findTabByWebView(view);
                     if (owner != null) {
                         String inactiveUrl = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
-                        owner.url = inactiveUrl == null ? "" : inactiveUrl;
                         String inactiveTitle = view != null ? view.getTitle() : null;
-                        if (inactiveTitle != null && inactiveTitle.trim().length() > 0) owner.title = inactiveTitle;
+                        commitTabUrlIfSafe(owner, inactiveUrl, inactiveTitle);
                         try {
                             Bundle state = new Bundle();
                             WebBackForwardList saved = view.saveState(state);
@@ -8930,7 +9054,7 @@ private void showDownloadSettingsPanel() {
                 String finalUrl = shownUrl != null ? shownUrl : url;
                 currentPageUrlForRequest = finalUrl;
                 scheduleHorizontalGestureGuardCheck(finalUrl);
-                if (shouldRecordHistoryUrl(finalUrl)) {
+                if (shouldRecordHistoryUrl(finalUrl) && canCommitUrlToTab(getCurrentTab(), finalUrl)) {
                     lastSafeHttpUrl = finalUrl;
                 }
                 if (webView != null && webView.getVisibility() == View.VISIBLE) {
@@ -8977,8 +9101,7 @@ private void showDownloadSettingsPanel() {
                     addBrowserHistory(view.getTitle(), finalUrl);
                 }
                 if (shouldRecordHistoryUrl(finalUrl)) {
-                    currentTab.url = finalUrl;
-                    currentTab.title = view.getTitle() != null && view.getTitle().length() > 0 ? view.getTitle() : currentTab.url;
+                    commitTabUrlIfSafe(currentTab, finalUrl, view.getTitle());
                     saveTabsSession();
                     // Histori sudah dicatat di atas agar tersimpan lebih cepat.
                 }
@@ -11469,8 +11592,8 @@ private void showDownloadSettingsPanel() {
         try {
             saveCurrentTabState();
             saveTabsSession();
-            if (webView != null && webView.getUrl() != null && isHttpOrHttpsUrl(webView.getUrl())) {
-                lastSafeHttpUrl = webView.getUrl();
+            if (webView != null && webView.getUrl() != null && canCommitUrlToTab(getCurrentTab(), webView.getUrl())) {
+                lastSafeHttpUrl = cleanTabSessionUrl(webView.getUrl());
             }
         } catch (Exception ignored) {
         }
