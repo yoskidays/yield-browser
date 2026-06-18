@@ -1308,16 +1308,15 @@ content.addView(space(dp(36)));
                 if (i == currentTabIndex) savedIndex = savedCount;
                 String title = tab.title == null ? "" : tab.title;
                 String url = tab.url == null ? "" : tab.url;
-                if (sb.length() > 0) sb.append('
-');
-                sb.append(encode(title)).append('	')
-                        .append(encode(url)).append('	')
-                        .append(tab.privateTab ? "1" : "0").append('	')
+                if (sb.length() > 0) sb.append('\n');
+                sb.append(encode(title)).append('\t')
+                        .append(encode(url)).append('\t')
+                        .append(tab.privateTab ? "1" : "0").append('\t')
                         .append("0");
                 savedCount++;
             }
             if (savedCount <= 0) {
-                sb.append(encode("Tab utama")).append('	').append(encode("")).append('	').append("0	0");
+                sb.append(encode("Tab utama")).append('\t').append(encode("")).append('\t').append("0	0");
                 savedIndex = 0;
             }
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()

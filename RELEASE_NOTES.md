@@ -1,18 +1,11 @@
-# Yield Browser v0.9.82
+# Yield Browser v0.9.83
 
-## Persistent Tab Session
+## Persistent Tabs Build Fix
 
-- Menambahkan penyimpanan sesi tab ke SharedPreferences.
-- Tab normal dan tab privat yang masih terbuka akan tetap muncul lagi setelah aplikasi ditutup/dibuka ulang.
-- Active tab terakhir dipulihkan.
-- URL dan judul tab disimpan ringan; WebView aktif akan dimuat ulang saat app dibuka kembali.
-- Tab iklan sementara (`adTab`) tidak ikut dipulihkan agar popup/redirect iklan tidak kembali muncul setelah restart.
-- Saat tab ditutup manual, session langsung disimpan sehingga tab tersebut tidak muncul lagi setelah app dibuka ulang.
-- Tetap mempertahankan baseline stabil v0.9.81:
-  - isolated WebView per tab,
-  - WebView thread crash fix,
-  - compatibility site stabil,
-  - YouTube skip/resume,
-  - kontrol video,
-  - history/private/tab fix,
-  - desktop/mobile/night mode/download.
+- Memperbaiki error compile `illegal line end in character literal` pada `MainActivity.java`.
+- Memperbaiki penulisan separator sesi tab di `saveTabsSession()` menjadi Java-safe: `\n` dan `\t`.
+- Persistent tabs dari v0.9.82 tetap aktif:
+  - tab normal tetap terbuka setelah aplikasi ditutup/dibuka lagi,
+  - tab privat tetap dipulihkan sebagai privat dan tidak masuk riwayat,
+  - tab iklan sementara/adTab tidak dipulihkan.
+- Tidak mengubah fitur stabil lain dari v0.9.81.
