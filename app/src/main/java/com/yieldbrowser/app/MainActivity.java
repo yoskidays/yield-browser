@@ -627,7 +627,7 @@ public class MainActivity extends Activity {
             recordWebViewBackForwardHistory();
             saveBrowserHistory();
         } catch (Exception ignored) {}
-        if (videoBackgroundPlay && webView != null) {
+        if (videoBackgroundPlay && webView != null && !isYouTubePlaybackUrl(getEffectiveCurrentUrl())) {
             try {
                 webView.evaluateJavascript("(function(){try{var v=document.querySelector('video');if(v&&!v.paused){v.play().catch(function(){});}return 'keep';}catch(e){return 'err';}})()", null);
             } catch (Exception ignored) {
@@ -1851,6 +1851,7 @@ content.addView(space(dp(36)));
         if (shortcutAdBlock) {
             menu.addView(menuRow(R.drawable.ic_shield, "AdBlock Premium " + (adBlock ? "ON" : "OFF"), v -> {
                 adBlock = !adBlock;
+                if (!adBlock) stopYouTubeAutoAssistantNow();
                 saveSettings();
                 dialog.dismiss();
                 Toast.makeText(this, adBlock ? "Ad Block aktif" : "Ad Block nonaktif", Toast.LENGTH_SHORT).show();
@@ -2214,6 +2215,7 @@ content.addView(space(dp(36)));
 
         box.addView(adBlockSwitchRow("AdBlock aktif", "Master ON/OFF semua proteksi iklan.", adBlock, v -> {
             adBlock = !adBlock;
+            if (!adBlock) stopYouTubeAutoAssistantNow();
             applyBrowserSettings();
             if (adBlock && webView != null && webView.getVisibility() == View.VISIBLE) injectPremiumAdBlock();
             saveSettings();
@@ -3928,9 +3930,10 @@ private void showDownloadSettingsPanel() {
     private void injectVideoPlaybackWatcher() {
         if (webView == null) return;
         if (isSiteCompatibilityModeActiveForUrl(getEffectiveCurrentUrl())) return;
+        boolean youtubePage = isYouTubePlaybackUrl(getEffectiveCurrentUrl());
         String js = "javascript:(function(){"
                 + "window.__yieldVideoWatcherInstalled=true;"
-                + "var Y_BUF=" + (videoBufferBooster ? "true" : "false") + ",Y_HLS=" + (hlsSegmentPrefetch ? "true" : "false") + ",Y_BG=" + (videoBackgroundPlay ? "true" : "false") + ";"
+                + "var Y_BUF=" + (!youtubePage && videoBufferBooster ? "true" : "false") + ",Y_HLS=" + (!youtubePage && hlsSegmentPrefetch ? "true" : "false") + ",Y_BG=" + (!youtubePage && videoBackgroundPlay ? "true" : "false") + ";"
                 + "function qOf(s){s=(s||'').toLowerCase();var m=s.match(/(240|360|480|720|1080)p|height=(240|360|480|720|1080)|res=(240|360|480|720|1080)|quality=(240|360|480|720|1080)/);return m?(m[1]||m[2]||m[3]||m[4]||''):'';}"
                 + "function collectQ(v){try{var out=[];var ss=v.querySelectorAll('source[src]');for(var i=0;i<ss.length;i++){var q=qOf((ss[i].src||'')+' '+(ss[i].getAttribute('label')||'')+' '+(ss[i].getAttribute('res')||''));if(q&&out.indexOf(q)<0)out.push(q);}try{if(window.jwplayer){var j=window.jwplayer();var lv=j.getQualityLevels?j.getQualityLevels():[];for(var a=0;a<lv.length;a++){var q=(lv[a].height||lv[a].label||'')+'';q=q.replace(/[^0-9]/g,'');if(q&&out.indexOf(q)<0)out.push(q);}}}catch(e){}try{if(window.videojs){var ps=window.videojs.getPlayers?window.videojs.getPlayers():{};for(var k in ps){var p=ps[k];if(p&&p.qualityLevels){var ql=p.qualityLevels();for(var b=0;b<ql.length;b++){var h=(ql[b].height||'')+'';if(h&&out.indexOf(h)<0)out.push(h);}}}}}catch(e){}if(out.length){window.__yieldVideoQualities=out.sort(function(a,b){return parseInt(a)-parseInt(b);});}}catch(e){}}"
                 + "function prefetch(u){try{if(!Y_HLS||!u||window.__yieldPrefetch&&window.__yieldPrefetch[u])return;if(!window.__yieldPrefetch)window.__yieldPrefetch={};window.__yieldPrefetch[u]=true;fetch(u,{method:'GET',mode:'no-cors',cache:'force-cache'}).catch(function(){});}catch(e){}}"
@@ -9725,10 +9728,11 @@ private void showDownloadSettingsPanel() {
         settings.setDisplayZoomControls(false);
         settings.setSupportZoom(true);
         settings.setSupportMultipleWindows(false);
-        try { settings.setMediaPlaybackRequiresUserGesture(!videoBackgroundPlay); } catch (Exception ignored) {}
+        boolean youtubePage = isYouTubePlaybackUrl(getEffectiveCurrentUrl());
+        try { settings.setMediaPlaybackRequiresUserGesture(youtubePage || !videoBackgroundPlay); } catch (Exception ignored) {}
         settings.setJavaScriptCanOpenWindowsAutomatically(!(adBlock && adBlockPopupBlocker));
         settings.setDatabaseEnabled(true);
-        settings.setCacheMode((speedMode || videoBufferBooster) ? WebSettings.LOAD_CACHE_ELSE_NETWORK : WebSettings.LOAD_DEFAULT);
+        settings.setCacheMode((speedMode || (videoBufferBooster && !youtubePage)) ? WebSettings.LOAD_CACHE_ELSE_NETWORK : WebSettings.LOAD_DEFAULT);
         settings.setLoadsImagesAutomatically(!dataSaver);
         settings.setTextZoom(textZoom <= 0 ? 100 : textZoom);
 
@@ -10727,48 +10731,75 @@ private void showDownloadSettingsPanel() {
         return u.contains("youtube.com") || u.contains("m.youtube.com") || u.contains("www.youtube.com") || u.contains("youtu.be");
     }
 
+    private boolean isYouTubePlaybackUrl(String url) {
+        if (isYouTubePageUrl(url)) return true;
+        if (currentPageUrlForRequest != null && isYouTubePageUrl(currentPageUrlForRequest)) return true;
+        try {
+            TabInfo tab = getCurrentTab();
+            if (tab != null && isYouTubePageUrl(tab.url)) return true;
+        } catch (Exception ignored) {}
+        return false;
+    }
+
     private void injectYouTubeSafeAdBlockV6() {
         if (webView == null || !adBlock) return;
-        if (!isYouTubePageUrl(getEffectiveCurrentUrl())) return;
-        // v0.9.73: YouTube Auto Cycle Ad Bypass + auto resume main video after ad.
-        // Alur: iklan terdeteksi -> bantu klik Skip/Lewati atau majukan +10 detik
-        // dengan mekanisme yang sama seperti kontrol +10s Yield -> setelah iklan lewat,
-        // engine tidur sampai video utama berjalan sekitar 2 menit -> aktif lagi untuk iklan berikutnya.
-        // Tidak memakai playbackRate, mute, force play, currentTime liar saat video utama normal,
-        // dan tetap tidak memblokir googlevideo/ytimg/youtubei.
+        if (!isYouTubePlaybackUrl(getEffectiveCurrentUrl())) return;
+        // v0.9.86: YouTube passive guard + one-shot resume after Skip/Lewati.
+        // Tetap tidak autoplay saat halaman/video baru dibuka.
+        // Auto-play hanya dicoba sekali setelah tombol Skip/Lewati iklan berhasil diklik,
+        // supaya video utama lanjut jika YouTube menaruh player dalam kondisi pause.
         String js = "javascript:"
                 + "(function(){\n"
                 + "try{\n"
-                + "  var host=(location.hostname||'').toLowerCase();\n"
-                + "  if(host.indexOf('youtube.com')<0 && host.indexOf('youtu.be')<0) return;\n"
+                + "  var h=(location.hostname||'').toLowerCase();\n"
+                + "  if(h.indexOf('youtube.com')<0 && h.indexOf('youtu.be')<0) return;\n"
                 + "  var W=window;\n"
-                + "  W.__yieldYTAutoCycleV70=W.__yieldYTAutoCycleV70||{installed:false,lastUrl:'',phase:'initial',lastSkip:0,lastAssist:0,lastAdSeen:0,hadAd:false,coolStart:0,coolBase:0,coolTarget:0,lastResume:0};\n"
-                + "  var S=W.__yieldYTAutoCycleV70;\n"
-                + "  var cur=location.href; if(S.lastUrl!==cur){S.lastUrl=cur;S.phase='initial';S.lastSkip=0;S.lastAssist=0;S.lastAdSeen=0;S.hadAd=false;S.coolStart=0;S.coolBase=0;S.coolTarget=0;}\n"
-                + "  function qsa(sel,root){try{return Array.prototype.slice.call((root||document).querySelectorAll(sel));}catch(e){return [];} }\n"
-                + "  function txt(el){try{return ((el&&((el.innerText||el.textContent||el.getAttribute('aria-label')||el.getAttribute('title')||'')))+'').replace(/\\s+/g,' ').trim().toLowerCase();}catch(e){return '';} }\n"
-                + "  function visible(el){try{if(!el)return false;var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return r.width>2&&r.height>2&&cs.display!=='none'&&cs.visibility!=='hidden'&&parseFloat(cs.opacity||'1')>0.01;}catch(e){return !!el;} }\n"
-                + "  function player(){return document.querySelector('#movie_player,.html5-video-player,ytd-player,ytm-player,#player-container-id,#player-container,#player');}\n"
+                + "  W.__yieldYTAssistantDisabled=false;\n"
+                + "  W.__yieldYTNoForcePlay=true;\n"
+                + "  if(W.__yieldYTAutoCycleV70){try{W.__yieldYTAutoCycleV70.phase='monitor';W.__yieldYTAutoCycleV70.lastAdSeen=0;W.__yieldYTAutoCycleV70.coolStart=0;W.__yieldYTAutoCycleV70.hadAd=false;}catch(e){}}\n"
+                + "  W.__yieldYTPassiveResume=W.__yieldYTPassiveResume||{installed:false,lastUrl:'',lastSkipAt:0,resumeUntil:0,lastUserInputAt:0,lastResumeAt:0};\n"
+                + "  var S=W.__yieldYTPassiveResume;\n"
+                + "  if(S.lastUrl!==location.href){S.lastUrl=location.href;S.lastSkipAt=0;S.resumeUntil=0;S.lastUserInputAt=0;S.lastResumeAt=0;}\n"
+                + "  function now(){return Date.now?Date.now():(new Date()).getTime();}\n"
+                + "  function qsa(s,r){try{return Array.prototype.slice.call((r||document).querySelectorAll(s));}catch(e){return [];} }\n"
+                + "  function visible(el){try{if(!el)return false;var r=el.getBoundingClientRect();var cs=getComputedStyle(el);return r.width>1&&r.height>1&&cs.display!=='none'&&cs.visibility!=='hidden'&&parseFloat(cs.opacity||'1')>0.01;}catch(e){return !!el;} }\n"
+                + "  function txt(el){try{return ((el.innerText||el.textContent||el.getAttribute('aria-label')||el.getAttribute('title')||'')+'').replace(/\\s+/g,' ').trim().toLowerCase();}catch(e){return '';} }\n"
+                + "  function player(){try{return document.querySelector('#movie_player,.html5-video-player,ytd-player,ytm-player,#player-container-id,#player-container,#player');}catch(e){return null;}}\n"
                 + "  function video(){try{return document.querySelector('#movie_player video,.html5-video-player video,ytd-player video,ytm-player video,#player video,video');}catch(e){return null;}}\n"
-                + "  function inPlayer(el){try{return !!(el&&el.closest&&el.closest('#movie_player,.html5-video-player,ytd-player,ytm-player,#player-container-id,#player-container,#player'));}catch(e){return false;} }\n"
-                + "  function playerText(){try{var p=player();return p?txt(p):'';}catch(e){return '';} }\n"
-                + "  function adInfo(){try{var p=player();var pt=playerText();var skip=qsa('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button,.ytm-ad-skip-button,.videoAdUiSkipButton,.ytp-ad-skip-button-container',p||document).some(visible);var ui=qsa('.ytp-ad-player-overlay,.ytp-ad-player-overlay-instream-info,.ytp-ad-preview-container,.ytp-ad-text,.ytp-ad-simple-ad-badge,.ytp-ad-badge,.video-ads.ytp-ad-module,.ytp-ad-action-interstitial',p||document).some(visible);var word=/(bersponsor|sponsored|kunjungi pengiklan|visit advertiser|lewati iklan|lewati|skip ad|iklan\\s*\\u2022|ad\\s*1\\s*of|ad\\s*2\\s*of|1\\s*dari\\s*2|2\\s*dari\\s*2)/i.test(pt);return {ad:!!(skip||ui||word),skip:skip,ui:ui,word:word};}catch(e){return {ad:false,skip:false,ui:false,word:false};}}\n"
-                + "  function fire(el,type){try{var ev;if(type.indexOf('touch')===0&&typeof TouchEvent!=='undefined'){ev=new TouchEvent(type,{bubbles:true,cancelable:true});}else if(type.indexOf('pointer')===0&&typeof PointerEvent!=='undefined'){ev=new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,pointerType:'touch',isPrimary:true});}else{ev=new MouseEvent(type,{bubbles:true,cancelable:true,view:window});}el.dispatchEvent(ev);return true;}catch(e){return false;}}\n"
-                + "  function strongClick(el){try{if(!el)return false;['pointerover','pointerenter','pointerdown','touchstart','mousedown','pointerup','touchend','mouseup','click'].forEach(function(ev){fire(el,ev);});try{el.click();}catch(e){}return true;}catch(e){try{el.click();return true;}catch(x){return false;}}}\n"
-                + "  function coordinateClick(el){try{if(!el||!el.getBoundingClientRect)return false;var r=el.getBoundingClientRect();if(r.width<2||r.height<2)return false;var x=Math.max(1,Math.min(window.innerWidth-2,r.left+r.width/2));var y=Math.max(1,Math.min(window.innerHeight-2,r.top+r.height/2));var target=document.elementFromPoint(x,y)||el;['pointerdown','touchstart','mousedown','pointerup','touchend','mouseup','click'].forEach(function(type){try{var ev;if(type.indexOf('pointer')===0&&typeof PointerEvent!=='undefined'){ev=new PointerEvent(type,{bubbles:true,cancelable:true,clientX:x,clientY:y,pointerId:1,pointerType:'touch',isPrimary:true});}else{ev=new MouseEvent(type,{bubbles:true,cancelable:true,view:window,clientX:x,clientY:y});}target.dispatchEvent(ev);}catch(e){}});try{target.click();}catch(e){}try{if(window.YieldVideoBridge&&window.innerWidth>0&&window.innerHeight>0){window.YieldVideoBridge.tapAtRatio(x/window.innerWidth,y/window.innerHeight);}}catch(e){}return true;}catch(e){return false;}}\n"
-                + "  function clickBest(el){try{var best=el;var t=el;for(var i=0;i<7&&t;i++,t=t.parentElement){var tag=(t.tagName||'').toLowerCase();var role=(t.getAttribute&&t.getAttribute('role')||'').toLowerCase();var cls=String(t.className||'').toLowerCase();var tx=txt(t);if(tag==='button'||role==='button'||cls.indexOf('skip')>-1||cls.indexOf('ytp-ad-skip')>-1||tx.indexOf('lewati')>-1||tx.indexOf('skip')>-1){best=t;break;}}var a=strongClick(best), b=coordinateClick(best);return a||b;}catch(e){return strongClick(el)||coordinateClick(el);}}\n"
-                + "  function findSkipTargets(){try{var p=player();var roots=[p,document];var out=[];var sels=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button','.ytp-skip-ad-button__button','.ytm-ad-skip-button','.videoAdUiSkipButton','.ytp-ad-skip-button-container','.ytp-ad-skip-button-text','.ytp-ad-skip-button-icon','button[aria-label]','button','div[role=button]','a[role=button]','tp-yt-paper-button','span','div'];roots.forEach(function(root){if(!root)return;sels.forEach(function(sel){qsa(sel,root).forEach(function(el){if(out.indexOf(el)<0)out.push(el);});});});return out;}catch(e){return [];} }\n"
-                + "  function clickSkip(){try{var now=Date.now();if(now-(S.lastSkip||0)<180)return false;var info=adInfo();var list=findSkipTargets();for(var i=0;i<list.length;i++){var el=list[i];if(!visible(el))continue;var t=txt(el), c=String(el.className||'').toLowerCase(), a=String(el.getAttribute&&el.getAttribute('aria-label')||'').toLowerCase();var ok=(t.indexOf('lewati')>-1||t.indexOf('skip')>-1||t.indexOf('abaikan')>-1||a.indexOf('lewati')>-1||a.indexOf('skip')>-1||c.indexOf('skip')>-1||c.indexOf('ytp-ad-skip')>-1);if(!ok)continue;var safe=inPlayer(el)||c.indexOf('skip')>-1||info.ad;if(safe){S.lastSkip=now;var r=clickBest(el);if(r)enterCooldownPending('skip');return r;}}return false;}catch(e){return false;}}\n"
-                + "  function resumeMainIfPaused(reason){try{var now=Date.now();var info=adInfo();if(info.ad)return false;var v=video();if(!v||!v.paused)return false;if(now-(S.lastResume||0)<1200)return false;var recentAd=(now-(S.lastAdSeen||0)<14000)||(S.phase==='cooldown_pending')||(S.phase==='cooldown'&&now-(S.coolStart||0)<12000);if(!recentAd)return false;S.lastResume=now;var p=player();var btns=[];['.ytp-large-play-button','.ytp-play-button','button[aria-label*=\"Play\"]','button[aria-label*=\"Putar\"]','button[title*=\"Play\"]','button[title*=\"Putar\"]'].forEach(function(sel){qsa(sel,p||document).forEach(function(b){if(btns.indexOf(b)<0)btns.push(b);});});for(var i=0;i<btns.length;i++){var b=btns[i];var tx=txt(b);var cls=String(b.className||'').toLowerCase();var ar=String(b.getAttribute&&b.getAttribute('aria-label')||'').toLowerCase();if(visible(b)&&(tx.indexOf('pause')<0&&tx.indexOf('jeda')<0&&ar.indexOf('pause')<0&&ar.indexOf('jeda')<0)){clickBest(b);break;}}try{if(v.play)v.play().catch(function(){});}catch(e){}try{if(v.paused&&v.getBoundingClientRect){var r=v.getBoundingClientRect();var x=Math.max(1,Math.min(window.innerWidth-2,r.left+r.width/2));var y=Math.max(1,Math.min(window.innerHeight-2,r.top+r.height/2));if(window.YieldVideoBridge&&window.innerWidth>0&&window.innerHeight>0){window.YieldVideoBridge.tapAtRatio(x/window.innerWidth,y/window.innerHeight);}}}catch(e){}try{v.dispatchEvent(new Event('play'));v.dispatchEvent(new Event('canplay'));}catch(e){}return true;}catch(e){return false;}}\n"
-                + "  function yieldForward10Assist(){try{var now=Date.now();if(now-(S.lastAssist||0)<850)return false;var info=adInfo();if(!info.ad)return false;var v=video();if(!v)return false;var cur=(typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;var dur=(typeof v.duration==='number'&&isFinite(v.duration))?v.duration:999999;var next=Math.max(0,Math.min(dur-0.15,cur+10));if(next<=cur+0.2)return false;S.lastAssist=now;v.currentTime=next;try{v.dispatchEvent(new Event('seeking'));v.dispatchEvent(new Event('timeupdate'));}catch(e){}return true;}catch(e){return false;}}\n"
-                + "  function enterCooldownPending(reason){try{S.phase='cooldown_pending';S.hadAd=false;S.coolStart=Date.now();setTimeout(function(){try{if(adInfo().ad){S.phase='assist';return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;S.phase='cooldown';S.coolBase=ct;S.coolTarget=ct+120;S.coolStart=Date.now();setTimeout(function(){try{resumeMainIfPaused('cooldown-start');}catch(e){}},120);setTimeout(function(){try{resumeMainIfPaused('cooldown-start-2');}catch(e){}},900);}catch(e){S.phase='cooldown';S.coolStart=Date.now();S.coolTarget=999999;}},2200);}catch(e){}}\n"
-                + "  function cooldownDone(){try{if(S.phase!=='cooldown')return false;var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;if(ct>=(S.coolTarget||0)||Date.now()-(S.coolStart||0)>150000){S.phase='monitor';return true;}return false;}catch(e){return false;}}\n"
-                + "  function run(){try{var now=Date.now();var info=adInfo();if(S.phase==='cooldown_pending'){if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}resumeMainIfPaused('pending');return;}if(S.phase==='cooldown'){if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}resumeMainIfPaused('cooldown');cooldownDone();return;}if(info.ad){S.phase='assist';S.hadAd=true;S.lastAdSeen=now;if(clickSkip())return;yieldForward10Assist();return;}if(S.phase==='assist'&&S.hadAd&&now-(S.lastAdSeen||0)>2600){enterCooldownPending('ad-ended');setTimeout(function(){try{resumeMainIfPaused('after-ad-ended');}catch(e){}},1000);return;}var v=video();var ct=(v&&typeof v.currentTime==='number'&&isFinite(v.currentTime))?v.currentTime:0;if(S.phase==='initial'&&ct>8){enterCooldownPending('main-start');return;}}catch(e){}}\n"
-                + "  W.__yieldYTAutoCycleRun=run;\n"
-                + "  if(!S.installed){S.installed=true;try{var timer=null;var mo=new MutationObserver(function(){clearTimeout(timer);timer=setTimeout(run,60);});mo.observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','aria-label','title']});}catch(e){} ['yt-navigate-start','yt-navigate-finish','yt-page-data-updated','spfdone','visibilitychange','touchstart','touchend','pointerup','click','play','timeupdate'].forEach(function(ev){try{document.addEventListener(ev,function(){setTimeout(run,40);setTimeout(run,170);setTimeout(run,600);},true);}catch(e){}});setInterval(run,420);}\n"
-                + "  setTimeout(run,30);setTimeout(run,160);setTimeout(run,420);setTimeout(run,1000);setTimeout(run,2200);setTimeout(run,4200);\n"
+                + "  function adShowing(){try{var p=player();var cls=p?String(p.className||''):'';var root=p||document;var skip=qsa('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button,.ytp-skip-ad-button__button,.ytm-ad-skip-button',root).some(visible);var ui=qsa('.ytp-ad-player-overlay,.ytp-ad-player-overlay-instream-info,.ytp-ad-preview-container,.ytp-ad-text,.ytp-ad-simple-ad-badge,.ytp-ad-badge,.video-ads.ytp-ad-module,.ytp-ad-action-interstitial',root).some(visible);var pt=txt(root);var word=/(bersponsor|sponsored|kunjungi pengiklan|visit advertiser|lewati iklan|skip ad|iklan\\s*\\u2022|ad\\s*1\\s*of|ad\\s*2\\s*of|1\\s*dari\\s*2|2\\s*dari\\s*2)/i.test(pt);return cls.indexOf('ad-showing')>-1||cls.indexOf('ad-interrupting')>-1||skip||ui||word;}catch(e){return false;}}\n"
+                + "  function installStyle(){try{if(document.getElementById('yield-yt-passive-style'))return;var st=document.createElement('style');st.id='yield-yt-passive-style';st.textContent='ytd-display-ad-renderer,ytd-promoted-video-renderer,ytd-ad-slot-renderer,ytd-companion-slot-renderer,ytd-banner-promo-renderer,ytd-in-feed-ad-layout-renderer,ytd-promoted-sparkles-web-renderer,ytm-promoted-sparkles-web-renderer,ytm-promoted-video-renderer,ytm-ad-slot-renderer,ytm-companion-slot-renderer,ytm-in-feed-ad-layout-renderer,ytm-display-ad-renderer,#player-ads,.ytp-ad-overlay-container,.ytp-ad-text,.ytp-ad-image-overlay,.ytp-ad-progress-list{display:none!important;visibility:hidden!important;opacity:0!important;max-height:0!important;overflow:hidden!important;}';(document.head||document.documentElement).appendChild(st);}catch(e){}}\n"
+                + "  function cleanCards(){try{installStyle();qsa('ytd-display-ad-renderer,ytd-promoted-video-renderer,ytd-ad-slot-renderer,ytd-companion-slot-renderer,ytd-banner-promo-renderer,ytd-in-feed-ad-layout-renderer,ytd-promoted-sparkles-web-renderer,ytm-promoted-sparkles-web-renderer,ytm-promoted-video-renderer,ytm-ad-slot-renderer,ytm-companion-slot-renderer,ytm-in-feed-ad-layout-renderer,ytm-display-ad-renderer,#player-ads').forEach(function(e){try{if(e.querySelector&&e.querySelector('video'))return;e.style.setProperty('display','none','important');e.style.setProperty('visibility','hidden','important');e.style.setProperty('height','0px','important');e.style.setProperty('max-height','0px','important');e.style.setProperty('overflow','hidden','important');}catch(x){}});}catch(e){}}\n"
+                + "  function resumeAfterSkipOnce(){try{if(W.__yieldYTAssistantDisabled)return false;var t=now();if(!S.resumeUntil||t>S.resumeUntil)return false;if((S.lastResumeAt||0)>(S.lastSkipAt||0))return false;if((S.lastUserInputAt||0)>(S.lastSkipAt||0)+80)return false;if(adShowing())return false;var v=video();if(!v||v.ended||!v.paused)return false;S.lastResumeAt=t;var p=v.play&&v.play();if(p&&p.catch)p.catch(function(){});return true;}catch(e){return false;}}\n"
+                + "  function scheduleResumeAfterSkip(){try{if(W.__yieldYTAssistantDisabled)return;S.lastSkipAt=now();S.resumeUntil=S.lastSkipAt+4500;S.lastResumeAt=0;[550,1200,2200,3400].forEach(function(d){setTimeout(resumeAfterSkipOnce,d);});}catch(e){}}\n"
+                + "  function clickSkipOnly(){try{if(W.__yieldYTAssistantDisabled)return false;var sels=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button','.ytp-skip-ad-button__button','.ytm-ad-skip-button','button[aria-label*=\\\"Skip\\\"]','button[aria-label*=\\\"skip\\\"]','button[aria-label*=\\\"Lewati\\\"]','button[aria-label*=\\\"lewati\\\"]'];var clicked=false;sels.forEach(function(sel){qsa(sel).forEach(function(b){try{if(clicked||!visible(b)||b.disabled)return;var t=txt(b);var c=String(b.className||'').toLowerCase();if(t.indexOf('skip')>-1||t.indexOf('lewati')>-1||c.indexOf('skip')>-1){b.click();clicked=true;}}catch(x){}});});if(clicked)scheduleResumeAfterSkip();return clicked;}catch(e){return false;}}\n"
+                + "  function run(){try{if(W.__yieldYTAssistantDisabled)return;cleanCards();clickSkipOnly();resumeAfterSkipOnce();}catch(e){}}\n"
+                + "  W.__yieldYTPassiveRun=run;\n"
+                + "  if(!S.installed){S.installed=true;['pointerdown','touchstart','mousedown','keydown'].forEach(function(ev){try{document.addEventListener(ev,function(e){try{if(!e||e.isTrusted)S.lastUserInputAt=now();}catch(x){}},true);}catch(e){}});try{var tm=null;var mo=new MutationObserver(function(){clearTimeout(tm);tm=setTimeout(run,120);});mo.observe(document.documentElement||document,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style','aria-label','title']});}catch(e){} ['yt-navigate-finish','yt-page-data-updated','spfdone'].forEach(function(ev){try{document.addEventListener(ev,function(){setTimeout(run,120);setTimeout(run,700);},true);}catch(e){}});setInterval(run,900);}\n"
+                + "  setTimeout(run,80);setTimeout(run,400);setTimeout(run,1200);setTimeout(run,3000);\n"
                 + "}catch(e){}\n"
                 + "})();\n";
+        runPageScript(js);
+    }
+
+
+    private void stopYouTubeAutoAssistantNow() {
+        if (webView == null) return;
+        if (!isYouTubePlaybackUrl(getEffectiveCurrentUrl())) return;
+        // Kill-switch khusus YouTube: saat AdBlock dimatikan, script lama yang sudah
+        // terlanjur masuk ke halaman berhenti tanpa perlu reload.
+        String js = "javascript:"
+                + "(function(){try{"
+                + "window.__yieldYTAssistantDisabled=true;"
+                + "window.__yieldYTNoForcePlay=true;"
+                + "if(window.__yieldYTPassiveResume){"
+                + "window.__yieldYTPassiveResume.lastSkipAt=0;"
+                + "window.__yieldYTPassiveResume.resumeUntil=0;"
+                + "window.__yieldYTPassiveResume.lastResumeAt=0;"
+                + "}"
+                + "window.__yieldYTPassiveRun=function(){};"
+                + "var st=document.getElementById('yield-yt-passive-style');"
+                + "if(st&&st.parentNode)st.parentNode.removeChild(st);"
+                + "}catch(e){}})();";
         runPageScript(js);
     }
 
