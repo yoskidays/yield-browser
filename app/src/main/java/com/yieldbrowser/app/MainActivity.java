@@ -8625,9 +8625,17 @@ private void showDownloadSettingsPanel() {
 
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                // v0.9.81: shouldInterceptRequest berjalan di thread Chromium/background.
+                // Jangan pernah memanggil WebView.getUrl()/getTitle()/method WebView apa pun di sini.
+                // Android akan crash: "A WebView method was called on thread 'ThreadPoolForeg'".
+                // Ambil URL halaman dari cache main-thread saja.
                 if (view != webView) return super.shouldInterceptRequest(view, request);
                 String u = request.getUrl().toString();
-                String pageUrl = view != null && view.getUrl() != null ? view.getUrl() : (currentPageUrlForRequest != null ? currentPageUrlForRequest : "");
+                String pageUrl = currentPageUrlForRequest != null ? currentPageUrlForRequest : "";
+                if ((pageUrl == null || pageUrl.length() == 0)) {
+                    TabInfo owner = findTabByWebView(view);
+                    if (owner != null && owner.url != null) pageUrl = owner.url;
+                }
                 if ((pageUrl == null || pageUrl.length() == 0) && lastSafeHttpUrl != null) pageUrl = lastSafeHttpUrl;
                 // v0.9.44: compatibility mode bersifat universal per-domain. Jika aktif, jangan
                 // intercept resource sama sekali untuk halaman itu. Ini menyelesaikan situs yang

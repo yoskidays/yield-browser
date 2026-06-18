@@ -1,13 +1,22 @@
-# Yield Browser v0.9.80
+# Yield Browser v0.9.81
 
-Source revisi Yield Browser v0.9.80.
+Source revisi Yield Browser v0.9.81.
 
-Fokus update: **Isolated WebView Per Tab** untuk memperbaiki tab compatibility yang saling menimpa URL dan mengurangi reload saat berpindah tab.
+Fokus update: WebView thread crash fix untuk isolated WebView per tab.
 
-Ringkasan:
-- Setiap tab memiliki WebView sendiri.
-- Tab Lordborg/Invest-Tracing/compatibility tidak lagi menimpa tab Komiknesia atau tab lain.
-- Saat pindah tab, browser menampilkan WebView tab tersebut, bukan memuat ulang URL dari awal.
-- Callback WebView dari tab yang sedang tidak aktif tidak lagi mengubah UI/tab aktif.
-- Auto-close tab iklan tetap ada dan hanya menutup tab yang `adTab = true`.
-- Fitur stabil dari versi sebelumnya tetap dipertahankan.
+Crash yang diperbaiki:
+- `shouldInterceptRequest()` memanggil `WebView.getUrl()` dari thread Chromium/background.
+- Android WebView mewajibkan semua method WebView dipanggil dari main thread.
+- Sekarang `shouldInterceptRequest()` hanya memakai cached URL (`currentPageUrlForRequest` / TabInfo.url), bukan memanggil method WebView langsung.
+
+Fitur v0.9.80 tetap dipertahankan:
+- Isolated WebView per tab,
+- tab switch no-flicker,
+- compatibility host list,
+- code cleanup/stability pass,
+- history panel fix,
+- video controls,
+- YouTube skip/auto resume,
+- desktop/mobile universal fix,
+- universal blank compatibility,
+- download manager.
