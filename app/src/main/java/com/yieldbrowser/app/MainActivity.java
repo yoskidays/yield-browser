@@ -137,6 +137,9 @@ public class MainActivity extends Activity {
     private static final String HISTORY_V3_PUBLIC_FILE = "history.txt";
     private static final String PREFS_HISTORY_V2 = "yield_browser_history_store";
     private static final String KEY_NIGHT_EXCEPTIONS = "night_mode_exceptions";
+    // v0.9.82: persist tab session agar tab tetap terbuka setelah aplikasi ditutup/dibuka lagi.
+    private static final String KEY_TABS_SESSION_V1 = "tabs_session_v1";
+    private static final String KEY_TABS_CURRENT_INDEX_V1 = "tabs_current_index_v1";
     private static final String CHANNEL_DOWNLOADS = "yield_downloads";
     private static final String ACTION_OPEN_DOWNLOADS = "com.yieldbrowser.app.OPEN_DOWNLOADS";
     private static final int DOWNLOAD_CONNECTIONS_PREMIUM = 2;
@@ -516,6 +519,7 @@ public class MainActivity extends Activity {
         loadShortcuts();
         loadBrowserHistory();
         loadBookmarkData();
+        restoreTabsSession();
         ensureDefaultTab();
         createNotificationChannel();
         getWindow().setStatusBarColor(COLOR_BG);
@@ -559,6 +563,7 @@ public class MainActivity extends Activity {
 
         setContentView(root);
         installSwipeNavigation(root);
+        restoreActiveTabAfterLaunch();
         updateTopActionStates();
         handleOpenDownloadsIntent(getIntent());
         mainHandler.postDelayed(this::pumpDownloadQueue, 650);
@@ -609,6 +614,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         try {
             saveCurrentTabState();
+            saveTabsSession();
             recordCurrentPageToHistory();
             recordWebViewBackForwardHistory();
             saveBrowserHistory();
@@ -625,6 +631,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         try {
+            saveCurrentTabState();
+            saveTabsSession();
             recordCurrentPageToHistory();
             recordWebViewBackForwardHistory();
             saveBrowserHistory();
@@ -642,6 +650,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         try {
+            saveCurrentTabState();
+            saveTabsSession();
             recordCurrentPageToHistory();
             recordWebViewBackForwardHistory();
             saveBrowserHistory();
@@ -1255,6 +1265,101 @@ content.addView(space(dp(36)));
         return getCurrentTab().privateTab;
     }
 
+    private void restoreTabsSession() {
+        try {
+            SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+            String raw = p.getString(KEY_TABS_SESSION_V1, "");
+            if (raw == null || raw.trim().length() == 0) return;
+
+            ArrayList<TabInfo> restored = new ArrayList<>();
+            String[] rows = raw.split("\n");
+            for (String row : rows) {
+                if (row == null || row.trim().length() == 0) continue;
+                String[] parts = row.split("\t", -1);
+                if (parts.length < 4) continue;
+                String title = decode(parts[0]);
+                String url = decode(parts[1]);
+                boolean privateTab = "1".equals(parts[2]);
+                boolean adTab = "1".equals(parts[3]);
+                if (adTab) continue; // tab iklan sementara tidak dipulihkan setelah restart.
+                if (title == null || title.trim().length() == 0) title = privateTab ? "Tab privat" : "Tab baru";
+                if (url == null) url = "";
+                restored.add(new TabInfo(title, url, privateTab, false));
+            }
+            if (!restored.isEmpty()) {
+                tabs.clear();
+                tabs.addAll(restored);
+                currentTabIndex = Math.max(0, Math.min(p.getInt(KEY_TABS_CURRENT_INDEX_V1, 0), tabs.size() - 1));
+                tabCount = tabs.size();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void saveTabsSession() {
+        try {
+            if (tabs.isEmpty()) ensureDefaultTab();
+            StringBuilder sb = new StringBuilder();
+            int savedIndex = 0;
+            int savedCount = 0;
+            for (int i = 0; i < tabs.size(); i++) {
+                TabInfo tab = tabs.get(i);
+                if (tab == null || tab.adTab) continue;
+                if (i == currentTabIndex) savedIndex = savedCount;
+                String title = tab.title == null ? "" : tab.title;
+                String url = tab.url == null ? "" : tab.url;
+                if (sb.length() > 0) sb.append('
+');
+                sb.append(encode(title)).append('	')
+                        .append(encode(url)).append('	')
+                        .append(tab.privateTab ? "1" : "0").append('	')
+                        .append("0");
+                savedCount++;
+            }
+            if (savedCount <= 0) {
+                sb.append(encode("Tab utama")).append('	').append(encode("")).append('	').append("0	0");
+                savedIndex = 0;
+            }
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putString(KEY_TABS_SESSION_V1, sb.toString())
+                    .putInt(KEY_TABS_CURRENT_INDEX_V1, Math.max(0, Math.min(savedIndex, Math.max(0, savedCount - 1))))
+                    .apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void restoreActiveTabAfterLaunch() {
+        try {
+            ensureDefaultTab();
+            TabInfo tab = getCurrentTab();
+            updateTabsCountUi();
+            if (tab.url != null && tab.url.length() > 0) {
+                addressBar.setText(tab.url);
+                WebView target = ensureTabWebView(tab, View.VISIBLE);
+                webView = target;
+                hideInactiveTabWebViews(target);
+                if (homeScroll != null) homeScroll.setVisibility(View.GONE);
+                if (target != null) {
+                    target.setAlpha(1f);
+                    target.setVisibility(View.VISIBLE);
+                    target.bringToFront();
+                }
+                if (navigationLoadingOverlay != null) navigationLoadingOverlay.bringToFront();
+                applyBrowserSettings();
+                currentPageUrlForRequest = tab.url;
+                if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(tab.url);
+                else loadBrowserUrl(tab.url);
+            } else {
+                addressBar.setText("");
+                if (homeSearchInput != null) homeSearchInput.setText("");
+                activateTabWebView(tab, false);
+                skipNextShowHomeTabSave = true;
+                showHome();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     private void saveCurrentTabState() {
         if (tabs.isEmpty()) return;
         if (skipNextShowHomeTabSave) return;
@@ -1298,6 +1403,7 @@ content.addView(space(dp(36)));
         if (homeSearchInput != null) homeSearchInput.setText("");
         skipNextShowHomeTabSave = true;
         showHome();
+        saveTabsSession();
         Toast.makeText(this, "Tab baru dibuat", Toast.LENGTH_SHORT).show();
     }
 
@@ -1318,6 +1424,7 @@ content.addView(space(dp(36)));
         }
         skipNextShowHomeTabSave = true;
         showHome();
+        saveTabsSession();
         Toast.makeText(this, "Tab privat aktif", Toast.LENGTH_SHORT).show();
     }
 
@@ -1394,6 +1501,7 @@ content.addView(space(dp(36)));
             }
         }
 
+        saveTabsSession();
         Toast.makeText(this, tab.privateTab ? "Tab privat" : "Tab aktif", Toast.LENGTH_SHORT).show();
     }
 
@@ -1428,6 +1536,7 @@ content.addView(space(dp(36)));
         }
 
         updateTabsCountUi();
+        saveTabsSession();
         Toast.makeText(this, "Tab ditutup", Toast.LENGTH_SHORT).show();
     }
 
@@ -8871,6 +8980,7 @@ private void showDownloadSettingsPanel() {
                 if (shouldRecordHistoryUrl(finalUrl)) {
                     currentTab.url = finalUrl;
                     currentTab.title = view.getTitle() != null && view.getTitle().length() > 0 ? view.getTitle() : currentTab.url;
+                    saveTabsSession();
                     // Histori sudah dicatat di atas agar tersimpan lebih cepat.
                 }
                 if (!pageReloadGuarded) {
@@ -10601,6 +10711,7 @@ private void showDownloadSettingsPanel() {
         TabInfo currentTab = getCurrentTab();
         currentTab.url = url;
         currentTab.title = url;
+        saveTabsSession();
         boolean fromHomeSearch = homeScroll != null && homeScroll.getVisibility() == View.VISIBLE;
         if (fromHomeSearch) {
             startSmoothSearchTransition();
@@ -11358,6 +11469,7 @@ private void showDownloadSettingsPanel() {
         // State halaman terakhir tetap disimpan agar saat dibuka lagi kembali ke posisi terakhir.
         try {
             saveCurrentTabState();
+            saveTabsSession();
             if (webView != null && webView.getUrl() != null && isHttpOrHttpsUrl(webView.getUrl())) {
                 lastSafeHttpUrl = webView.getUrl();
             }
