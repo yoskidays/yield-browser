@@ -415,8 +415,10 @@ public class MainActivity extends Activity {
         String url;
         boolean privateTab;
         boolean adTab;
-        // v0.9.78: simpan state ringan WebView per tab agar saat kembali ke tab lama
-        // tidak selalu memaksa load ulang URL dari awal.
+        // v0.9.80: setiap tab punya WebView sendiri agar tab compatibility
+        // tidak menimpa URL/state tab lain dan perpindahan tab tidak reload ulang.
+        transient WebView webView;
+        // v0.9.78: simpan state ringan WebView per tab sebagai fallback restore.
         Bundle webState;
 
         TabInfo(String title, String url, boolean privateTab) {
@@ -539,6 +541,7 @@ public class MainActivity extends Activity {
         contentFrame.addView(homeScroll, new FrameLayout.LayoutParams(-1, -1));
 
         webView = createBrowserWebView(View.GONE);
+        try { getCurrentTab().webView = webView; } catch (Exception ignored) {}
         contentFrame.addView(webView, new FrameLayout.LayoutParams(-1, -1));
 
         navigationLoadingOverlay = createNavigationLoadingOverlay();
@@ -1138,6 +1141,103 @@ content.addView(space(dp(36)));
         return item;
     }
 
+    private TabInfo findTabByWebView(WebView candidate) {
+        if (candidate == null) return null;
+        try {
+            for (TabInfo tab : tabs) {
+                if (tab != null && tab.webView == candidate) return tab;
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private void attachWebViewToContentFrame(WebView candidate) {
+        if (candidate == null || contentFrame == null) return;
+        try {
+            if (candidate.getParent() == null) {
+                int insertIndex = 0;
+                try {
+                    insertIndex = homeScroll != null && homeScroll.getParent() == contentFrame ? 1 : contentFrame.getChildCount();
+                    if (navigationLoadingOverlay != null && navigationLoadingOverlay.getParent() == contentFrame) {
+                        int overlayIndex = contentFrame.indexOfChild(navigationLoadingOverlay);
+                        if (overlayIndex >= 0) insertIndex = Math.max(0, overlayIndex);
+                    }
+                } catch (Exception ignored) {
+                    insertIndex = contentFrame.getChildCount();
+                }
+                contentFrame.addView(candidate, insertIndex, new FrameLayout.LayoutParams(-1, -1));
+            }
+            if (navigationLoadingOverlay != null) navigationLoadingOverlay.bringToFront();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private WebView ensureTabWebView(TabInfo tab, int visibility) {
+        if (tab == null) return webView;
+        try {
+            if (tab.webView == null) {
+                WebView created = createBrowserWebView(visibility);
+                tab.webView = created;
+                attachWebViewToContentFrame(created);
+            } else {
+                webView = tab.webView;
+                attachWebViewToContentFrame(webView);
+                try { applyBrowserSettings(); } catch (Exception ignored) {}
+                try { CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true); } catch (Exception ignored) {}
+                webView.setVisibility(visibility);
+            }
+            return tab.webView;
+        } catch (Exception e) {
+            return webView;
+        }
+    }
+
+    private void hideInactiveTabWebViews(WebView active) {
+        try {
+            for (TabInfo tab : tabs) {
+                if (tab != null && tab.webView != null && tab.webView != active) {
+                    tab.webView.setVisibility(View.GONE);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void activateTabWebView(TabInfo tab, boolean showWebPage) {
+        try {
+            WebView target = ensureTabWebView(tab, showWebPage ? View.VISIBLE : View.GONE);
+            webView = target;
+            hideInactiveTabWebViews(target);
+            if (homeScroll != null) homeScroll.setVisibility(showWebPage ? View.GONE : View.VISIBLE);
+            if (target != null) target.setVisibility(showWebPage ? View.VISIBLE : View.GONE);
+            if (navigationLoadingOverlay != null) navigationLoadingOverlay.bringToFront();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void destroyTabWebView(TabInfo tab) {
+        if (tab == null || tab.webView == null) return;
+        WebView doomed = tab.webView;
+        tab.webView = null;
+        try { doomed.stopLoading(); } catch (Exception ignored) {}
+        try { if (contentFrame != null) contentFrame.removeView(doomed); } catch (Exception ignored) {}
+        try { doomed.destroy(); } catch (Exception ignored) {}
+        if (webView == doomed) webView = null;
+    }
+
+    private boolean hasLivePage(WebView candidate) {
+        try {
+            if (candidate == null) return false;
+            String live = extractOriginalUrl(candidate.getUrl());
+            if (live == null || live.length() == 0) return false;
+            String lower = live.toLowerCase(Locale.US);
+            return !lower.equals("about:blank") && !lower.startsWith("data:");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private void ensureDefaultTab() {
         if (tabs.isEmpty()) {
             tabs.add(new TabInfo("Tab utama", "", false));
@@ -1192,6 +1292,7 @@ content.addView(space(dp(36)));
         saveCurrentTabState();
         tabs.add(new TabInfo("Tab baru", "", false));
         currentTabIndex = tabs.size() - 1;
+        activateTabWebView(getCurrentTab(), false);
         updateTabsCountUi();
         addressBar.setText("");
         if (homeSearchInput != null) homeSearchInput.setText("");
@@ -1204,6 +1305,7 @@ content.addView(space(dp(36)));
         saveCurrentTabState();
         tabs.add(new TabInfo("Tab privat", "", true));
         currentTabIndex = tabs.size() - 1;
+        activateTabWebView(getCurrentTab(), false);
         updateTabsCountUi();
         addressBar.setText("");
         if (homeSearchInput != null) homeSearchInput.setText("");
@@ -1229,47 +1331,66 @@ content.addView(space(dp(36)));
         if (tab.url == null || tab.url.length() == 0) {
             addressBar.setText("");
             if (homeSearchInput != null) homeSearchInput.setText("");
+            activateTabWebView(tab, false);
             skipNextShowHomeTabSave = true;
             showHome();
         } else {
             addressBar.setText(tab.url);
-            // v0.9.79: tutup tampilan WebView lama sebelum restore/load tab lain.
-            // Ini mencegah efek kedip konten dari tab sebelumnya saat pindah tab.
-            startSmoothSearchTransition();
-            updateVideoControlsVisibility();
-            boolean restored = false;
-            if (!translateEnabled && tab.webState != null) {
-                try {
-                    applyBrowserSettings();
-                    currentPageUrlForRequest = tab.url;
-                    WebBackForwardList restoredList = webView.restoreState(tab.webState);
-                    restored = restoredList != null && restoredList.getSize() > 0;
-                    if (restored) {
-                        scheduleNightModeSyncForPage(tab.url);
-                        scheduleHorizontalGestureGuardCheck(tab.url);
-                        if (isStrictSiteCompatibilityUrl(tab.url) || isSiteCompatibilityModeActiveForUrl(tab.url)) {
-                            applyPlainCompatibilitySettingsForUrl(tab.url);
-                            if (desktopMode) {
-                                mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 250);
-                                mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1200);
-                            } else {
-                                mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 250);
-                            }
-                        }
-                        // WebView restoreState tidak selalu memicu onPageFinished.
-                        // Reveal singkat setelah restore supaya tidak menunggu overlay terlalu lama.
-                        mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 120);
-                        mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 420);
-                    }
-                } catch (Exception ignored) {
-                    restored = false;
+            WebView target = ensureTabWebView(tab, View.GONE);
+            webView = target;
+            hideInactiveTabWebViews(target);
+            // v0.9.80: jika tab sudah punya WebView hidup, cukup show WebView-nya.
+            // Jangan load ulang URL, agar Komiknesia/Lordborg/Invest-Tracing tidak saling ketularan state.
+            if (hasLivePage(target)) {
+                if (homeScroll != null) homeScroll.setVisibility(View.GONE);
+                if (target != null) {
+                    target.setAlpha(1f);
+                    target.setVisibility(View.VISIBLE);
+                    target.bringToFront();
                 }
-            }
-            if (!restored) {
-                if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(tab.url);
-                else loadBrowserUrl(tab.url);
-                // Fallback jika halaman tidak memanggil onPageFinished tepat waktu.
-                mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 3500);
+                if (navigationLoadingOverlay != null) navigationLoadingOverlay.bringToFront();
+                currentPageUrlForRequest = tab.url;
+                scheduleNightModeSyncForPage(tab.url);
+                scheduleHorizontalGestureGuardCheck(tab.url);
+                if (isStrictSiteCompatibilityUrl(tab.url) || isSiteCompatibilityModeActiveForUrl(tab.url)) {
+                    applyPlainCompatibilitySettingsForUrl(tab.url);
+                    if (desktopMode) {
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 250);
+                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1200);
+                    } else {
+                        mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 250);
+                    }
+                }
+                updateVideoControlsVisibility();
+            } else {
+                startSmoothSearchTransition();
+                updateVideoControlsVisibility();
+                boolean restored = false;
+                if (!translateEnabled && tab.webState != null && target != null) {
+                    try {
+                        applyBrowserSettings();
+                        currentPageUrlForRequest = tab.url;
+                        WebBackForwardList restoredList = target.restoreState(tab.webState);
+                        restored = restoredList != null && restoredList.getSize() > 0;
+                        if (restored) {
+                            if (homeScroll != null) homeScroll.setVisibility(View.GONE);
+                            target.setVisibility(View.VISIBLE);
+                            scheduleNightModeSyncForPage(tab.url);
+                            scheduleHorizontalGestureGuardCheck(tab.url);
+                            mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 120);
+                            mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 420);
+                        }
+                    } catch (Exception ignored) {
+                        restored = false;
+                    }
+                }
+                if (!restored) {
+                    if (homeScroll != null) homeScroll.setVisibility(View.GONE);
+                    if (target != null) target.setVisibility(View.VISIBLE);
+                    if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(tab.url);
+                    else loadBrowserUrl(tab.url);
+                    mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 3500);
+                }
             }
         }
 
@@ -1281,29 +1402,29 @@ content.addView(space(dp(36)));
 
         boolean closingCurrent = index == currentTabIndex;
         TabInfo removed = tabs.remove(index);
+        destroyTabWebView(removed);
 
         if (tabs.isEmpty()) {
             tabs.add(new TabInfo("Tab utama", "", false));
             currentTabIndex = 0;
             addressBar.setText("");
             if (homeSearchInput != null) homeSearchInput.setText("");
+            activateTabWebView(getCurrentTab(), false);
             skipNextShowHomeTabSave = true;
             showHome();
         } else {
+            if (currentTabIndex > index) currentTabIndex--;
             if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
             if (closingCurrent) {
                 switchToTab(currentTabIndex);
+            } else {
+                TabInfo active = getCurrentTab();
+                activateTabWebView(active, active.url != null && active.url.length() > 0 && homeScroll != null && homeScroll.getVisibility() != View.VISIBLE);
             }
         }
 
         if (removed.privateTab) {
-            try {
-                if (webView != null) {
-                    webView.clearHistory();
-                    webView.clearCache(false);
-                }
-            } catch (Exception ignored) {
-            }
+            try { if (webView != null && isCurrentPrivateTab()) webView.clearCache(false); } catch (Exception ignored) {}
         }
 
         updateTabsCountUi();
@@ -8268,17 +8389,20 @@ private void showDownloadSettingsPanel() {
 
     private void closeAdTabSilently(TabInfo adTab, int fallbackIndex) {
         try {
+            if (adTab == null || !adTab.adTab) return;
             int index = tabs.indexOf(adTab);
             if (index < 0) return;
 
             boolean closingCurrent = index == currentTabIndex;
             tabs.remove(index);
+            destroyTabWebView(adTab);
 
             if (tabs.isEmpty()) {
                 tabs.add(new TabInfo("Tab utama", "", false));
                 currentTabIndex = 0;
                 addressBar.setText("");
                 if (homeSearchInput != null) homeSearchInput.setText("");
+                activateTabWebView(getCurrentTab(), false);
                 skipNextShowHomeTabSave = true;
                 showHome();
             } else {
@@ -8286,16 +8410,7 @@ private void showDownloadSettingsPanel() {
                 if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
                 if (closingCurrent) {
                     currentTabIndex = Math.max(0, Math.min(fallbackIndex, tabs.size() - 1));
-                    TabInfo tab = getCurrentTab();
-                    if (tab.url == null || tab.url.length() == 0) {
-                        addressBar.setText("");
-                        showHome();
-                    } else {
-                        addressBar.setText(tab.url);
-                        webView.setVisibility(View.VISIBLE);
-                        homeScroll.setVisibility(View.GONE);
-                        loadBrowserUrl(tab.url);
-                    }
+                    switchToTab(currentTabIndex);
                 }
             }
 
@@ -8324,6 +8439,7 @@ private void showDownloadSettingsPanel() {
 
                 boolean closingCurrent = i == currentTabIndex;
                 tabs.remove(i);
+                destroyTabWebView(t);
                 changed = true;
 
                 if (closingCurrent) {
@@ -8338,10 +8454,14 @@ private void showDownloadSettingsPanel() {
                 currentTabIndex = 0;
                 addressBar.setText("");
                 if (homeSearchInput != null) homeSearchInput.setText("");
+                activateTabWebView(getCurrentTab(), false);
                 skipNextShowHomeTabSave = true;
                 showHome();
             } else if (currentTabIndex < 0 || currentTabIndex >= tabs.size()) {
                 currentTabIndex = Math.max(0, Math.min(currentTabIndex, tabs.size() - 1));
+            }
+            if (changed && !tabs.isEmpty()) {
+                switchToTab(currentTabIndex);
             }
 
             if (changed) {
@@ -8367,26 +8487,13 @@ private void showDownloadSettingsPanel() {
             return;
         }
         int token = ++browserModeToken;
-        WebView oldWebView = webView;
-        try {
-            if (oldWebView != null) {
-                try { oldWebView.stopLoading(); } catch (Exception ignored) {}
-                try { oldWebView.loadUrl("about:blank"); } catch (Exception ignored) {}
-                try { oldWebView.clearHistory(); } catch (Exception ignored) {}
-                try { contentFrame.removeView(oldWebView); } catch (Exception ignored) {}
-                try { oldWebView.destroy(); } catch (Exception ignored) {}
-            }
-        } catch (Exception ignored) {
-        }
+        TabInfo activeTab = getCurrentTab();
+        try { destroyTabWebView(activeTab); } catch (Exception ignored) {}
 
         WebView fresh = createBrowserWebView(showWebPage ? View.VISIBLE : View.GONE);
-        try {
-            int insertIndex = homeScroll != null && homeScroll.getParent() == contentFrame ? 1 : contentFrame.getChildCount();
-            contentFrame.addView(fresh, insertIndex, new FrameLayout.LayoutParams(-1, -1));
-            if (navigationLoadingOverlay != null) navigationLoadingOverlay.bringToFront();
-        } catch (Exception e) {
-            try { contentFrame.addView(fresh, new FrameLayout.LayoutParams(-1, -1)); } catch (Exception ignored) {}
-        }
+        activeTab.webView = fresh;
+        attachWebViewToContentFrame(fresh);
+        hideInactiveTabWebViews(fresh);
 
         if (showWebPage) {
             if (homeScroll != null) homeScroll.setVisibility(View.GONE);
@@ -8437,6 +8544,7 @@ private void showDownloadSettingsPanel() {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (view != webView) return false;
                 String u = request.getUrl().toString();
                 String currentUrl = view != null ? view.getUrl() : "";
                 boolean mainFrame = request != null && request.isForMainFrame();
@@ -8517,8 +8625,9 @@ private void showDownloadSettingsPanel() {
 
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                if (view != webView) return super.shouldInterceptRequest(view, request);
                 String u = request.getUrl().toString();
-                String pageUrl = currentPageUrlForRequest != null ? currentPageUrlForRequest : "";
+                String pageUrl = view != null && view.getUrl() != null ? view.getUrl() : (currentPageUrlForRequest != null ? currentPageUrlForRequest : "");
                 if ((pageUrl == null || pageUrl.length() == 0) && lastSafeHttpUrl != null) pageUrl = lastSafeHttpUrl;
                 // v0.9.44: compatibility mode bersifat universal per-domain. Jika aktif, jangan
                 // intercept resource sama sekali untuk halaman itu. Ini menyelesaikan situs yang
@@ -8551,6 +8660,10 @@ private void showDownloadSettingsPanel() {
 
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (view != webView) {
+                    super.onReceivedError(view, request, error);
+                    return;
+                }
                 try {
                     String failedUrl = request != null && request.getUrl() != null ? request.getUrl().toString() : "";
                     int errorCode = Build.VERSION.SDK_INT >= 23 && error != null ? error.getErrorCode() : 0;
@@ -8582,6 +8695,16 @@ private void showDownloadSettingsPanel() {
 
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                if (view != webView) {
+                    TabInfo owner = findTabByWebView(view);
+                    if (owner != null) {
+                        String inactiveUrl = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
+                        owner.url = inactiveUrl == null ? "" : inactiveUrl;
+                        if (view != null && view.getTitle() != null && view.getTitle().trim().length() > 0) owner.title = view.getTitle();
+                    }
+                    super.onPageStarted(view, url, favicon);
+                    return;
+                }
                 String safeBeforePageStarted = lastSafeHttpUrl;
                 currentPageUrlForRequest = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
                 webHorizontalGestureGuard = false;
@@ -8657,6 +8780,11 @@ private void showDownloadSettingsPanel() {
             @Override
             public void onPageCommitVisible(WebView view, String url) {
                 super.onPageCommitVisible(view, url);
+                if (view != webView) {
+                    TabInfo owner = findTabByWebView(view);
+                    if (owner != null) owner.url = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
+                    return;
+                }
                 String shownUrl = extractOriginalUrl(url);
                 String finalUrl = shownUrl != null ? shownUrl : url;
                 currentPageUrlForRequest = finalUrl;
@@ -8666,6 +8794,22 @@ private void showDownloadSettingsPanel() {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (view != webView) {
+                    TabInfo owner = findTabByWebView(view);
+                    if (owner != null) {
+                        String inactiveUrl = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
+                        owner.url = inactiveUrl == null ? "" : inactiveUrl;
+                        String inactiveTitle = view != null ? view.getTitle() : null;
+                        if (inactiveTitle != null && inactiveTitle.trim().length() > 0) owner.title = inactiveTitle;
+                        try {
+                            Bundle state = new Bundle();
+                            WebBackForwardList saved = view.saveState(state);
+                            if (saved != null && saved.getSize() > 0) owner.webState = state;
+                        } catch (Exception ignored) {}
+                    }
+                    super.onPageFinished(view, url);
+                    return;
+                }
                 String shownUrl = extractOriginalUrl(url);
                 String finalUrl = shownUrl != null ? shownUrl : url;
                 currentPageUrlForRequest = finalUrl;
@@ -8758,6 +8902,7 @@ private void showDownloadSettingsPanel() {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onProgressChanged(WebView view, int newProgress) {
+                if (view != webView) return;
                 progressBar.setProgress(newProgress);
                 progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
             }
@@ -9155,7 +9300,9 @@ private void showDownloadSettingsPanel() {
     }
 
     private void loadBrowserUrl(String url) {
-        if (webView == null || url == null) return;
+        if (url == null) return;
+        try { activateTabWebView(getCurrentTab(), true); } catch (Exception ignored) {}
+        if (webView == null) return;
         String cleanUrl = url.trim();
         cleanUrl = normalizeUrlForCurrentBrowserMode(cleanUrl);
         if (cleanUrl == null || cleanUrl.length() == 0) return;
