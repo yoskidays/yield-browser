@@ -1,26 +1,10 @@
-# Yield Browser v0.9.77
+# Yield Browser v0.9.79
 
-## Code Cleanup & Stability Pass
+## Tab Switch No-Flicker Fix
 
-- Memperbaiki metadata build yang masih tertulis versi lama.
-- Menguatkan state tab kosong agar tab baru normal/privat tidak ketempel URL dari tab sebelumnya.
-- Menguatkan `saveCurrentTabState()` agar tidak menyimpan URL saat Home sedang aktif atau saat tab kosong sengaja dibuat.
-- Menguatkan hapus riwayat satu item:
-  - tombol hapus mengonsumsi touch sendiri,
-  - mengurangi risiko row ikut terbuka,
-  - panel history refresh di tempat.
-- Menambah null guard kecil pada deduplikasi riwayat agar lebih aman.
-- Mempertahankan seluruh fitur v0.9.76:
-  - History Panel Back Fix,
-  - tab/private/history fix,
-  - bigger video controls,
-  - YouTube auto resume after ad,
-  - YouTube native skip click,
-  - Edge Gesture Guard,
-  - Universal Blank Compatibility,
-  - Desktop/Mobile universal fix,
-  - Search Engine fix,
-  - Lordborg / Instant Monitor / Invest-tracing,
-  - Night Mode,
-  - Translate,
-  - Download Manager.
+- Memperbaiki efek kedip konten WebView dari tab lain saat pindah tab.
+- Saat berpindah tab, WebView lama ditutup overlay singkat sebelum state tab baru di-restore/load.
+- Jika `restoreState()` berhasil, overlay ditutup cepat agar tab terasa responsif.
+- Jika tab harus load ulang, overlay tetap menjaga agar konten tab lama tidak terlihat sampai halaman baru siap.
+- Fallback timeout ditambahkan agar overlay tidak nyangkut jika halaman tidak memanggil `onPageFinished`.
+- Fitur v0.9.78 dan sebelumnya tetap dipertahankan.

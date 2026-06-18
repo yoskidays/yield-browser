@@ -313,6 +313,10 @@ public class MainActivity extends Activity {
     private String siteCompatibilityHost = "";
     private long siteCompatibilityUntilMs = 0L;
     private long siteCompatibilityToastLastMs = 0L;
+    // v0.9.78: compatibility mode tidak boleh cuma 1 host global.
+    // Jika dua tab berbeda sama-sama butuh compatibility (misal Lordborg + Invest Tracing),
+    // keduanya harus tetap aktif dan tidak saling mematikan.
+    private final Map<String, Long> siteCompatibilityHosts = new LinkedHashMap<>();
     // v0.9.65: universal blank-page compatibility recovery.
     // Jika halaman menjadi blank hanya saat AdBlock ON, host akan otomatis
     // direload sekali dalam compatibility mode tanpa perlu didaftarkan manual.
@@ -411,6 +415,9 @@ public class MainActivity extends Activity {
         String url;
         boolean privateTab;
         boolean adTab;
+        // v0.9.78: simpan state ringan WebView per tab agar saat kembali ke tab lama
+        // tidak selalu memaksa load ulang URL dari awal.
+        Bundle webState;
 
         TabInfo(String title, String url, boolean privateTab) {
             this(title, url, privateTab, false);
@@ -1160,6 +1167,12 @@ content.addView(space(dp(36)));
                 String title = webView.getTitle();
                 if (title != null && title.trim().length() > 0) tab.title = title;
                 else if (tab.url != null && tab.url.length() > 0) tab.title = tab.url;
+                try {
+                    Bundle state = new Bundle();
+                    WebBackForwardList saved = webView.saveState(state);
+                    if (saved != null && saved.getSize() > 0) tab.webState = state;
+                } catch (Exception ignored) {
+                }
             } else if (addressBar != null && addressBar.getText() != null) {
                 String maybeUrl = normalizeInputToUrl(addressBar.getText().toString().trim());
                 if (maybeUrl != null) tab.url = maybeUrl;
@@ -1220,12 +1233,44 @@ content.addView(space(dp(36)));
             showHome();
         } else {
             addressBar.setText(tab.url);
-            webView.setAlpha(1f);
-            webView.setVisibility(View.VISIBLE);
-            homeScroll.setVisibility(View.GONE);
+            // v0.9.79: tutup tampilan WebView lama sebelum restore/load tab lain.
+            // Ini mencegah efek kedip konten dari tab sebelumnya saat pindah tab.
+            startSmoothSearchTransition();
             updateVideoControlsVisibility();
-            if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(tab.url);
-            else loadBrowserUrl(tab.url);
+            boolean restored = false;
+            if (!translateEnabled && tab.webState != null) {
+                try {
+                    applyBrowserSettings();
+                    currentPageUrlForRequest = tab.url;
+                    WebBackForwardList restoredList = webView.restoreState(tab.webState);
+                    restored = restoredList != null && restoredList.getSize() > 0;
+                    if (restored) {
+                        scheduleNightModeSyncForPage(tab.url);
+                        scheduleHorizontalGestureGuardCheck(tab.url);
+                        if (isStrictSiteCompatibilityUrl(tab.url) || isSiteCompatibilityModeActiveForUrl(tab.url)) {
+                            applyPlainCompatibilitySettingsForUrl(tab.url);
+                            if (desktopMode) {
+                                mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 250);
+                                mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1200);
+                            } else {
+                                mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 250);
+                            }
+                        }
+                        // WebView restoreState tidak selalu memicu onPageFinished.
+                        // Reveal singkat setelah restore supaya tidak menunggu overlay terlalu lama.
+                        mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 120);
+                        mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 420);
+                    }
+                } catch (Exception ignored) {
+                    restored = false;
+                }
+            }
+            if (!restored) {
+                if (translateEnabled && !translateManuallyDisabled) loadTranslatedPage(tab.url);
+                else loadBrowserUrl(tab.url);
+                // Fallback jika halaman tidak memanggil onPageFinished tepat waktu.
+                mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 3500);
+            }
         }
 
         Toast.makeText(this, tab.privateTab ? "Tab privat" : "Tab aktif", Toast.LENGTH_SHORT).show();
@@ -8233,6 +8278,8 @@ private void showDownloadSettingsPanel() {
                 tabs.add(new TabInfo("Tab utama", "", false));
                 currentTabIndex = 0;
                 addressBar.setText("");
+                if (homeSearchInput != null) homeSearchInput.setText("");
+                skipNextShowHomeTabSave = true;
                 showHome();
             } else {
                 if (currentTabIndex > index) currentTabIndex--;
@@ -8270,8 +8317,10 @@ private void showDownloadSettingsPanel() {
             for (int i = tabs.size() - 1; i >= 0; i--) {
                 TabInfo t = tabs.get(i);
                 if (t == null) continue;
-                boolean suspicious = t.adTab || (t.url != null && t.url.length() > 0 && isSuspiciousPopupNavigation(t.url, getEffectiveCurrentUrl()));
-                if (!suspicious) continue;
+                // v0.9.78: jangan auto-close tab normal hanya karena URL-nya mirip popup/ad host.
+                // Beberapa situs seperti invest-tracing.com memang bisa dibuka manual dan butuh compatibility.
+                // Auto-close hanya untuk tab yang benar-benar dibuat sebagai tab iklan sementara.
+                if (!t.adTab) continue;
 
                 boolean closingCurrent = i == currentTabIndex;
                 tabs.remove(i);
@@ -8288,6 +8337,8 @@ private void showDownloadSettingsPanel() {
                 tabs.add(new TabInfo("Tab utama", "", false));
                 currentTabIndex = 0;
                 addressBar.setText("");
+                if (homeSearchInput != null) homeSearchInput.setText("");
+                skipNextShowHomeTabSave = true;
                 showHome();
             } else if (currentTabIndex < 0 || currentTabIndex >= tabs.size()) {
                 currentTabIndex = Math.max(0, Math.min(currentTabIndex, tabs.size() - 1));
@@ -9382,8 +9433,15 @@ private void showDownloadSettingsPanel() {
             if (!isHttpOrHttpsUrl(url)) return;
             String host = hostOfUrl(url);
             if (host == null || host.length() == 0) return;
+            long until = System.currentTimeMillis() + 300000L;
             siteCompatibilityHost = host;
-            siteCompatibilityUntilMs = System.currentTimeMillis() + 300000L;
+            siteCompatibilityUntilMs = until;
+            try {
+                String normalized = host.toLowerCase(Locale.US);
+                if (normalized.startsWith("www.")) normalized = normalized.substring(4);
+                siteCompatibilityHosts.put(normalized, until);
+            } catch (Exception ignored) {
+            }
             if (System.currentTimeMillis() - siteCompatibilityToastLastMs > 8000L) {
                 siteCompatibilityToastLastMs = System.currentTimeMillis();
                 Toast.makeText(this, "Mode kompatibel aktif untuk situs ini", Toast.LENGTH_SHORT).show();
@@ -9395,9 +9453,34 @@ private void showDownloadSettingsPanel() {
     private boolean isSiteCompatibilityModeActiveForUrl(String url) {
         try {
             long now = System.currentTimeMillis();
-            if (siteCompatibilityHost == null || siteCompatibilityHost.length() == 0 || now > siteCompatibilityUntilMs) return false;
             String host = hostOfUrl(url);
-            return host.length() > 0 && (host.equals(siteCompatibilityHost) || host.endsWith("." + siteCompatibilityHost));
+            if (host == null || host.length() == 0) return false;
+            String h = host.toLowerCase(Locale.US);
+            if (h.startsWith("www.")) h = h.substring(4);
+
+            // Legacy single-host guard tetap didukung.
+            if (siteCompatibilityHost != null && siteCompatibilityHost.length() > 0 && now <= siteCompatibilityUntilMs) {
+                String legacy = siteCompatibilityHost.toLowerCase(Locale.US);
+                if (legacy.startsWith("www.")) legacy = legacy.substring(4);
+                if (h.equals(legacy) || h.endsWith("." + legacy)) return true;
+            }
+
+            // v0.9.78: multi-host compatibility untuk banyak tab.
+            try {
+                ArrayList<String> expired = new ArrayList<>();
+                for (Map.Entry<String, Long> e : siteCompatibilityHosts.entrySet()) {
+                    String base = e.getKey();
+                    long until = e.getValue() == null ? 0L : e.getValue();
+                    if (now > until) {
+                        expired.add(base);
+                        continue;
+                    }
+                    if (base != null && base.length() > 0 && (h.equals(base) || h.endsWith("." + base))) return true;
+                }
+                for (String dead : expired) siteCompatibilityHosts.remove(dead);
+            } catch (Exception ignored) {
+            }
+            return false;
         } catch (Exception e) {
             return false;
         }
