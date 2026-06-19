@@ -30,3 +30,24 @@ Revisi kecil khusus YouTube Assistant:
 
 Build ini menambahkan pengaman multi-tab berbasis domain per tab. Tujuannya agar ketika tab YouTube/video/website lain ditutup, URL dari tab tersebut tidak bisa tersimpan ke tab lain saat aplikasi keluar-masuk, switch tab, restore session, atau recover dari direct-link iklan.
 
+
+## v0.9.84 Universal Download AdBlock Allowlist
+
+Revisi ini menjaga tombol download asli tetap bisa diklik saat AdBlock aktif, termasuk halaman Google Drive/Drive UserContent seperti tombol `Tetap download`.
+
+Fokus revisi:
+- Membuat allowlist universal untuk URL download/file.
+- Menghindari false-positive AdBlock pada link download cloud storage.
+- Tidak mengubah sistem tab yang sudah stabil.
+
+### Smart Turbo Download Engine v2
+
+Yield Browser sekarang memakai engine download adaptif:
+
+- Safe 1 koneksi untuk file kecil/server tanpa Range.
+- Stable 2 koneksi untuk host sensitif seperti Google Drive, Googleusercontent, OneDrive, Mega.
+- Turbo 4 koneksi untuk file besar/video/CDN yang cocok.
+- Hard pause menutup koneksi aktif agar pause tidak terasa macet.
+- Resume menyimpan state part download agar progress tidak mudah reset.
+
+Perubahan ini hanya menyentuh area download manager.

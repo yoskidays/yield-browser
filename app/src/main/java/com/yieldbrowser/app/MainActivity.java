@@ -106,6 +106,7 @@ import java.util.Map;
 import java.util.Date;
 import java.text.SimpleDateFormat;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.Semaphore;
 import com.google.zxing.BinaryBitmap;
 import com.google.zxing.MultiFormatReader;
 import com.google.zxing.NotFoundException;
@@ -144,6 +145,9 @@ public class MainActivity extends Activity {
     private static final String ACTION_OPEN_DOWNLOADS = "com.yieldbrowser.app.OPEN_DOWNLOADS";
     private static final int DOWNLOAD_CONNECTIONS_PREMIUM = 2;
     private static final int DOWNLOAD_CONNECTIONS_DYNAMIC_MAX = 4;
+    private static final int DOWNLOAD_TURBO_MIN_LARGE_FILE = 96 * 1024 * 1024;
+    private static final int DOWNLOAD_TURBO_UNKNOWN_LARGE_FILE = 256 * 1024 * 1024;
+    private static final int DOWNLOAD_STABLE_HOST_LIMIT = 2;
     private static final int DOWNLOAD_RETRY_MAX = 3;
     private static final int DESKTOP_VIEWPORT_WIDTH = 1280;
     private static final int DOWNLOAD_BUFFER_SIZE = 64 * 1024;
@@ -370,6 +374,16 @@ public class MainActivity extends Activity {
         long lastSpeedTimeMs = 0;
         long lastSpeedBytes = 0;
         long lastActionClickMs = 0;
+        String turboProfile = "";
+        int turboTargetConnections = 0;
+        double turboAvgSpeedBytesPerSecond = 0;
+        double turboStabilityScore = 100;
+        long turboLastSampleBytes = 0;
+        long turboLastSampleTimeMs = 0;
+        int turboSlowSamples = 0;
+        int turboRetryPenalty = 0;
+        final ArrayList<HttpURLConnection> activeConnections = new ArrayList<>();
+        final ArrayList<InputStream> activeStreams = new ArrayList<>();
         DownloadItem(int id, String url, String fileName, String path, String status, int progress) {
             this.id = id;
             this.url = url;
@@ -3059,7 +3073,7 @@ private void showDownloadSettingsPanel() {
         box.addView(title);
 
         TextView info = new TextView(this);
-        info.setText("Pengaturan download cepat Yield.");
+        info.setText("Smart Turbo Engine: memilih 1/2/4 koneksi sesuai host, ukuran file, dan stabilitas jaringan.");
         info.setTextColor(COLOR_SUBTEXT);
         info.setTextSize(13);
         info.setLineSpacing(0, 1.05f);
@@ -3067,7 +3081,7 @@ private void showDownloadSettingsPanel() {
         infoLp.setMargins(0, dp(8), 0, dp(12));
         box.addView(info, infoLp);
 
-        box.addView(advancedSwitchRow("Dynamic 2/4 koneksi", "File besar otomatis pakai 4 koneksi jika server support Range.", downloadDynamic4Connections, v -> {
+        box.addView(advancedSwitchRow("Smart Turbo Download", "Auto pilih Safe 1, Stable 2, atau Turbo 4 koneksi. Host sensitif seperti Drive dibuat lebih stabil.", downloadDynamic4Connections, v -> {
             downloadDynamic4Connections = !downloadDynamic4Connections;
             saveSettings();
         }));
@@ -3082,10 +3096,10 @@ private void showDownloadSettingsPanel() {
             saveSettings();
         }));
 
-        box.addView(advancedInfoRow("Smart resume"));
-        box.addView(advancedInfoRow("Auto detect video file"));
-        box.addView(advancedInfoRow("Auto rename file"));
-        box.addView(advancedInfoRow("Real-time speed"));
+        box.addView(advancedInfoRow("Smart resume + hard pause"));
+        box.addView(advancedInfoRow("Bandwidth prediction"));
+        box.addView(advancedInfoRow("Per-file optimization"));
+        box.addView(advancedInfoRow("Host-aware stable mode"));
 
         TextView limiter = darkDialogActionButton("SPEED LIMITER: " + (downloadSpeedLimitKBps > 0 ? downloadSpeedLimitKBps + " KB/s" : "OFF"));
         limiter.setOnClickListener(v -> showSpeedLimiterDialog(dialog, parentDialog));
@@ -6490,6 +6504,7 @@ private void showDownloadSettingsPanel() {
             for (DownloadItem item : downloadItems) {
                 if ("running".equals(item.status)) {
                     item.pauseRequested = true;
+                    stopActiveDownloadTransports(item);
                     item.status = "paused";
                     item.speedBytesPerSecond = 0;
                     item.engineInfo = getConnectionLabel(item) + " sukses • dijeda";
@@ -6607,6 +6622,7 @@ private void showDownloadSettingsPanel() {
     private void pauseDownloadItem(DownloadItem item) {
         if (item == null || !"running".equals(item.status)) return;
         item.pauseRequested = true;
+        stopActiveDownloadTransports(item);
         item.status = "paused";
         item.speedBytesPerSecond = 0;
         item.engineInfo = getConnectionLabel(item) + " sukses • dijeda";
@@ -6649,6 +6665,7 @@ private void showDownloadSettingsPanel() {
     private void reloadDownloadItem(DownloadItem item) {
         if (item == null) return;
         try {
+            stopActiveDownloadTransports(item);
             item.pauseRequested = false;
             item.status = "queued";
             item.progress = 0;
@@ -6661,6 +6678,15 @@ private void showDownloadSettingsPanel() {
             item.part2Start = 0;
             item.part2End = 0;
             item.part2Done = 0;
+            item.part3Start = 0;
+            item.part3End = 0;
+            item.part3Done = 0;
+            item.part4Start = 0;
+            item.part4End = 0;
+            item.part4Done = 0;
+            item.turboTargetConnections = 0;
+            item.turboProfile = "";
+            item.turboRetryPenalty = 0;
             item.speedBytesPerSecond = 0;
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = 0;
@@ -7008,6 +7034,190 @@ private void showDownloadSettingsPanel() {
         return origin.length() > 0 ? origin + "/" : "";
     }
 
+    private String getHostLower(String value) {
+        try {
+            if (value == null || value.length() == 0) return "";
+            String host = Uri.parse(value).getHost();
+            return host == null ? "" : host.toLowerCase(Locale.US);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private boolean isStableDownloadHost(String url) {
+        String host = getHostLower(url);
+        if (host.length() == 0) return false;
+        return host.contains("drive.google.com")
+                || host.contains("drive.usercontent.google.com")
+                || host.contains("docs.google.com")
+                || host.contains("googleusercontent.com")
+                || host.contains("1drv.ms")
+                || host.contains("onedrive.live.com")
+                || host.contains("sharepoint.com")
+                || host.contains("mega.nz")
+                || host.contains("mega.co.nz");
+    }
+
+    private boolean isTurboFriendlyHost(String url) {
+        String host = getHostLower(url);
+        if (host.length() == 0 || isStableDownloadHost(url)) return false;
+        return host.contains("cdn")
+                || host.contains("cloudfront.net")
+                || host.contains("bunnycdn")
+                || host.contains("r2.cloudflarestorage.com")
+                || host.contains("backblazeb2.com")
+                || host.contains("wasabisys.com")
+                || host.contains("digitaloceanspaces.com")
+                || host.contains("storage.googleapis.com")
+                || host.contains("githubusercontent.com")
+                || host.contains("github.com");
+    }
+
+    private boolean looksLikeArchiveOrApp(String fileName, String url, String contentType) {
+        String n = (fileName == null ? "" : fileName).toLowerCase(Locale.US);
+        String u = (url == null ? "" : url).toLowerCase(Locale.US);
+        String c = (contentType == null ? "" : contentType).toLowerCase(Locale.US);
+        return n.endsWith(".apk") || n.endsWith(".zip") || n.endsWith(".rar") || n.endsWith(".7z") || n.endsWith(".tar") || n.endsWith(".gz")
+                || u.contains(".apk") || u.contains(".zip") || u.contains(".rar") || u.contains(".7z") || u.contains(".tar") || u.contains(".gz")
+                || c.contains("zip") || c.contains("rar") || c.contains("apk") || c.contains("octet-stream");
+    }
+
+    private int chooseSmartDownloadConnections(DownloadItem item, long totalBytes, String contentType) {
+        String url = item == null ? "" : item.url;
+        String name = item == null ? "" : item.fileName;
+        int chosen;
+        String reason;
+
+        if (item != null && item.turboTargetConnections > 0 && item.turboProfile != null && item.turboProfile.contains("fallback")) {
+            chosen = item.turboTargetConnections;
+            reason = item.turboProfile;
+        } else if (!downloadDynamic4Connections) {
+            chosen = DOWNLOAD_CONNECTIONS_PREMIUM;
+            reason = "Smart normal";
+        } else if (isStableDownloadHost(url)) {
+            chosen = DOWNLOAD_STABLE_HOST_LIMIT;
+            reason = "Stable host";
+        } else if (totalBytes > 0 && totalBytes < 16L * 1024L * 1024L) {
+            chosen = 1;
+            reason = "Small file";
+        } else if (looksLikeArchiveOrApp(name, url, contentType) && !isTurboFriendlyHost(url)) {
+            chosen = DOWNLOAD_CONNECTIONS_PREMIUM;
+            reason = "Safe package";
+        } else if (looksLikeVideoDownload(url, name, contentType) && totalBytes >= DOWNLOAD_TURBO_MIN_LARGE_FILE) {
+            chosen = DOWNLOAD_CONNECTIONS_DYNAMIC_MAX;
+            reason = "Turbo video";
+        } else if (isTurboFriendlyHost(url) && totalBytes >= 64L * 1024L * 1024L) {
+            chosen = DOWNLOAD_CONNECTIONS_DYNAMIC_MAX;
+            reason = "Turbo CDN";
+        } else if (totalBytes >= DOWNLOAD_TURBO_UNKNOWN_LARGE_FILE) {
+            chosen = DOWNLOAD_CONNECTIONS_DYNAMIC_MAX;
+            reason = "Turbo large";
+        } else {
+            chosen = DOWNLOAD_CONNECTIONS_PREMIUM;
+            reason = "Smart stable";
+        }
+
+        if (item != null) {
+            item.turboTargetConnections = chosen;
+            item.turboProfile = reason;
+            item.turboStabilityScore = 100;
+            item.turboSlowSamples = 0;
+        }
+        return Math.max(1, Math.min(DOWNLOAD_CONNECTIONS_DYNAMIC_MAX, chosen));
+    }
+
+    private String getTurboLabel(DownloadItem item, int connections) {
+        String profile = item != null && item.turboProfile != null && item.turboProfile.length() > 0 ? item.turboProfile : "Smart";
+        if (connections >= 4) return "Turbo 4 koneksi • " + profile;
+        if (connections >= 2) return "Stable 2 koneksi • " + profile;
+        return "Safe 1 koneksi • " + profile;
+    }
+
+    private void registerDownloadConnection(DownloadItem item, HttpURLConnection conn) {
+        if (item == null || conn == null) return;
+        synchronized (item.activeConnections) {
+            if (!item.activeConnections.contains(conn)) item.activeConnections.add(conn);
+        }
+    }
+
+    private void unregisterDownloadConnection(DownloadItem item, HttpURLConnection conn) {
+        if (item == null || conn == null) return;
+        synchronized (item.activeConnections) {
+            item.activeConnections.remove(conn);
+        }
+    }
+
+    private void registerDownloadStream(DownloadItem item, InputStream in) {
+        if (item == null || in == null) return;
+        synchronized (item.activeStreams) {
+            if (!item.activeStreams.contains(in)) item.activeStreams.add(in);
+        }
+    }
+
+    private void unregisterDownloadStream(DownloadItem item, InputStream in) {
+        if (item == null || in == null) return;
+        synchronized (item.activeStreams) {
+            item.activeStreams.remove(in);
+        }
+    }
+
+    private void stopActiveDownloadTransports(DownloadItem item) {
+        if (item == null) return;
+        ArrayList<InputStream> streams;
+        ArrayList<HttpURLConnection> connections;
+        synchronized (item.activeStreams) {
+            streams = new ArrayList<>(item.activeStreams);
+            item.activeStreams.clear();
+        }
+        synchronized (item.activeConnections) {
+            connections = new ArrayList<>(item.activeConnections);
+            item.activeConnections.clear();
+        }
+        for (InputStream in : streams) {
+            try { in.close(); } catch (Exception ignored) {}
+        }
+        for (HttpURLConnection conn : connections) {
+            try { conn.disconnect(); } catch (Exception ignored) {}
+        }
+    }
+
+    private void resetTurboSampling(DownloadItem item) {
+        if (item == null) return;
+        item.turboAvgSpeedBytesPerSecond = 0;
+        item.turboLastSampleBytes = item.downloadedBytes;
+        item.turboLastSampleTimeMs = System.currentTimeMillis();
+        item.turboSlowSamples = 0;
+        item.turboStabilityScore = 100;
+    }
+
+    private void updateTurboPrediction(DownloadItem item, long currentBytes) {
+        if (item == null) return;
+        long now = System.currentTimeMillis();
+        if (item.turboLastSampleTimeMs <= 0) {
+            item.turboLastSampleTimeMs = now;
+            item.turboLastSampleBytes = currentBytes;
+            return;
+        }
+        long elapsed = now - item.turboLastSampleTimeMs;
+        if (elapsed < 2000) return;
+        long delta = Math.max(0, currentBytes - item.turboLastSampleBytes);
+        double sample = (delta * 1000.0) / Math.max(1, elapsed);
+        if (item.turboAvgSpeedBytesPerSecond <= 0) item.turboAvgSpeedBytesPerSecond = sample;
+        else item.turboAvgSpeedBytesPerSecond = (item.turboAvgSpeedBytesPerSecond * 0.65) + (sample * 0.35);
+
+        double ratio = item.turboAvgSpeedBytesPerSecond > 0 ? sample / Math.max(1.0, item.turboAvgSpeedBytesPerSecond) : 1.0;
+        if (ratio < 0.35) item.turboSlowSamples++;
+        else if (item.turboSlowSamples > 0) item.turboSlowSamples--;
+        item.turboStabilityScore = Math.max(0, Math.min(100, item.turboStabilityScore + (ratio >= 0.60 ? 3 : -12)));
+        item.turboLastSampleBytes = currentBytes;
+        item.turboLastSampleTimeMs = now;
+    }
+
+    private boolean shouldFallbackTurboToStable(DownloadItem item) {
+        if (item == null) return false;
+        return item.connectionCount >= 4 && item.progress < 98 && (item.turboSlowSamples >= 4 || item.turboStabilityScore < 35 || item.turboRetryPenalty >= 2);
+    }
+
     private String buildAntiHotlinkCookieHeader(String fileUrl, DownloadItem item) {
         try {
             LinkedHashSet<String> cookies = new LinkedHashSet<>();
@@ -7047,6 +7257,7 @@ private void showDownloadSettingsPanel() {
         String current = url;
         for (int redirect = 0; redirect < 6; redirect++) {
             HttpURLConnection conn = (HttpURLConnection) new URL(current).openConnection();
+            registerDownloadConnection(item, conn);
             conn.setInstanceFollowRedirects(false);
             if (range != null && range.length() > 0) {
                 conn.setRequestProperty("Range", range);
@@ -7061,6 +7272,7 @@ private void showDownloadSettingsPanel() {
                     code == 307 ||
                     code == 308) {
                 String location = conn.getHeaderField("Location");
+                unregisterDownloadConnection(item, conn);
                 conn.disconnect();
                 if (location == null || location.length() == 0) {
                     throw new Exception("Redirect tanpa lokasi");
@@ -7318,8 +7530,9 @@ private void showDownloadSettingsPanel() {
                     item.categoryHint = inferDownloadCategoryFromData(item.fileName, item.url, head.getContentType());
                 } catch (Exception ignored) {}
 
+                String probeContentType = head.getContentType();
                 boolean rangeOk = responseCode == 206 && total > 1024 * 1024 * 2;
-                if (head != null) head.disconnect();
+                if (head != null) { unregisterDownloadConnection(item, head); head.disconnect(); }
 
                 if (!rangeOk) {
                     if (resumeCandidate) {
@@ -7338,14 +7551,23 @@ private void showDownloadSettingsPanel() {
                     return;
                 }
 
-                int connections = total >= 32L * 1024L * 1024L ? DOWNLOAD_CONNECTIONS_DYNAMIC_MAX : DOWNLOAD_CONNECTIONS_PREMIUM;
-                if (connections <= 2) {
+                int smartConnections = chooseSmartDownloadConnections(item, total, probeContentType);
+                if (smartConnections <= 2 && !resumeCandidate) {
+                    item.engineInfo = getTurboLabel(item, smartConnections);
+                    startLegacyTwoConnectionDownload(item, outRef[0]);
+                    return;
+                }
+
+                int segmentConnections = (resumeCandidate && item.connectionCount >= 4) ? item.connectionCount : smartConnections;
+                if (segmentConnections <= 2) {
+                    item.engineInfo = getTurboLabel(item, smartConnections);
                     startLegacyTwoConnectionDownload(item, outRef[0]);
                     return;
                 }
 
                 final long finalTotal = total;
-                final int finalConnections = connections;
+                final int finalConnections = segmentConnections;
+                final int finalWorkerSlots = Math.max(1, Math.min(finalConnections, smartConnections <= 2 ? 2 : smartConnections));
                 final File finalOutFile = outRef[0];
 
                 boolean canResumeDynamic = resumeCandidate
@@ -7364,7 +7586,7 @@ private void showDownloadSettingsPanel() {
                     clearDynamicPartState(item);
                     item.totalBytes = finalTotal;
                     item.connectionCount = finalConnections;
-                    item.engineInfo = finalConnections + " koneksi sukses";
+                    item.engineInfo = getTurboLabel(item, finalWorkerSlots);
                     item.downloadedBytes = 0;
                     item.progress = 0;
                     item.retryCount = 0;
@@ -7389,7 +7611,7 @@ private void showDownloadSettingsPanel() {
                     }
                     item.totalBytes = finalTotal;
                     item.connectionCount = finalConnections;
-                    item.engineInfo = "Resume " + finalConnections + " koneksi";
+                    item.engineInfo = "Resume " + getTurboLabel(item, finalWorkerSlots);
                     item.downloadedBytes = resumed;
                     item.progress = (int) Math.min(99, (resumed * 100) / Math.max(1, finalTotal));
                     runOnUiThread(() -> Toast.makeText(this, "Melanjutkan " + finalConnections + " koneksi dari " + item.progress + "%", Toast.LENGTH_SHORT).show());
@@ -7398,7 +7620,9 @@ private void showDownloadSettingsPanel() {
                 saveDownloadHistory();
                 refreshDownloadPanel();
                 showDownloadNotification(item, item.engineInfo, true);
+                resetTurboSampling(item);
 
+                final Semaphore workerLimiter = new Semaphore(finalWorkerSlots);
                 final long[] done = new long[]{item.downloadedBytes};
                 final boolean[] ok = new boolean[]{true};
                 ArrayList<Thread> threads = new ArrayList<>();
@@ -7408,7 +7632,17 @@ private void showDownloadSettingsPanel() {
                     final long start = getDynamicPartStart(item, part) + getDynamicPartDone(item, part);
                     final long end = getDynamicPartEnd(item, part);
                     if (start > end) continue;
-                    Thread t = new Thread(() -> downloadRangeDynamic(item, finalOutFile, start, end, done, finalTotal, ok, part, finalConnections));
+                    Thread t = new Thread(() -> {
+                        try {
+                            workerLimiter.acquire();
+                            downloadRangeDynamic(item, finalOutFile, start, end, done, finalTotal, ok, part, finalWorkerSlots);
+                        } catch (InterruptedException e) {
+                            ok[0] = false;
+                            Thread.currentThread().interrupt();
+                        } finally {
+                            try { workerLimiter.release(); } catch (Exception ignored) {}
+                        }
+                    });
                     threads.add(t);
                     t.start();
                 }
@@ -7418,7 +7652,7 @@ private void showDownloadSettingsPanel() {
                 if (item.pauseRequested || "paused".equals(item.status)) {
                     item.status = "paused";
                     item.speedBytesPerSecond = 0;
-                    item.engineInfo = finalConnections + " koneksi sukses • dijeda";
+                    item.engineInfo = getTurboLabel(item, finalWorkerSlots) + " • dijeda";
                     saveDownloadHistory();
                     refreshDownloadPanel();
                     showDownloadNotification(item, "Unduhan dijeda", false);
@@ -7427,20 +7661,16 @@ private void showDownloadSettingsPanel() {
 
                 if (ok[0]) completeDownload(item);
                 else {
-                    if (resumeCandidate) {
-                        failDownload(item, "Resume 4 koneksi terputus");
-                        return;
+                    item.turboRetryPenalty++;
+                    if (shouldFallbackTurboToStable(item)) {
+                        item.turboTargetConnections = DOWNLOAD_CONNECTIONS_PREMIUM;
+                        item.turboProfile = "auto fallback stable";
+                        item.engineInfo = "Turbo turun ke Stable 2 koneksi";
                     }
-                    if (outRef[0].exists()) outRef[0].delete();
-                    item.downloadedBytes = 0;
-                    item.progress = 0;
-                    item.connectionCount = 0;
-                    clearDynamicPartState(item);
-                    item.engineInfo = "Fallback 2 koneksi";
-                    startLegacyTwoConnectionDownload(item, outRef[0]);
+                    failDownload(item, resumeCandidate ? "Resume turbo terputus" : "Turbo koneksi terputus");
                 }
             } catch (Exception e) {
-                if (head != null) try { head.disconnect(); } catch (Exception ignored) {}
+                if (head != null) try { unregisterDownloadConnection(item, head); head.disconnect(); } catch (Exception ignored) {}
                 if (out.exists() && item.downloadedBytes > 0 && item.connectionCount >= 4) {
                     failDownload(item, "Resume 4 koneksi gagal: " + e.getMessage());
                 } else {
@@ -7459,6 +7689,7 @@ private void showDownloadSettingsPanel() {
             conn = openDownloadConnection(item.url, item, "bytes=" + start + "-" + end);
             validateDownloadResponse(conn);
             in = conn.getInputStream();
+            registerDownloadStream(item, in);
             raf = new RandomAccessFile(out, "rw");
             raf.seek(start);
             byte[] buffer = new byte[DOWNLOAD_BUFFER_SIZE];
@@ -7475,12 +7706,15 @@ private void showDownloadSettingsPanel() {
                     addDynamicPartDone(item, partIndex, len);
                     item.downloadedBytes = done[0];
                     updateDownloadSpeed(item, done[0]);
+                    updateTurboPrediction(item, done[0]);
                     int percent = (int) Math.min(99, (done[0] * 100) / Math.max(1, total));
                     if (percent != item.progress) {
                         item.progress = percent;
                         if (percent % 2 == 0 || percent >= 99) {
                             refreshDownloadPanel();
-                            showDownloadNotification(item, connections + " koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
+                            saveDownloadHistory();
+                            String label = connections >= 4 ? "Turbo 4 koneksi" : (connections >= 2 ? "Stable 2 koneksi" : "Safe 1 koneksi");
+                            showDownloadNotification(item, label + " • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
                         }
                     }
                 }
@@ -7490,6 +7724,8 @@ private void showDownloadSettingsPanel() {
         } finally {
             try { if (raf != null) raf.close(); } catch (Exception ignored) {}
             try { if (in != null) in.close(); } catch (Exception ignored) {}
+            unregisterDownloadStream(item, in);
+            unregisterDownloadConnection(item, conn);
             try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
         }
     }
@@ -7521,14 +7757,17 @@ private void showDownloadSettingsPanel() {
                     } catch (Exception ignored) {}
 
                     if (item.pauseRequested || "paused".equals(item.status)) {
+                        unregisterDownloadConnection(item, head);
                         head.disconnect();
                         return;
                     }
 
-                    if (response == 206 && total > 1) {
+                    int smartConnections = item.turboTargetConnections > 0 ? item.turboTargetConnections : chooseSmartDownloadConnections(item, total, head.getContentType());
+                    if (response == 206 && total > 1 && smartConnections >= 2) {
+                        unregisterDownloadConnection(item, head);
                         head.disconnect();
                         item.connectionCount = DOWNLOAD_CONNECTIONS_PREMIUM;
-                        item.engineInfo = "2 koneksi sukses";
+                        item.engineInfo = getTurboLabel(item, DOWNLOAD_CONNECTIONS_PREMIUM);
                         item.totalBytes = total;
                         item.failReason = "";
 
@@ -7563,7 +7802,8 @@ private void showDownloadSettingsPanel() {
 
                         saveDownloadHistory();
                         refreshDownloadPanel();
-                        showDownloadNotification(item, "2 koneksi", true);
+                        showDownloadNotification(item, item.engineInfo, true);
+                        resetTurboSampling(item);
 
                         long[] done = new long[]{item.part1Done + item.part2Done};
                         boolean[] ok = new boolean[]{true};
@@ -7588,7 +7828,7 @@ private void showDownloadSettingsPanel() {
                         if (ok[0]) completeDownload(item);
                         else {
                             item.connectionCount = 1;
-                            item.engineInfo = "1 koneksi sukses";
+                            item.engineInfo = getTurboLabel(item, 1);
                             item.progress = 0;
                             item.downloadedBytes = 0;
                             item.part1Done = 0;
@@ -7599,17 +7839,17 @@ private void showDownloadSettingsPanel() {
                             downloadSingle(item, out);
                         }
                     } else {
-                        if (head != null) head.disconnect();
+                        if (head != null) { unregisterDownloadConnection(item, head); head.disconnect(); }
                         item.connectionCount = 1;
-                        item.engineInfo = "1 koneksi sukses";
+                        item.engineInfo = getTurboLabel(item, 1);
                         saveDownloadHistory();
                         refreshDownloadPanel();
                         downloadSingle(item, out);
                     }
                 } catch (Exception splitError) {
-                    if (head != null) try { head.disconnect(); } catch (Exception ignored) {}
+                    if (head != null) try { unregisterDownloadConnection(item, head); head.disconnect(); } catch (Exception ignored) {}
                     item.connectionCount = 1;
-                    item.engineInfo = "1 koneksi sukses";
+                    item.engineInfo = getTurboLabel(item, 1);
                     saveDownloadHistory();
                     refreshDownloadPanel();
                     downloadSingle(item, out);
@@ -7688,20 +7928,28 @@ private void showDownloadSettingsPanel() {
 
                 for (int i = 0; i < segments.size(); i++) {
                     if (item.pauseRequested || "paused".equals(item.status)) break;
-                    HttpURLConnection conn = openDownloadConnection(segments.get(i), item, "");
-                    validateDownloadResponse(conn);
-                    InputStream in = conn.getInputStream();
-                    int len;
-                    long segmentBytes = 0;
-                    while ((len = in.read(buffer)) != -1) {
-                        if (item.pauseRequested || "paused".equals(item.status)) break;
-                        fos.write(buffer, 0, len);
-                        segmentBytes += len;
-                        applySpeedLimit(len, 1);
-                        updateDownloadSpeed(item, segmentBytes);
+                    HttpURLConnection conn = null;
+                    InputStream in = null;
+                    try {
+                        conn = openDownloadConnection(segments.get(i), item, "");
+                        validateDownloadResponse(conn);
+                        in = conn.getInputStream();
+                        registerDownloadStream(item, in);
+                        int len;
+                        long segmentBytes = 0;
+                        while ((len = in.read(buffer)) != -1) {
+                            if (item.pauseRequested || "paused".equals(item.status)) break;
+                            fos.write(buffer, 0, len);
+                            segmentBytes += len;
+                            applySpeedLimit(len, 1);
+                            updateDownloadSpeed(item, segmentBytes);
+                        }
+                    } finally {
+                        try { if (in != null) in.close(); } catch (Exception ignored) {}
+                        unregisterDownloadStream(item, in);
+                        unregisterDownloadConnection(item, conn);
+                        try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
                     }
-                    in.close();
-                    conn.disconnect();
                     item.downloadedBytes = i + 1;
                     item.progress = (int) Math.min(99, ((i + 1) * 100.0) / Math.max(1, segments.size()));
                     refreshDownloadPanel();
@@ -7746,15 +7994,26 @@ private void showDownloadSettingsPanel() {
     }
 
     private String readUrlText(String url, DownloadItem item) throws Exception {
-        HttpURLConnection conn = openDownloadConnection(url, item, "");
-        validateDownloadResponse(conn);
-        BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
-        StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) sb.append(line).append("\n");
-        reader.close();
-        conn.disconnect();
-        return sb.toString();
+        HttpURLConnection conn = null;
+        InputStream in = null;
+        BufferedReader reader = null;
+        try {
+            conn = openDownloadConnection(url, item, "");
+            validateDownloadResponse(conn);
+            in = conn.getInputStream();
+            registerDownloadStream(item, in);
+            reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) sb.append(line).append("\n");
+            return sb.toString();
+        } finally {
+            try { if (reader != null) reader.close(); } catch (Exception ignored) {}
+            try { if (in != null) in.close(); } catch (Exception ignored) {}
+            unregisterDownloadStream(item, in);
+            unregisterDownloadConnection(item, conn);
+            try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
+        }
     }
 
     private String getBaseUrl(String url) {
@@ -7782,12 +8041,16 @@ private void showDownloadSettingsPanel() {
 
     private void downloadRange(DownloadItem item, File out, long start, long end, long[] done, long total, boolean[] ok, int partIndex) {
         if (start > end) return;
+        HttpURLConnection conn = null;
+        InputStream in = null;
+        RandomAccessFile raf = null;
         try {
-            HttpURLConnection conn = openDownloadConnection(item.url, item, "bytes=" + start + "-" + end);
+            conn = openDownloadConnection(item.url, item, "bytes=" + start + "-" + end);
             validateDownloadResponse(conn);
 
-            InputStream in = conn.getInputStream();
-            RandomAccessFile raf = new RandomAccessFile(out, "rw");
+            in = conn.getInputStream();
+            registerDownloadStream(item, in);
+            raf = new RandomAccessFile(out, "rw");
             raf.seek(start);
 
             byte[] buffer = new byte[DOWNLOAD_BUFFER_SIZE];
@@ -7805,30 +8068,38 @@ private void showDownloadSettingsPanel() {
                     else item.part2Done += len;
                     item.downloadedBytes = done[0];
                     updateDownloadSpeed(item, done[0]);
-                    int percent = (int) Math.min(99, (done[0] * 100) / total);
+                    updateTurboPrediction(item, done[0]);
+                    int percent = (int) Math.min(99, (done[0] * 100) / Math.max(1, total));
                     if (percent != item.progress) {
                         item.progress = percent;
                         if (percent % 2 == 0 || percent >= 99) {
                             refreshDownloadPanel();
-                            showDownloadNotification(item, "2 koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
+                            saveDownloadHistory();
+                            showDownloadNotification(item, "Stable 2 koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
                         }
                     }
                 }
             }
-            raf.close();
-            in.close();
-            conn.disconnect();
         } catch (Exception e) {
             ok[0] = false;
+        } finally {
+            try { if (raf != null) raf.close(); } catch (Exception ignored) {}
+            try { if (in != null) in.close(); } catch (Exception ignored) {}
+            unregisterDownloadStream(item, in);
+            unregisterDownloadConnection(item, conn);
+            try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
         }
     }
 
     private void downloadSingle(DownloadItem item, File out) {
+        HttpURLConnection conn = null;
+        InputStream in = null;
+        FileOutputStream fos = null;
         try {
             boolean resumeSingle = out.exists() && item.downloadedBytes > 0 && item.connectionCount == 1;
             long resumeFrom = resumeSingle ? Math.min(item.downloadedBytes, out.length()) : 0;
 
-            HttpURLConnection conn = openDownloadConnection(item.url, item, resumeFrom > 0 ? "bytes=" + resumeFrom + "-" : "");
+            conn = openDownloadConnection(item.url, item, resumeFrom > 0 ? "bytes=" + resumeFrom + "-" : "");
             validateDownloadResponse(conn);
 
             int code = conn.getResponseCode();
@@ -7855,13 +8126,15 @@ private void showDownloadSettingsPanel() {
             long total = item.totalBytes > 0 && append ? item.totalBytes : (contentLen > 0 ? contentLen + resumeFrom : item.totalBytes);
             item.totalBytes = total;
 
-            InputStream in = conn.getInputStream();
-            FileOutputStream fos = new FileOutputStream(out, append);
+            in = conn.getInputStream();
+            registerDownloadStream(item, in);
+            fos = new FileOutputStream(out, append);
             byte[] buffer = new byte[DOWNLOAD_BUFFER_SIZE];
             int len;
             long done = resumeFrom;
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = done;
+            resetTurboSampling(item);
 
             while ((len = in.read(buffer)) != -1) {
                 if (item.pauseRequested || "paused".equals(item.status)) {
@@ -7872,25 +8145,24 @@ private void showDownloadSettingsPanel() {
                 done += len;
                 item.downloadedBytes = done;
                 updateDownloadSpeed(item, done);
+                updateTurboPrediction(item, done);
                 if (total > 0) {
-                    int percent = (int) Math.min(99, (done * 100) / total);
+                    int percent = (int) Math.min(99, (done * 100) / Math.max(1, total));
                     if (percent != item.progress) {
                         item.progress = percent;
                         if (percent % 2 == 0 || percent >= 99) {
                             refreshDownloadPanel();
-                            showDownloadNotification(item, "1 koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
+                            saveDownloadHistory();
+                            showDownloadNotification(item, "Safe 1 koneksi • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
                         }
                     }
                 }
             }
-            fos.close();
-            in.close();
-            conn.disconnect();
 
             if (item.pauseRequested || "paused".equals(item.status)) {
                 item.status = "paused";
                 item.speedBytesPerSecond = 0;
-                item.engineInfo = "Dijeda";
+                item.engineInfo = "Safe 1 koneksi • dijeda";
                 saveDownloadHistory();
                 refreshDownloadPanel();
                 showDownloadNotification(item, "Unduhan dijeda", false);
@@ -7901,17 +8173,24 @@ private void showDownloadSettingsPanel() {
             if (item.pauseRequested || "paused".equals(item.status)) {
                 item.status = "paused";
                 item.speedBytesPerSecond = 0;
-                item.engineInfo = "Dijeda";
+                item.engineInfo = "Safe 1 koneksi • dijeda";
                 saveDownloadHistory();
                 refreshDownloadPanel();
                 showDownloadNotification(item, "Unduhan dijeda", false);
             } else {
                 failDownload(item, e.getMessage());
             }
+        } finally {
+            try { if (fos != null) fos.close(); } catch (Exception ignored) {}
+            try { if (in != null) in.close(); } catch (Exception ignored) {}
+            unregisterDownloadStream(item, in);
+            unregisterDownloadConnection(item, conn);
+            try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
         }
     }
 
     private void completeDownload(DownloadItem item) {
+        stopActiveDownloadTransports(item);
         item.progress = 100;
         item.status = "completed";
         item.speedBytesPerSecond = 0;
@@ -8033,6 +8312,14 @@ private void showDownloadSettingsPanel() {
     private void failDownload(DownloadItem item, String reason) {
         if (item == null) return;
 
+        if (item.connectionCount >= 4) {
+            item.turboRetryPenalty++;
+            if (shouldFallbackTurboToStable(item)) {
+                item.turboTargetConnections = DOWNLOAD_CONNECTIONS_PREMIUM;
+                item.turboProfile = "auto fallback stable";
+            }
+        }
+
         if (downloadAutoRetry && !item.pauseRequested && item.retryCount < DOWNLOAD_RETRY_MAX) {
             item.retryCount++;
             item.status = "running";
@@ -8056,6 +8343,7 @@ private void showDownloadSettingsPanel() {
             return;
         }
 
+        stopActiveDownloadTransports(item);
         item.status = "failed";
         item.pauseRequested = false;
         item.speedBytesPerSecond = 0;
@@ -8950,6 +9238,12 @@ private void showDownloadSettingsPanel() {
                     return true;
                 }
 
+                if (mainFrame && isTrustedDownloadIntentUrl(u)) {
+                    markTrustedMainFrameNavigation(u);
+                    prepareTabForMainFrameNavigation(requestTab, u);
+                    return false;
+                }
+
                 // v0.9.45: direct image main-frame harus dicegat sebelum normal user navigation
                 // atau compatibility mode. Kalau tidak, klik/redirect gambar komik (.jpg/.jpeg/.webp)
                 // bisa mengambil alih tab utama dan berubah menjadi halaman gambar mentah.
@@ -9044,6 +9338,9 @@ private void showDownloadSettingsPanel() {
                 // sering membuat player utama menunggu iklan lalu layar menjadi hitam/stuck.
                 // Jadi khusus YouTube, semua request dibiarkan lewat dan ad handling hanya dilakukan
                 // oleh script YouTube Safe AdBlock yang klik Skip / speed iklan secara aman.
+                if (isTrustedDownloadIntentUrl(u) || isTrustedDownloadIntentUrl(pageUrl)) {
+                    return super.shouldInterceptRequest(view, request);
+                }
                 if (isYouTubePageUrl(pageUrl) || isYouTubePageUrl(u)) {
                     return super.shouldInterceptRequest(view, request);
                 }
@@ -10478,6 +10775,124 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+    private boolean isTrustedDownloadIntentUrl(String url) {
+        try {
+            if (url == null) return false;
+            String raw = url.trim();
+            if (!isHttpOrHttpsUrl(raw)) return false;
+
+            String u = raw.toLowerCase(Locale.US);
+            String decoded = u;
+            try { decoded = URLDecoder.decode(u, "UTF-8").toLowerCase(Locale.US); } catch (Exception ignored) {}
+            String host = normalizeHostForAdBlock(raw);
+            if (host.length() == 0) return false;
+
+            boolean trustedHost = isTrustedDownloadHostForAllow(host);
+            boolean marker = hasTrustedDownloadMarker(u) || hasTrustedDownloadMarker(decoded);
+            boolean file = hasDirectFileDownloadExtension(u) || hasDirectFileDownloadExtension(decoded);
+            boolean hardAdToken = hasHardAdClickToken(u) || hasHardAdClickToken(decoded);
+            boolean suspiciousHost = isSuspiciousAdHostForDownloadAllow(host);
+
+            // Universal download-safe lane: tombol download asli tidak boleh ikut keblokir AdBlock.
+            if (trustedHost && (marker || file)) return true;
+            if ((marker || file) && !suspiciousHost && !hardAdToken) return true;
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isTrustedDownloadHostForAllow(String host) {
+        if (host == null) return false;
+        String h = host.toLowerCase(Locale.US);
+        return h.equals("drive.usercontent.google.com")
+                || h.equals("drive.google.com")
+                || h.equals("docs.google.com")
+                || h.endsWith(".googleusercontent.com")
+                || h.equals("github.com")
+                || h.endsWith(".github.com")
+                || h.equals("objects.githubusercontent.com")
+                || h.equals("raw.githubusercontent.com")
+                || h.endsWith(".githubusercontent.com")
+                || h.equals("sourceforge.net")
+                || h.endsWith(".sourceforge.net")
+                || h.equals("mediafire.com")
+                || h.endsWith(".mediafire.com")
+                || h.equals("dropbox.com")
+                || h.endsWith(".dropbox.com")
+                || h.equals("dropboxusercontent.com")
+                || h.endsWith(".dropboxusercontent.com")
+                || h.equals("onedrive.live.com")
+                || h.equals("1drv.ms")
+                || h.equals("mega.nz")
+                || h.endsWith(".mega.nz")
+                || h.equals("pixeldrain.com")
+                || h.endsWith(".pixeldrain.com")
+                || h.equals("gofile.io")
+                || h.endsWith(".gofile.io")
+                || h.equals("archive.org")
+                || h.endsWith(".archive.org");
+    }
+
+    private boolean hasTrustedDownloadMarker(String u) {
+        if (u == null || u.length() == 0) return false;
+        return u.contains("/download")
+                || u.contains("download?")
+                || u.contains("download=")
+                || u.contains("export=download")
+                || u.contains("dl=1")
+                || u.contains("response-content-disposition=attachment")
+                || u.contains("content-disposition=attachment")
+                || u.contains("filename=")
+                || u.contains("file_name=")
+                || u.contains("confirm=")
+                || u.contains("uuid=")
+                || u.contains("/releases/download/")
+                || u.contains("/uc?")
+                || u.contains("/file/d/")
+                || u.contains("/file/");
+    }
+
+    private boolean hasDirectFileDownloadExtension(String u) {
+        if (u == null) return false;
+        return u.matches(".*\\.(zip|rar|7z|apk|apks|xapk|pdf|doc|docx|xls|xlsx|ppt|pptx|csv|txt|epub|mp3|m4a|wav|ogg|mp4|mkv|webm|avi|mov|ts|m3u8|iso|img|bin|exe|msi)(\\?|#|$).*?");
+    }
+
+    private boolean hasHardAdClickToken(String u) {
+        if (u == null) return false;
+        return u.contains("adclick")
+                || u.contains("ad_click")
+                || u.contains("adurl=")
+                || u.contains("click_id")
+                || u.contains("af_click")
+                || u.contains("clickunder")
+                || u.contains("popunder")
+                || u.contains("popupads")
+                || u.contains("onclickads")
+                || u.contains("interstitial")
+                || u.contains("utm_medium=affiliates")
+                || u.contains("deep_and_deferred")
+                || u.contains("navigate_url=")
+                || u.contains("reactpath");
+    }
+
+    private boolean isSuspiciousAdHostForDownloadAllow(String host) {
+        if (host == null || host.length() == 0) return true;
+        String h = host.toLowerCase(Locale.US);
+        if (h.endsWith(".cfd") || h.endsWith(".click") || h.endsWith(".cam") || h.endsWith(".monster")
+                || h.endsWith(".quest") || h.endsWith(".buzz") || h.endsWith(".icu") || h.endsWith(".cyou")) {
+            return true;
+        }
+        String[] bad = new String[]{
+                "hotterydiseur", "sewarsremeets", "onclickads", "clickadu", "popads", "popcash",
+                "propellerads", "adsterra", "hilltopads", "exoclick", "trafficjunky", "juicyads",
+                "admaven", "realsrv", "doubleclick", "googlesyndication", "googleadservices",
+                "taboola", "outbrain", "mgid", "revcontent"
+        };
+        for (String b : bad) if (h.contains(b)) return true;
+        return false;
+    }
+
     private boolean isUnsafeUrl(String url) {
         String u = url.toLowerCase();
         return u.contains("phishing") || u.contains("malware") || u.contains("virus") || u.contains("scam");
@@ -10505,6 +10920,7 @@ private void showDownloadSettingsPanel() {
     private boolean isKnownPopupHost(String url) {
         String host = normalizeHostForAdBlock(url);
         if (host.length() == 0) return false;
+        if (isTrustedDownloadIntentUrl(url)) return false;
 
         String[] exactOrContains = new String[]{
                 "hotterydiseur", "sewarsremeets", "sewarsremeet", "onclickads", "clickadu", "popads", "popcash",
@@ -10550,7 +10966,7 @@ private void showDownloadSettingsPanel() {
     private boolean isLikelyAdClickUrl(String url) {
         if (url == null) return false;
         String u = url.toLowerCase(Locale.US);
-        if (isMediaResourceUrl(u) || isYoutubeCoreUrl(u)) return false;
+        if (isMediaResourceUrl(u) || isYoutubeCoreUrl(u) || isTrustedDownloadIntentUrl(u)) return false;
         return isExternalSchemeUrl(u)
                 || u.contains("utm_medium=affiliates")
                 || u.contains("utm_source=an_")
@@ -10582,6 +10998,9 @@ private void showDownloadSettingsPanel() {
             String tabSafeUrl = getTabReferenceUrl(targetTab);
             if ((tabSafeUrl == null || tabSafeUrl.length() == 0) && lastSafeHttpUrl != null) tabSafeUrl = lastSafeHttpUrl;
 
+            if (isTrustedDownloadIntentUrl(blockedUrl)) {
+                return;
+            }
             if (isTrustedMainFrameNavigation(blockedUrl) || isTrustedMainFrameNavigationForTab(targetTab, blockedUrl)) {
                 return;
             }
@@ -10661,7 +11080,7 @@ private void showDownloadSettingsPanel() {
         }
 
         // Video playback tidak boleh diblokir oleh AdBlock.
-        if (isMediaResourceUrl(lower) || isYoutubeCoreUrl(lower)) return false;
+        if (isMediaResourceUrl(lower) || isYoutubeCoreUrl(lower) || isTrustedDownloadIntentUrl(targetUrl)) return false;
         if (isExternalSchemeUrl(lower) || isLikelyAdClickUrl(lower)) return true;
 
         String targetHost = normalizeHostForAdBlock(targetUrl);
@@ -10742,6 +11161,7 @@ private void showDownloadSettingsPanel() {
         if (!adBlock || url == null) return false;
         String u = url.toLowerCase(Locale.US);
 
+        if (isTrustedDownloadIntentUrl(url)) return false;
         if (isMediaResourceUrl(u)) return false;
         if (isYoutubeAdMetadataUrl(u)) return true;
         if (isYoutubeCoreUrl(u)) return false;
@@ -10819,6 +11239,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private boolean isPopUnderOrAdAsset(String u) {
+        if (isTrustedDownloadIntentUrl(u)) return false;
         return u.contains("/ads?")
                 || u.contains("/ads/")
                 || u.contains("/adserver/")
@@ -10869,9 +11290,10 @@ private void showDownloadSettingsPanel() {
                 + "function hostOf(u){try{var a=document.createElement('a');a.href=u;return (a.hostname||'').replace(/^www\\./,'').toLowerCase();}catch(e){return '';}}"
                 + "function media(u){try{var s=(u||'').toLowerCase();return s.indexOf('googlevideo.com/videoplayback')>-1||s.indexOf('/videoplayback')>-1||s.indexOf('.mp4')>-1||s.indexOf('.m3u8')>-1||s.indexOf('.mpd')>-1||s.indexOf('.webm')>-1||s.indexOf('.m4s')>-1||s.indexOf('.ts')>-1||s.indexOf('mime=video')>-1||s.indexOf('mime%3dvideo')>-1;}catch(e){return false;}}"
                 + "function safeVideoHost(h){return h.indexOf('youtube.com')>-1||h.indexOf('youtu.be')>-1||h.indexOf('googlevideo.com')>-1||h.indexOf('ytimg.com')>-1||h.indexOf('ggpht.com')>-1;}"
-                + "function bad(u){try{if(!u||media(u))return false;var s=(u||'').toLowerCase();if(/^[a-z][a-z0-9+.-]*:/.test(s)&&s.indexOf('http://')!==0&&s.indexOf('https://')!==0&&s.indexOf('javascript:')!==0&&s.indexOf('data:')!==0&&s.indexOf('blob:')!==0)return true;if(/(utm_medium=affiliates|deep_and_deferred|navigate_url=|reactpath|click_id|adclick|ad_click|adurl=|af_click|tracking_id|campaign_id)/.test(s))return true;var h=hostOf(u);var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||h===cur||h.endsWith('.'+cur))return false;if(safeVideoHost(h))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|realsrv|invest-tracing|doubleclick|googlesyndication|googleadservices)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;if(/\\.(shop|xyz|top|site|space|online|live|fun|lol)$/.test(h)&&/[\\/][a-z0-9_-]{8,}/.test(s))return true;if(/(popunder|popup|redirect|adclick|clickunder|interstitial|push)/.test(s))return true;return false;}catch(e){return false;}}"
+                + "function dlintent(u){try{var s=(u||'').toLowerCase();var h=hostOf(u);var trusted=h==='drive.usercontent.google.com'||h==='drive.google.com'||h==='docs.google.com'||h.endsWith('.googleusercontent.com')||h==='github.com'||h.endsWith('.githubusercontent.com')||h.endsWith('.sourceforge.net')||h.endsWith('.mediafire.com')||h.endsWith('.dropbox.com')||h.endsWith('.dropboxusercontent.com')||h==='onedrive.live.com'||h==='1drv.ms'||h==='mega.nz'||h.endsWith('.mega.nz')||h==='pixeldrain.com'||h==='gofile.io'||h==='archive.org';var marker=s.indexOf('/download')>-1||s.indexOf('download=')>-1||s.indexOf('export=download')>-1||s.indexOf('dl=1')>-1||s.indexOf('response-content-disposition=attachment')>-1||s.indexOf('content-disposition=attachment')>-1||s.indexOf('filename=')>-1||s.indexOf('confirm=')>-1||s.indexOf('uuid=')>-1||s.indexOf('/releases/download/')>-1;var file=false;var ex=['.zip','.rar','.7z','.apk','.apks','.xapk','.pdf','.doc','.docx','.xls','.xlsx','.ppt','.pptx','.csv','.txt','.epub','.mp3','.m4a','.wav','.ogg','.mp4','.mkv','.webm','.avi','.mov','.ts','.m3u8','.iso','.img','.bin','.exe','.msi'];for(var i=0;i<ex.length;i++){if(s.indexOf(ex[i])>-1){file=true;break;}}var hard=s.indexOf('adclick')>-1||s.indexOf('ad_click')>-1||s.indexOf('adurl=')>-1||s.indexOf('click_id')>-1||s.indexOf('af_click')>-1||s.indexOf('clickunder')>-1||s.indexOf('popunder')>-1||s.indexOf('popupads')>-1||s.indexOf('onclickads')>-1||s.indexOf('interstitial')>-1||s.indexOf('utm_medium=affiliates')>-1||s.indexOf('deep_and_deferred')>-1||s.indexOf('navigate_url=')>-1||s.indexOf('reactpath')>-1;var badhost=h.endsWith('.cfd')||h.endsWith('.click')||h.endsWith('.cam')||h.endsWith('.monster')||h.endsWith('.quest')||h.endsWith('.buzz')||h.endsWith('.icu')||h.endsWith('.cyou')||h.indexOf('onclickads')>-1||h.indexOf('clickadu')>-1||h.indexOf('popads')>-1||h.indexOf('popcash')>-1||h.indexOf('propellerads')>-1||h.indexOf('adsterra')>-1||h.indexOf('hilltopads')>-1||h.indexOf('exoclick')>-1||h.indexOf('doubleclick')>-1||h.indexOf('googlesyndication')>-1||h.indexOf('googleadservices')>-1;return (trusted&&(marker||file))||((marker||file)&&!hard&&!badhost);}catch(e){return false;}}"
+                + "function bad(u){try{if(!u||media(u)||dlintent(u))return false;var s=(u||'').toLowerCase();if(/^[a-z][a-z0-9+.-]*:/.test(s)&&s.indexOf('http://')!==0&&s.indexOf('https://')!==0&&s.indexOf('javascript:')!==0&&s.indexOf('data:')!==0&&s.indexOf('blob:')!==0)return true;if(/(utm_medium=affiliates|deep_and_deferred|navigate_url=|reactpath|click_id|adclick|ad_click|adurl=|af_click|tracking_id|campaign_id)/.test(s))return true;var h=hostOf(u);var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||h===cur||h.endsWith('.'+cur))return false;if(safeVideoHost(h))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|realsrv|invest-tracing|doubleclick|googlesyndication|googleadservices)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;if(/\\.(shop|xyz|top|site|space|online|live|fun|lol)$/.test(h)&&/[\\/][a-z0-9_-]{8,}/.test(s))return true;if(/(popunder|popup|redirect|adclick|clickunder|interstitial|push)/.test(s))return true;return false;}catch(e){return false;}}"
                 + "function visibleAnchor(a){try{if(!a||!a.getBoundingClientRect)return false;var r=a.getBoundingClientRect();var t=((a.innerText||a.textContent||a.getAttribute('aria-label')||a.title||'')+'').trim();var hasMedia=!!a.querySelector('img,svg,picture,button');return r.width>12&&r.height>8&&(t.length>0||hasMedia);}catch(e){return false;}}"
-                + "function allowClickedAnchor(a,u){try{if(!a||!u)return false;var s=(u||'').toLowerCase();if(media(s))return true;var h=hostOf(u);var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h)return false;if(h===cur||h.endsWith('.'+cur))return true;if(!visibleAnchor(a))return false;if(/(intent:|market:|shopeeid:|lazada:|tokopedia:|adclick|ad_click|adurl=|clickunder|popunder|popup|interstitial|push)/.test(s))return false;return true;}catch(e){return false;}}"
+                + "function allowClickedAnchor(a,u){try{if(!a||!u)return false;var s=(u||'').toLowerCase();if(media(s)||dlintent(s))return true;var h=hostOf(u);var cur=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h)return false;if(h===cur||h.endsWith('.'+cur))return true;if(!visibleAnchor(a))return false;if(/(intent:|market:|shopeeid:|lazada:|tokopedia:|adclick|ad_click|adurl=|clickunder|popunder|popup|interstitial|push)/.test(s))return false;return true;}catch(e){return false;}}"
                 + "if(Y_POPUP&&!window.__yieldOpenPatched){window.__yieldOpenPatched=true;var oldOpen=window.open;window.open=function(u,n,f){if(bad(u)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(u));}catch(e){}return {closed:true,focus:function(){},close:function(){}};}try{return oldOpen.call(window,u,n,f);}catch(e){return {closed:true,focus:function(){},close:function(){}};}};}"
                 + "if(Y_CLICK&&!window.__yieldClickPatched){window.__yieldClickPatched=true;document.addEventListener('click',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)&&!allowClickedAnchor(a,a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);document.addEventListener('auxclick',function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)&&!allowClickedAnchor(a,a.href)){try{if(window.YieldAdBlockBridge)YieldAdBlockBridge.onAdRedirect(String(a.href));}catch(ee){}e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();return false;}}catch(x){}},true);}"
                 + "function softHide(s){try{document.querySelectorAll(s).forEach(function(e){if(!e||e.tagName==='VIDEO')return;e.style.setProperty('display','none','important');e.style.setProperty('visibility','hidden','important');e.style.setProperty('height','0px','important');e.style.setProperty('min-height','0px','important');e.style.setProperty('overflow','hidden','important');});}catch(x){}}"
