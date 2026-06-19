@@ -1,5 +1,3 @@
 <resources>
-    <color name="yield_blue">#0B3A78</color>
     <color name="yield_yellow">#FFCF00</color>
-    <color name="yield_bg">#F6F8FB</color>
 </resources>

@@ -4,15 +4,18 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
-public class DownloadOpenReceiver extends BroadcastReceiver {
-    public static final String ACTION_OPEN_DOWNLOADS = "com.yieldbrowser.app.OPEN_DOWNLOADS";
-
+/** Opens the download manager when the user taps a download notification. */
+public final class DownloadOpenReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
-        Intent open = new Intent(context, MainActivity.class);
-        open.setAction(ACTION_OPEN_DOWNLOADS);
-        open.putExtra("open_downloads", true);
-        open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        context.startActivity(open);
+        Intent openDownloads = new Intent(context, MainActivity.class);
+        openDownloads.setAction(BrowserConstants.ACTION_OPEN_DOWNLOADS);
+        openDownloads.putExtra("open_downloads", true);
+        openDownloads.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP
+        );
+        context.startActivity(openDownloads);
     }
 }

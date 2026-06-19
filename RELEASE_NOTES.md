@@ -1,21 +1,48 @@
-# Release Notes - YieldBrowser v0.9.84 Safe Brave-Class Layer v3
+# Release Notes — YieldBrowser v0.9.85
 
-## Added
-- Safe Brave-Class Download Layer v3.
-- Balanced 3 connection mode.
-- Bandwidth prediction v3 dengan rolling speed, jitter, healthy/slow sample, dan retry pressure.
-- Adaptive fallback: Turbo 4 dapat turun ke Balanced 3 atau Stable 2 melalui worker limit.
-- Active connection display agar UI tidak selalu menampilkan total chunk sebagai koneksi aktif.
+## Download integrity
 
-## Improved
-- Video >50 MB tetap mencoba Turbo 4 lebih dulu.
-- Host sensitif tetap dijaga di Stable 2.
-- Unknown file besar bisa memakai Balanced 3 sebelum Turbo 4.
-- Resume dynamic 3/4 part lebih aman karena worker bisa diturunkan tanpa membuang part state.
-- Hard pause tetap memutus stream dan HTTP connection aktif.
+- Memvalidasi `206 Partial Content`, `Content-Range`, total file, dan panjang respons untuk setiap worker Range.
+- File multipart hanya selesai jika seluruh part dan ukuran fisik file sesuai.
+- Memperbaiki pembagian dua koneksi menjadi rentang tanpa overlap.
+- Memperbaiki resume Balanced 3 dan Turbo 4.
+- Menambahkan `ETag`, `Last-Modified`, dan `If-Range` untuk mencegah file lama dan baru tergabung.
+- Respons Range yang tidak valid otomatis turun ke mode aman tanpa mempertahankan file sparse yang berisiko korup.
 
-## Unchanged
-- Smart Tab Isolation Guard.
-- Persistent tab session.
-- YouTube auto assistant, icon skip, dan forward +10s.
-- AdBlock logic dan universal download allowlist.
+## Queue, pause, dan concurrency
+
+- Download baru tidak lagi melewati antrean.
+- Remove langsung menutup stream dan koneksi aktif.
+- Generation token membatalkan worker lama setelah pause, reload, remove, atau retry.
+- State lintas thread dibuat visible dan update kritis dilindungi lock/atomic counter.
+- Retry penalty tidak lagi dihitung dua kali.
+- Urutan antrean dipersistenkan secara deterministik.
+
+## Google Drive
+
+- Normalisasi link file Google Drive ke endpoint download.
+- Final redirect URL disimpan dan digunakan ulang oleh semua part.
+- URL bertoken yang expired otomatis di-resolve ulang.
+- File besar Google Drive memakai 3 koneksi adaptif; fallback tetap tersedia bila Range/throttling tidak stabil.
+- Header browser palsu yang tidak relevan dihapus dari request download.
+
+## HLS
+
+- Resume per segmen dan rollback partial segment.
+- Variant master dipilih berdasarkan bandwidth tertinggi.
+- Dukungan init map, byte range, fMP4, serta AES-128 CBC.
+- Key rotation dasar, explicit IV, dan media-sequence IV didukung.
+- Metode enkripsi yang tidak didukung ditolak agar tidak menghasilkan file palsu atau korup.
+
+## Background dan platform
+
+- Foreground data-sync service dan partial wake lock untuk download aktif.
+- Permission notifikasi Android 13+ diminta sekali saat download pertama.
+- targetSdk diperbarui ke 35.
+
+## Tests
+
+- Codec state download dan migrasi running-to-paused.
+- Parser/validator HTTP Range.
+- Parser master/media HLS, fMP4 map, byte range, dan encryption metadata.
+- AES-128 decrypt menggunakan media sequence IV.

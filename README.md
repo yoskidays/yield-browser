@@ -1,24 +1,53 @@
-# YieldBrowser v0.9.84 - Safe Brave-Class Download Layer v3
+# YieldBrowser v0.9.85 — Download Engine Integrity & Google Drive Performance
 
-Build ini melanjutkan basis stabil v0.9.84 dan hanya menambahkan lapisan download yang lebih adaptif.
+Versi ini berfokus pada stabilitas, integritas file, resume, antrean, dan performa download file besar—terutama Google Drive.
 
-## Fokus
-- Core tab/session tetap tidak disentuh.
-- YouTube Assistant tetap tidak disentuh.
-- AdBlock dan universal download allowlist tetap tidak disentuh.
-- Perubahan hanya pada download engine.
+## Perubahan utama
 
-## Download Layer v3
-- Safe 1 koneksi untuk file kecil/server rapuh.
-- Stable 2 koneksi untuk Google Drive/OneDrive/Mega/SharePoint dan host sensitif.
-- Balanced 3 koneksi untuk server menengah atau unknown host yang cukup kuat.
-- Turbo 4 koneksi untuk video besar/CDN/host kuat.
+- Download baru selalu melewati queue manager; batas download aktif tidak lagi dapat dilewati.
+- Google Drive memakai URL download yang dinormalisasi, final redirect URL yang di-cache, dan mode adaptif 3 koneksi untuk file besar.
+- Signed URL yang kedaluwarsa otomatis kembali ke URL sumber untuk memperoleh URL final baru.
+- Request multipart wajib menerima `206 Partial Content` dan `Content-Range` yang persis sesuai.
+- Setiap part harus selesai sesuai panjangnya sebelum file dapat berstatus completed.
+- Resume 3 koneksi dan 4 koneksi menggunakan posisi masing-masing part.
+- Resume memakai `ETag`/`Last-Modified` serta `If-Range` untuk mencegah pencampuran versi file.
+- Pause, reload, remove, dan retry memakai generation token agar worker lama tidak menulis ke sesi baru.
+- Speed limiter berlaku agregat per file, bukan dikalikan pada setiap koneksi.
+- Urutan antrean disimpan dalam format ordered history, bukan `StringSet`.
+- Foreground keep-alive service dan partial wake lock menjaga download aktif di background.
 
-## Proteksi
-- Hard pause: stream dan HTTP connection aktif diputus saat pause.
-- Resume state per part tetap dipertahankan.
-- Jika Turbo 4 mulai tidak stabil, engine menurunkan worker aktif ke Balanced/Stable tanpa mengubah core browser.
-- UI sekarang membedakan koneksi aktif: 1/2/3/4.
+## HLS
 
-## Catatan
-Versi ini adalah safe layer, bukan penggantian total network stack. Tujuannya meningkatkan stabilitas download tanpa merusak fitur browser yang sudah stabil.
+- Resume pada batas segmen.
+- Partial segment dibuang saat pause/error agar file tidak korup.
+- Pemilihan variant berdasarkan bandwidth tertinggi.
+- Dukungan `EXT-X-MAP`, `EXT-X-BYTERANGE`, fMP4, dan AES-128 CBC.
+- IV AES-128 dapat berasal dari atribut `IV` atau media sequence.
+- `SAMPLE-AES` dan AES-128 byte-range yang tidak aman ditolak secara eksplisit.
+
+## Struktur download
+
+- `DownloadItem.java` — state runtime/persisten dan generation token.
+- `DownloadHistoryCodec.java` — serialisasi state multipart/HLS.
+- `DownloadProtocol.java` — validasi HTTP Range dan Content-Range.
+- `DownloadRateLimiter.java` — limiter agregat lintas koneksi.
+- `HlsPlaylistParser.java` — parser master/media playlist.
+- `HlsAes128.java` — dekripsi AES-128 HLS.
+- `DownloadKeepAliveService.java` — foreground keep-alive dan wake lock.
+- `MainActivity.java` — orkestrasi UI dan lifecycle download.
+
+## Build
+
+- Android Gradle Plugin 8.7.3
+- Gradle 8.10.2
+- Java 17
+- compileSdk 35
+- targetSdk 35
+
+```bash
+gradle testDebugUnitTest
+gradle assembleDebug
+gradle assembleRelease
+```
+
+Project belum menyertakan Gradle Wrapper. Workflow GitHub sudah dikonfigurasi untuk test dan build artifact.

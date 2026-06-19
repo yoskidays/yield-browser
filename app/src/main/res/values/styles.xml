@@ -1,26 +1,26 @@
 <resources>
-<style name="Theme.YieldBrowser" parent="android:style/Theme.Material.NoActionBar">
-    <item name="android:fontFamily">sans</item>
-    <item name="android:windowLightStatusBar">false</item>
-    <item name="android:windowBackground">#15171C</item>
-    <item name="android:colorAccent">@color/yield_yellow</item>
-    <item name="android:alertDialogTheme">@style/Theme.YieldBrowser.Dialog</item>
-</style>
+    <style name="Theme.YieldBrowser" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">#15171C</item>
+        <item name="android:colorAccent">@color/yield_yellow</item>
+        <item name="android:alertDialogTheme">@style/Theme.YieldBrowser.Dialog</item>
+    </style>
 
-<style name="Theme.YieldBrowser.Dialog" parent="android:style/Theme.Material.Dialog.Alert">
-    <item name="android:fontFamily">sans</item>
-    <item name="android:colorAccent">@color/yield_yellow</item>
-    <item name="android:windowBackground">#2B2D33</item>
-    <item name="android:textColorPrimary">#F5F7FA</item>
-    <item name="android:textColorSecondary">#B7BDC8</item>
-</style>
+    <style name="Theme.YieldBrowser.Dialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">@color/yield_yellow</item>
+        <item name="android:windowBackground">#2B2D33</item>
+        <item name="android:textColorPrimary">#F5F7FA</item>
+        <item name="android:textColorSecondary">#B7BDC8</item>
+    </style>
 
-<style name="Theme.YieldBrowser.Splash" parent="android:style/Theme.Material.NoActionBar">
-    <item name="android:fontFamily">sans</item>
-    <item name="android:windowNoTitle">true</item>
-    <item name="android:windowActionBar">false</item>
-    <item name="android:windowBackground">#050609</item>
-    <item name="android:windowLightStatusBar">false</item>
-    <item name="android:colorAccent">@color/yield_yellow</item>
-</style>
+    <style name="Theme.YieldBrowser.Splash" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowBackground">#050609</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">@color/yield_yellow</item>
+    </style>
 </resources>
