@@ -144,10 +144,14 @@ public class MainActivity extends Activity {
     private static final String CHANNEL_DOWNLOADS = "yield_downloads";
     private static final String ACTION_OPEN_DOWNLOADS = "com.yieldbrowser.app.OPEN_DOWNLOADS";
     private static final int DOWNLOAD_CONNECTIONS_PREMIUM = 2;
+    private static final int DOWNLOAD_CONNECTIONS_BALANCED = 3;
     private static final int DOWNLOAD_CONNECTIONS_DYNAMIC_MAX = 4;
-    private static final int DOWNLOAD_TURBO_MIN_LARGE_FILE = 96 * 1024 * 1024;
+    private static final int DOWNLOAD_TURBO_MIN_LARGE_FILE = 50 * 1024 * 1024;
     private static final int DOWNLOAD_TURBO_UNKNOWN_LARGE_FILE = 256 * 1024 * 1024;
+    private static final int DOWNLOAD_BALANCED_UNKNOWN_FILE = 64 * 1024 * 1024;
     private static final int DOWNLOAD_STABLE_HOST_LIMIT = 2;
+    private static final int DOWNLOAD_V3_SCORE_BALANCED = 62;
+    private static final int DOWNLOAD_V3_SCORE_TURBO = 80;
     private static final int DOWNLOAD_RETRY_MAX = 3;
     private static final int DESKTOP_VIEWPORT_WIDTH = 1280;
     private static final int DOWNLOAD_BUFFER_SIZE = 64 * 1024;
@@ -348,6 +352,7 @@ public class MainActivity extends Activity {
         long downloadedBytes;
 
         int connectionCount = 0;
+        int activeConnectionLimit = 0;
         boolean pauseRequested = false;
         String engineInfo = "Menunggu koneksi";
 
@@ -381,7 +386,11 @@ public class MainActivity extends Activity {
         long turboLastSampleBytes = 0;
         long turboLastSampleTimeMs = 0;
         int turboSlowSamples = 0;
+        int turboHealthySamples = 0;
         int turboRetryPenalty = 0;
+        double turboJitterScore = 0;
+        double turboPeakSpeedBytesPerSecond = 0;
+        long turboLastPersistMs = 0;
         final ArrayList<HttpURLConnection> activeConnections = new ArrayList<>();
         final ArrayList<InputStream> activeStreams = new ArrayList<>();
         DownloadItem(int id, String url, String fileName, String path, String status, int progress) {
@@ -3073,7 +3082,7 @@ private void showDownloadSettingsPanel() {
         box.addView(title);
 
         TextView info = new TextView(this);
-        info.setText("Smart Turbo Engine: memilih 1/2/4 koneksi sesuai host, ukuran file, dan stabilitas jaringan.");
+        info.setText("Safe Brave-Class Layer v3: memilih Safe 1, Stable 2, Balanced 3, atau Turbo 4 koneksi sesuai host, file, dan prediksi bandwidth.");
         info.setTextColor(COLOR_SUBTEXT);
         info.setTextSize(13);
         info.setLineSpacing(0, 1.05f);
@@ -3081,7 +3090,7 @@ private void showDownloadSettingsPanel() {
         infoLp.setMargins(0, dp(8), 0, dp(12));
         box.addView(info, infoLp);
 
-        box.addView(advancedSwitchRow("Smart Turbo Download", "Auto pilih Safe 1, Stable 2, atau Turbo 4 koneksi. Host sensitif seperti Drive dibuat lebih stabil.", downloadDynamic4Connections, v -> {
+        box.addView(advancedSwitchRow("Smart Turbo Download", "Auto pilih Safe 1, Stable 2, Balanced 3, atau Turbo 4 koneksi. Ada fallback aman jika server mulai throttle.", downloadDynamic4Connections, v -> {
             downloadDynamic4Connections = !downloadDynamic4Connections;
             saveSettings();
         }));
@@ -6236,9 +6245,11 @@ private void showDownloadSettingsPanel() {
         if (item == null) return "Mengecek koneksi";
         if ("queued".equals(item.status)) return item.engineInfo != null && item.engineInfo.length() > 0 ? item.engineInfo : "Antri • menunggu slot";
         if (item.hlsDownload) return "HLS/m3u8";
-        if (item.connectionCount >= 4) return "4 koneksi sukses";
-        if (item.connectionCount >= 2) return "2 koneksi sukses";
-        if (item.connectionCount == 1) return "1 koneksi sukses";
+        int visibleConnections = item.activeConnectionLimit > 0 ? item.activeConnectionLimit : item.connectionCount;
+        if (visibleConnections >= 4) return "4 koneksi sukses";
+        if (visibleConnections == 3) return "3 koneksi balanced";
+        if (visibleConnections >= 2) return "2 koneksi sukses";
+        if (visibleConnections == 1) return "1 koneksi sukses";
         if ("paused".equals(item.status)) return "Dijeda";
         if ("failed".equals(item.status)) return "Gagal • klik ↻";
         return "Mengecek koneksi";
@@ -6465,6 +6476,7 @@ private void showDownloadSettingsPanel() {
             item.status = "running";
             item.pauseRequested = false;
             item.speedBytesPerSecond = 0;
+            item.activeConnectionLimit = 0;
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = item.downloadedBytes;
             item.engineInfo = item.downloadedBytes > 0 ? "Melanjutkan koneksi" : "Mengecek koneksi";
@@ -6613,9 +6625,11 @@ private void showDownloadSettingsPanel() {
     private String getConnectionLabel(DownloadItem item) {
         if (item == null) return "Premium Fast";
         if (item.hlsDownload) return "HLS";
-        if (item.connectionCount >= 4) return "4 koneksi";
-        if (item.connectionCount >= 2) return "2 koneksi";
-        if (item.connectionCount == 1) return "1 koneksi";
+        int visibleConnections = item.activeConnectionLimit > 0 ? item.activeConnectionLimit : item.connectionCount;
+        if (visibleConnections >= 4) return "4 koneksi";
+        if (visibleConnections == 3) return "3 koneksi";
+        if (visibleConnections >= 2) return "2 koneksi";
+        if (visibleConnections == 1) return "1 koneksi";
         return "Premium Fast • anti-hotlink safe";
     }
 
@@ -6672,6 +6686,7 @@ private void showDownloadSettingsPanel() {
             item.downloadedBytes = 0;
             item.totalBytes = 0;
             item.connectionCount = 0;
+            item.activeConnectionLimit = 0;
             item.part1Start = 0;
             item.part1End = 0;
             item.part1Done = 0;
@@ -7087,6 +7102,7 @@ private void showDownloadSettingsPanel() {
         String name = item == null ? "" : item.fileName;
         int chosen;
         String reason;
+        int score = 50;
 
         if (item != null && item.turboTargetConnections > 0 && item.turboProfile != null && item.turboProfile.contains("fallback")) {
             chosen = item.turboTargetConnections;
@@ -7096,25 +7112,38 @@ private void showDownloadSettingsPanel() {
             reason = "Smart normal";
         } else if (isStableDownloadHost(url)) {
             chosen = DOWNLOAD_STABLE_HOST_LIMIT;
-            reason = "Stable host";
+            reason = "Stable host v3";
         } else if (totalBytes > 0 && totalBytes < 16L * 1024L * 1024L) {
             chosen = 1;
-            reason = "Small file";
-        } else if (looksLikeArchiveOrApp(name, url, contentType) && !isTurboFriendlyHost(url)) {
-            chosen = DOWNLOAD_CONNECTIONS_PREMIUM;
-            reason = "Safe package";
-        } else if (looksLikeVideoDownload(url, name, contentType) && totalBytes >= DOWNLOAD_TURBO_MIN_LARGE_FILE) {
-            chosen = DOWNLOAD_CONNECTIONS_DYNAMIC_MAX;
-            reason = "Turbo video";
-        } else if (isTurboFriendlyHost(url) && totalBytes >= 64L * 1024L * 1024L) {
-            chosen = DOWNLOAD_CONNECTIONS_DYNAMIC_MAX;
-            reason = "Turbo CDN";
-        } else if (totalBytes >= DOWNLOAD_TURBO_UNKNOWN_LARGE_FILE) {
-            chosen = DOWNLOAD_CONNECTIONS_DYNAMIC_MAX;
-            reason = "Turbo large";
+            reason = "Small file v3";
         } else {
-            chosen = DOWNLOAD_CONNECTIONS_PREMIUM;
-            reason = "Smart stable";
+            boolean video = looksLikeVideoDownload(url, name, contentType);
+            boolean turboHost = isTurboFriendlyHost(url);
+            boolean archiveOrApp = looksLikeArchiveOrApp(name, url, contentType);
+
+            if (turboHost) score += 26;
+            if (video && totalBytes >= DOWNLOAD_TURBO_MIN_LARGE_FILE) score += 35;
+            else if (video) score += 18;
+            if (totalBytes >= DOWNLOAD_TURBO_UNKNOWN_LARGE_FILE) score += 24;
+            else if (totalBytes >= DOWNLOAD_BALANCED_UNKNOWN_FILE) score += 12;
+            if (archiveOrApp && !turboHost) score -= 10;
+            if (url != null && url.toLowerCase(Locale.US).contains("token=")) score -= 4;
+            if (item != null) score -= Math.min(25, item.turboRetryPenalty * 8);
+
+            if (video && totalBytes >= DOWNLOAD_TURBO_MIN_LARGE_FILE) {
+                // User policy: video >50 MB dicoba Turbo 4 dulu, lalu v3 fallback jika server throttle.
+                chosen = DOWNLOAD_CONNECTIONS_DYNAMIC_MAX;
+                reason = "Turbo video >50MB v3";
+            } else if (score >= DOWNLOAD_V3_SCORE_TURBO) {
+                chosen = DOWNLOAD_CONNECTIONS_DYNAMIC_MAX;
+                reason = "Turbo score " + score;
+            } else if (score >= DOWNLOAD_V3_SCORE_BALANCED) {
+                chosen = DOWNLOAD_CONNECTIONS_BALANCED;
+                reason = "Balanced score " + score;
+            } else {
+                chosen = DOWNLOAD_CONNECTIONS_PREMIUM;
+                reason = "Stable score " + score;
+            }
         }
 
         if (item != null) {
@@ -7122,13 +7151,17 @@ private void showDownloadSettingsPanel() {
             item.turboProfile = reason;
             item.turboStabilityScore = 100;
             item.turboSlowSamples = 0;
+            item.turboHealthySamples = 0;
+            item.turboJitterScore = 0;
+            item.turboPeakSpeedBytesPerSecond = 0;
         }
         return Math.max(1, Math.min(DOWNLOAD_CONNECTIONS_DYNAMIC_MAX, chosen));
     }
 
     private String getTurboLabel(DownloadItem item, int connections) {
-        String profile = item != null && item.turboProfile != null && item.turboProfile.length() > 0 ? item.turboProfile : "Smart";
+        String profile = item != null && item.turboProfile != null && item.turboProfile.length() > 0 ? item.turboProfile : "Smart v3";
         if (connections >= 4) return "Turbo 4 koneksi • " + profile;
+        if (connections == 3) return "Balanced 3 koneksi • " + profile;
         if (connections >= 2) return "Stable 2 koneksi • " + profile;
         return "Safe 1 koneksi • " + profile;
     }
@@ -7187,6 +7220,10 @@ private void showDownloadSettingsPanel() {
         item.turboLastSampleBytes = item.downloadedBytes;
         item.turboLastSampleTimeMs = System.currentTimeMillis();
         item.turboSlowSamples = 0;
+        item.turboHealthySamples = 0;
+        item.turboJitterScore = 0;
+        item.turboPeakSpeedBytesPerSecond = 0;
+        item.turboLastPersistMs = 0;
         item.turboStabilityScore = 100;
     }
 
@@ -7199,23 +7236,57 @@ private void showDownloadSettingsPanel() {
             return;
         }
         long elapsed = now - item.turboLastSampleTimeMs;
-        if (elapsed < 2000) return;
+        if (elapsed < 1500) return;
+
         long delta = Math.max(0, currentBytes - item.turboLastSampleBytes);
         double sample = (delta * 1000.0) / Math.max(1, elapsed);
+        if (item.turboPeakSpeedBytesPerSecond <= 0 || sample > item.turboPeakSpeedBytesPerSecond) {
+            item.turboPeakSpeedBytesPerSecond = sample;
+        }
+        double previousAvg = item.turboAvgSpeedBytesPerSecond;
         if (item.turboAvgSpeedBytesPerSecond <= 0) item.turboAvgSpeedBytesPerSecond = sample;
-        else item.turboAvgSpeedBytesPerSecond = (item.turboAvgSpeedBytesPerSecond * 0.65) + (sample * 0.35);
+        else item.turboAvgSpeedBytesPerSecond = (item.turboAvgSpeedBytesPerSecond * 0.72) + (sample * 0.28);
 
         double ratio = item.turboAvgSpeedBytesPerSecond > 0 ? sample / Math.max(1.0, item.turboAvgSpeedBytesPerSecond) : 1.0;
-        if (ratio < 0.35) item.turboSlowSamples++;
-        else if (item.turboSlowSamples > 0) item.turboSlowSamples--;
-        item.turboStabilityScore = Math.max(0, Math.min(100, item.turboStabilityScore + (ratio >= 0.60 ? 3 : -12)));
+        double jitter = previousAvg > 0 ? Math.abs(sample - previousAvg) / Math.max(1.0, previousAvg) : 0;
+        item.turboJitterScore = (item.turboJitterScore * 0.70) + (Math.min(1.5, jitter) * 30.0);
+
+        if (ratio < 0.30 || (delta == 0 && elapsed >= 3500)) {
+            item.turboSlowSamples++;
+            item.turboHealthySamples = 0;
+        } else if (ratio >= 0.70) {
+            item.turboHealthySamples++;
+            if (item.turboSlowSamples > 0) item.turboSlowSamples--;
+        }
+
+        double penalty = 0;
+        if (ratio < 0.45) penalty += 10;
+        if (item.turboJitterScore > 18) penalty += 6;
+        if (item.turboRetryPenalty > 0) penalty += Math.min(18, item.turboRetryPenalty * 6);
+        double bonus = ratio >= 0.70 ? 3 : 0;
+        item.turboStabilityScore = Math.max(0, Math.min(100, item.turboStabilityScore + bonus - penalty));
         item.turboLastSampleBytes = currentBytes;
         item.turboLastSampleTimeMs = now;
+
+        if (now - item.turboLastPersistMs > 1200) {
+            item.turboLastPersistMs = now;
+            saveDownloadHistory();
+        }
+    }
+
+    private int getV3FallbackConnections(DownloadItem item) {
+        if (item == null) return DOWNLOAD_CONNECTIONS_PREMIUM;
+        if (item.connectionCount >= 4) {
+            if (item.turboStabilityScore < 22 || item.turboRetryPenalty >= 2) return DOWNLOAD_CONNECTIONS_PREMIUM;
+            return DOWNLOAD_CONNECTIONS_BALANCED;
+        }
+        if (item.connectionCount == 3) return DOWNLOAD_CONNECTIONS_PREMIUM;
+        return 1;
     }
 
     private boolean shouldFallbackTurboToStable(DownloadItem item) {
         if (item == null) return false;
-        return item.connectionCount >= 4 && item.progress < 98 && (item.turboSlowSamples >= 4 || item.turboStabilityScore < 35 || item.turboRetryPenalty >= 2);
+        return item.connectionCount >= 3 && item.progress < 98 && (item.turboSlowSamples >= 4 || item.turboStabilityScore < 35 || item.turboRetryPenalty >= 2);
     }
 
     private String buildAntiHotlinkCookieHeader(String fileUrl, DownloadItem item) {
@@ -7355,7 +7426,7 @@ private void showDownloadSettingsPanel() {
         }
 
         boolean resumeAttempt = out.exists() && item.downloadedBytes > 0 && ("running".equals(item.status) || "paused".equals(item.status));
-        if (resumeAttempt && item.connectionCount >= 4) {
+        if (resumeAttempt && item.connectionCount >= 3) {
             startDynamicMultiConnectionDownload(item, out);
             return;
         }
@@ -7501,7 +7572,7 @@ private void showDownloadSettingsPanel() {
     private void startDynamicMultiConnectionDownload(DownloadItem item, File out) {
         item.status = "running";
         item.pauseRequested = false;
-        item.engineInfo = item.downloadedBytes > 0 ? "Mengecek resume 4 koneksi" : "Mengecek 2/4 koneksi";
+        item.engineInfo = item.downloadedBytes > 0 ? "Mengecek resume Brave-Class v3" : "Mengecek Safe/Stable/Balanced/Turbo v3";
         refreshDownloadPanel();
 
         new Thread(() -> {
@@ -7558,7 +7629,7 @@ private void showDownloadSettingsPanel() {
                     return;
                 }
 
-                int segmentConnections = (resumeCandidate && item.connectionCount >= 4) ? item.connectionCount : smartConnections;
+                int segmentConnections = (resumeCandidate && item.connectionCount >= 3) ? item.connectionCount : smartConnections;
                 if (segmentConnections <= 2) {
                     item.engineInfo = getTurboLabel(item, smartConnections);
                     startLegacyTwoConnectionDownload(item, outRef[0]);
@@ -7567,8 +7638,9 @@ private void showDownloadSettingsPanel() {
 
                 final long finalTotal = total;
                 final int finalConnections = segmentConnections;
-                final int finalWorkerSlots = Math.max(1, Math.min(finalConnections, smartConnections <= 2 ? 2 : smartConnections));
+                final int finalWorkerSlots = Math.max(1, Math.min(finalConnections, smartConnections));
                 final File finalOutFile = outRef[0];
+                item.activeConnectionLimit = finalWorkerSlots;
 
                 boolean canResumeDynamic = resumeCandidate
                         && outRef[0].exists()
@@ -7663,16 +7735,17 @@ private void showDownloadSettingsPanel() {
                 else {
                     item.turboRetryPenalty++;
                     if (shouldFallbackTurboToStable(item)) {
-                        item.turboTargetConnections = DOWNLOAD_CONNECTIONS_PREMIUM;
-                        item.turboProfile = "auto fallback stable";
-                        item.engineInfo = "Turbo turun ke Stable 2 koneksi";
+                        int fallback = getV3FallbackConnections(item);
+                        item.turboTargetConnections = fallback;
+                        item.turboProfile = fallback >= 3 ? "auto fallback balanced v3" : (fallback >= 2 ? "auto fallback stable v3" : "auto fallback safe v3");
+                        item.engineInfo = fallback >= 3 ? "Turbo turun ke Balanced 3 koneksi" : (fallback >= 2 ? "Turbo turun ke Stable 2 koneksi" : "Turbo turun ke Safe 1 koneksi");
                     }
                     failDownload(item, resumeCandidate ? "Resume turbo terputus" : "Turbo koneksi terputus");
                 }
             } catch (Exception e) {
                 if (head != null) try { unregisterDownloadConnection(item, head); head.disconnect(); } catch (Exception ignored) {}
-                if (out.exists() && item.downloadedBytes > 0 && item.connectionCount >= 4) {
-                    failDownload(item, "Resume 4 koneksi gagal: " + e.getMessage());
+                if (out.exists() && item.downloadedBytes > 0 && item.connectionCount >= 3) {
+                    failDownload(item, "Resume Brave-Class v3 gagal: " + e.getMessage());
                 } else {
                     startLegacyTwoConnectionDownload(item, out);
                 }
@@ -7713,7 +7786,7 @@ private void showDownloadSettingsPanel() {
                         if (percent % 2 == 0 || percent >= 99) {
                             refreshDownloadPanel();
                             saveDownloadHistory();
-                            String label = connections >= 4 ? "Turbo 4 koneksi" : (connections >= 2 ? "Stable 2 koneksi" : "Safe 1 koneksi");
+                            String label = connections >= 4 ? "Turbo 4 koneksi" : (connections == 3 ? "Balanced 3 koneksi" : (connections >= 2 ? "Stable 2 koneksi" : "Safe 1 koneksi"));
                             showDownloadNotification(item, label + " • " + percent + "% • " + readableSpeed(item.speedBytesPerSecond), true);
                         }
                     }
@@ -7767,6 +7840,7 @@ private void showDownloadSettingsPanel() {
                         unregisterDownloadConnection(item, head);
                         head.disconnect();
                         item.connectionCount = DOWNLOAD_CONNECTIONS_PREMIUM;
+                        item.activeConnectionLimit = DOWNLOAD_CONNECTIONS_PREMIUM;
                         item.engineInfo = getTurboLabel(item, DOWNLOAD_CONNECTIONS_PREMIUM);
                         item.totalBytes = total;
                         item.failReason = "";
@@ -7828,6 +7902,7 @@ private void showDownloadSettingsPanel() {
                         if (ok[0]) completeDownload(item);
                         else {
                             item.connectionCount = 1;
+                            item.activeConnectionLimit = 1;
                             item.engineInfo = getTurboLabel(item, 1);
                             item.progress = 0;
                             item.downloadedBytes = 0;
@@ -7841,6 +7916,7 @@ private void showDownloadSettingsPanel() {
                     } else {
                         if (head != null) { unregisterDownloadConnection(item, head); head.disconnect(); }
                         item.connectionCount = 1;
+                        item.activeConnectionLimit = 1;
                         item.engineInfo = getTurboLabel(item, 1);
                         saveDownloadHistory();
                         refreshDownloadPanel();
@@ -7849,6 +7925,7 @@ private void showDownloadSettingsPanel() {
                 } catch (Exception splitError) {
                     if (head != null) try { unregisterDownloadConnection(item, head); head.disconnect(); } catch (Exception ignored) {}
                     item.connectionCount = 1;
+                    item.activeConnectionLimit = 1;
                     item.engineInfo = getTurboLabel(item, 1);
                     saveDownloadHistory();
                     refreshDownloadPanel();
@@ -7899,6 +7976,7 @@ private void showDownloadSettingsPanel() {
         item.pauseRequested = false;
         item.hlsDownload = true;
         item.connectionCount = 1;
+        item.activeConnectionLimit = 1;
         item.engineInfo = "HLS/m3u8";
         item.categoryHint = "Video";
         if (!item.fileName.toLowerCase(Locale.US).endsWith(".ts")) {
@@ -8312,11 +8390,12 @@ private void showDownloadSettingsPanel() {
     private void failDownload(DownloadItem item, String reason) {
         if (item == null) return;
 
-        if (item.connectionCount >= 4) {
+        if (item.connectionCount >= 3) {
             item.turboRetryPenalty++;
             if (shouldFallbackTurboToStable(item)) {
-                item.turboTargetConnections = DOWNLOAD_CONNECTIONS_PREMIUM;
-                item.turboProfile = "auto fallback stable";
+                int fallback = getV3FallbackConnections(item);
+                item.turboTargetConnections = fallback;
+                item.turboProfile = fallback >= 3 ? "auto fallback balanced v3" : (fallback >= 2 ? "auto fallback stable v3" : "auto fallback safe v3");
             }
         }
 
