@@ -1,49 +1,41 @@
-# YieldBrowser v0.9.91 — Play While Downloading
+# YieldBrowser v0.9.94 — Android 11 Night Mode Fix
 
-YieldBrowser v0.9.91 adds professional progressive video playback while retaining the v0.9.90 two-space **Umum | Privat** browser architecture.
+Versi ini memperbaiki Mode Malam yang sebelumnya dapat terlihat **ON** tetapi tidak mengubah halaman pada sebagian perangkat Android 11. Universal Reader Compatibility Repair juga diperluas untuk gambar reader biasa yang rusak atau tersembunyi, bukan hanya gambar dengan atribut lazy-load.
 
-## Putar sambil mengunduh
+## Mode malam Android 11
 
-- Direct progressive videos can be opened before the download finishes.
-- The internal Yield player reads only byte ranges that are already available.
-- Multipart downloads are sparse-safe: pre-allocated but unfinished regions are never exposed as valid video data.
-- HTTP Range requests allow the player to request the beginning, metadata, or a downloaded seek region without duplicating the download.
-- Download progress, averaged speed, paused state, verification, and final save state remain visible inside the player.
-- Closing the player does not stop the download.
-- Optional Picture-in-Picture is available on Android 8+.
-- Private playback sessions enable `FLAG_SECURE` and use an unguessable loopback token.
+- Tetap memakai AndroidX WebKit algorithmic darkening ketika provider mendukungnya.
+- Tidak lagi menganggap status “supported” sebagai bukti bahwa halaman sudah benar-benar digelapkan.
+- Selalu memasang fallback DOM yang reversibel dan terlihat nyata.
+- Memetakan latar putih/terang menjadi palet gelap, teks gelap menjadi teks terang, serta border dan kontrol formulir menjadi warna ramah malam.
+- Memproses elemen halaman secara bertahap agar UI tidak membeku pada halaman panjang.
+- Memantau konten yang ditambahkan secara dinamis.
+- Tidak memberi filter warna pada gambar, video, canvas, SVG, picture, dan iframe.
+- Saat Mode Malam dimatikan, style inline yang diubah dipulihkan.
+- Tetap diterapkan pada Mode Kompatibel.
 
-## Professional download flow
+## Universal Reader Compatibility Repair
 
-1. Start a supported video download.
-2. Open **Unduhan**.
-3. Tap the running video or choose **Putar sambil mengunduh** from its menu.
-4. Yield waits until enough verified initial bytes are available.
-5. Playback starts while the original background download continues.
-6. If playback catches the available data, the player buffers instead of reading empty multipart regions.
+- Tidak memakai whitelist domain.
+- Mendukung `data-src`, `data-lazy-src`, `data-original`, `data-srcset`, `<picture><source>`, lazy background, `src`, dan `srcset` biasa.
+- Mencoba ulang gambar standar yang rusak atau tersembunyi pada halaman chapter/episode/reader.
+- Menampilkan kembali gambar dengan `display:none`, `visibility:hidden`, `opacity:0`, atau atribut `hidden` bila terdeteksi sebagai konten reader.
+- Tetap mengecualikan banner, sponsor, affiliate, popup, dan URL jaringan iklan.
 
-Supported first-stage containers: MP4, M4V, 3GP, WebM, MOV, and direct `videoplayback` responses.
+## GitHub Web Upload Edition
 
-HLS/m3u8 remains available after segment merge completes. DRM streams and separate DASH audio/video tracks are not treated as progressive files.
-
-## Browser spaces retained
-
-- **Umum**: persistent browsing session, normal history, normal cookies, and restorable tabs.
-- **Privat**: isolated WebView process/profile on Android 9+, non-persistent tabs, separated cookies and WebStorage.
-- Existing tabs are never converted between profiles.
-- The tab switcher provides an explicit **Umum | Privat** selector.
-- Closing the final private tab returns to the normal browser space.
+Gunakan ZIP dengan nama `YieldBrowser_v0.9.94_GitHub_upload_98_files.zip` untuk upload melalui halaman web GitHub. Paket tersebut berisi **98 file**, tetap buildable, dan tidak menyertakan unit test serta dokumen ringkasan historis agar tidak melewati batas 100 file per upload.
 
 ## Build
 
-The repository uses Java 17, compile/target SDK 35, and GitHub Actions with Gradle 8.10.2.
+Project menggunakan Java 17, compile/target SDK 35, AndroidX WebKit 1.15.0, dan GitHub Actions dengan Gradle 8.10.2.
 
 ```bash
-gradle testDebugUnitTest --stacktrace
 gradle assembleDebug --stacktrace
+gradle assembleRelease --stacktrace
 ```
 
 Version metadata:
 
-- `versionCode 65`
-- `versionName 0.9.91`
+- `versionCode 68`
+- `versionName 0.9.94`

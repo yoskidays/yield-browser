@@ -2600,7 +2600,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.93";
+        return "0.9.94";
     }
 
     private void showAboutYieldDialog() {
@@ -10807,61 +10807,14 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
         syncNightModeWebSettingsForUrl(pageUrl);
         boolean active = isNightModeActiveForUrl(pageUrl);
-        boolean algorithmic = isAlgorithmicDarkeningSupported();
-
-        String js;
-        if (active) {
-            // When the WebView provider supports algorithmic darkening, keep DOM changes minimal.
-            // This avoids breaking image-heavy/anti-adblock sites while the renderer darkens content.
-            String fallbackCss = algorithmic
-                    ? ":root{color-scheme:dark!important;}html,body{background-color:#0b0d10!important;}input,textarea,select,button{color-scheme:dark!important;}img,video,canvas,svg,picture{filter:none!important;}"
-                    : ":root{color-scheme:dark!important;}html,body{background:#0b0d10!important;color:#e8eaed!important;}"
-                    + "body,main,article,section,aside,header,footer,nav,form,dialog{background-color:#0b0d10!important;color:#e8eaed!important;}"
-                    + "input,textarea,select,button{background-color:#202124!important;color:#e8eaed!important;border-color:#5f6368!important;color-scheme:dark!important;}"
-                    + "a{color:#8ab4f8!important;}hr{border-color:#454950!important;}"
-                    + "img,video,canvas,svg,picture{filter:none!important;}";
-
-            // Compatibility mode still receives the minimal dark contract. Heavy fallback CSS is
-            // intentionally avoided there so chapter images and site layout remain untouched.
-            if (compatibilityMode && !algorithmic) {
-                fallbackCss = ":root{color-scheme:dark!important;}html,body{background:#0b0d10!important;color:#e8eaed!important;}"
-                        + "input,textarea,select,button{color-scheme:dark!important;}img,video,canvas,svg,picture{filter:none!important;}";
-            }
-
-            js = "javascript:(function(){"
-                    + "try{"
-                    + "var light=document.getElementById('yield-light-style');if(light)light.remove();"
-                    + "var id='yield-night-style';var old=document.getElementById(id);if(old)old.remove();"
-                    + "var s=document.createElement('style');s.id=id;s.textContent=\"" + escapeForJsDoubleQuotes(fallbackCss) + "\";"
-                    + "(document.head||document.documentElement).appendChild(s);"
-                    + "var meta=document.querySelector('meta[name=color-scheme]');"
-                    + "if(!meta){meta=document.createElement('meta');meta.name='color-scheme';(document.head||document.documentElement).appendChild(meta);}"
-                    + "meta.setAttribute('content','dark light');"
-                    + "document.documentElement.style.colorScheme='dark';"
-                    + "if(document.body)document.body.style.colorScheme='dark';"
-                    + "}catch(e){}"
-                    + "})()";
-        } else {
-            js = "javascript:(function(){"
-                    + "try{"
-                    + "var ids=['yield-night-style','yield-dark-style','yield-force-dark'];"
-                    + "for(var i=0;i<ids.length;i++){var x=document.getElementById(ids[i]);if(x)x.remove();}"
-                    + "var html=document.documentElement;"
-                    + "if(html){html.style.colorScheme='light';html.style.background='';html.style.backgroundColor='';html.classList.remove('dark','night','night-mode','dark-mode');}"
-                    + "if(document.body){document.body.style.colorScheme='light';document.body.style.background='';document.body.style.backgroundColor='';document.body.style.color='';document.body.classList.remove('dark','night','night-mode','dark-mode');}"
-                    + "var meta=document.querySelector('meta[name=color-scheme]');"
-                    + "if(!meta){meta=document.createElement('meta');meta.name='color-scheme';(document.head||document.documentElement).appendChild(meta);}"
-                    + "meta.setAttribute('content','light');"
-                    + "var light=document.getElementById('yield-light-style');if(light)light.remove();"
-                    + "light=document.createElement('style');light.id='yield-light-style';"
-                    + "light.textContent=':root,html,body{color-scheme:light!important;}html,body{background:#ffffff!important;}input,textarea,select{color-scheme:light!important;}img,video,canvas,svg,picture{filter:none!important;}';"
-                    + "(document.head||document.documentElement).appendChild(light);"
-                    + "}catch(e){}"
-                    + "})()";
-        }
 
         try {
-            runPageScript(js);
+            // Do not rely solely on WebViewFeature.ALGORITHMIC_DARKENING. Some Android 11
+            // providers report support while leaving light pages visually unchanged. The page-side
+            // engine is therefore always applied and remains reversible when night mode is disabled.
+            runPageScript(active
+                    ? NightModePageScript.enable(compatibilityMode)
+                    : NightModePageScript.disable());
             webView.setBackgroundColor(active ? COLOR_BG : Color.WHITE);
         } catch (Exception ignored) {
         }

@@ -10,7 +10,7 @@ final class UniversalReaderRepairScript {
                 (function(){
                   'use strict';
                   try {
-                    var VERSION='0.9.93';
+                    var VERSION='0.9.94';
                     var READER_WORDS=/(^|[\\s_\\-])(chapter|chapitre|capitulo|episode|reader|reading|read-content|manga|manhwa|manhua|webtoon|comic|komik|baca|viewer|pages?)([\\s_\\-]|$)/i;
                     var PATH_RE=/(?:^|\\/)(?:chapter|chapitre|capitulo|episode|reader|read-online|reading|baca|ch)(?:[-_\\/]|$)|-chapter-|\\/chapter\\/|\\/episode\\//i;
                     var AD_WORDS=/(^|[\\s_\\-])(ad|ads|advert|advertisement|banner|sponsor|sponsored|promo|promotion|affiliate|popunder|popup|monetize|adsbygoogle|doubleclick|taboola|outbrain)([\\s_\\-]|$)/i;
@@ -52,6 +52,19 @@ final class UniversalReaderRepairScript {
                             var ps=safeText(nodes[n].getAttribute(SRCSET_ATTRS[q]));
                             if(ps)add(ps.split(',')[0].trim().split(/\\s+/)[0]);
                           }
+                        }
+                      }
+                      // Keep normal sources after lazy attributes so a lazy URL stays preferred,
+                      // while broken/hidden standard reader images can still be retried.
+                      add(img.currentSrc);
+                      add(img.getAttribute('src'));
+                      var normalSet=safeText(img.getAttribute('srcset'));
+                      if(normalSet)add(normalSet.split(',')[0].trim().split(/\s+/)[0]);
+                      if(picture){
+                        var normalNodes=picture.querySelectorAll('source[srcset]');
+                        for(var np=0;np<normalNodes.length;np++){
+                          var normalPictureSet=safeText(normalNodes[np].getAttribute('srcset'));
+                          if(normalPictureSet)add(normalPictureSet.split(',')[0].trim().split(/\s+/)[0]);
                         }
                       }
                       return out;
@@ -98,16 +111,38 @@ final class UniversalReaderRepairScript {
                       if(img.complete&&img.naturalWidth<=2&&img.naturalHeight<=2&&sourcesFor(img).length)return true;
                       return false;
                     }
+                    function hiddenOrBroken(img){
+                      if(!img||img.tagName!=='IMG')return false;
+                      try{
+                        var cs=getComputedStyle(img);
+                        if(img.hasAttribute('hidden')||cs.display==='none'||cs.visibility==='hidden'||cs.visibility==='collapse'||parseFloat(cs.opacity||'1')===0)return true;
+                      }catch(e){}
+                      var src=safeText(img.currentSrc||img.getAttribute('src'));
+                      return !!(validNetworkSource(src)&&img.complete&&img.naturalWidth===0);
+                    }
                     function classify(){
                       var all=Array.prototype.slice.call(document.images||[]);
                       var lazy=[];
                       for(var i=0;i<all.length;i++)if(isLazyCandidate(all[i])&&!isAdLike(all[i],sourcesFor(all[i])[0]||''))lazy.push(all[i]);
                       var backgrounds=[],bgQuery='['+BG_ATTRS.join('],[')+']';
                       try{var bgNodes=document.querySelectorAll(bgQuery);for(var bi=0;bi<bgNodes.length;bi++){var bs=backgroundSource(bgNodes[bi]);if(bs&&!isAdLike(bgNodes[bi],bs))backgrounds.push(bgNodes[bi]);}}catch(e){}
-                      var candidates=lazy.concat(backgrounds);
-                      if(!candidates.length)return null;
                       var pathHint=PATH_RE.test(location.pathname||'');
                       var titleHint=/(?:chapter|episode|capitulo|chapitre|baca|read online)/i.test(document.title||'');
+                      var repairable=lazy.slice();
+                      function addRepairable(img){if(img&&repairable.indexOf(img)<0)repairable.push(img);}
+                      // Some readers use normal src/srcset and only hide the image, or leave it
+                      // broken after an anti-adblock/lazy-loader failure. Include those images when
+                      // URL/title/DOM already indicates a reader page.
+                      if(pathHint||titleHint){
+                        for(var ai=0;ai<all.length;ai++){
+                          var candidate=all[ai],candidateSources=sourcesFor(candidate);
+                          var candidateSrc=candidateSources.length?candidateSources[0]:'';
+                          if(!candidateSrc||isAdLike(candidate,candidateSrc))continue;
+                          if(hiddenOrBroken(candidate)||readerAncestor(candidate)||wideEnough(candidate))addRepairable(candidate);
+                        }
+                      }
+                      var candidates=repairable.concat(backgrounds);
+                      if(!candidates.length)return null;
                       var containers=[];
                       function record(el,img){
                         if(!el||el===document.documentElement||el===document.body||isAdLike(el,''))return;
@@ -127,9 +162,18 @@ final class UniversalReaderRepairScript {
                         if(score>bestScore){bestScore=score;best=rec;}
                       }
                       var strongContainer=best&&best.count>=3&&(best.wide>=2||best.keyword===1)&&bestScore>=10;
-                      var hintedReader=(pathHint||titleHint)&&candidates.length>=2;
+                      if(strongContainer&&best&&best.el){
+                        for(var ri=0;ri<all.length;ri++){
+                          var readerImg=all[ri];
+                          if(!best.el.contains(readerImg))continue;
+                          var readerSources=sourcesFor(readerImg),readerSrc=readerSources.length?readerSources[0]:'';
+                          if(!readerSrc||isAdLike(readerImg,readerSrc))continue;
+                          if(isLazyCandidate(readerImg)||hiddenOrBroken(readerImg)||wideEnough(readerImg))addRepairable(readerImg);
+                        }
+                      }
+                      var hintedReader=(pathHint||titleHint)&&repairable.length>=2;
                       if(!strongContainer&&!hintedReader)return null;
-                      return {all:all,lazy:lazy,backgrounds:backgrounds,root:strongContainer?best.el:null,pathHint:pathHint||titleHint};
+                      return {all:all,lazy:repairable,backgrounds:backgrounds,root:strongContainer?best.el:null,pathHint:pathHint||titleHint};
                     }
                     function revealNode(el,allowDisplay){
                       if(!el||el.nodeType!==1)return;
