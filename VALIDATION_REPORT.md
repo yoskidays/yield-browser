@@ -1,44 +1,25 @@
-# Validation Report — YieldBrowser v0.9.89
+# Validation Report — YieldBrowser v0.9.90
 
-## Pemeriksaan yang lulus
+## Completed checks
 
-- 36 file Java produksi/test berhasil diparse dengan parser Java.
-- 45 XML resource/AndroidManifest berhasil diparse.
-- Tidak ditemukan duplicate Java method signature.
-- Tidak ditemukan import Java yang terdeteksi tidak terpakai.
-- Pure-Java download classes berhasil dikompilasi dengan `javac`.
-- 25 unit-test method lulus melalui lightweight JUnit-compatible runner.
-- Standalone harness tambahan lulus untuk:
-  - progres basis-point;
-  - smoothing kecepatan;
-  - ETA;
-  - serialisasi finalization state;
-  - immutable UI snapshot comparison.
-- Resource reference dan manifest class checks lulus setelah Android framework resources dikecualikan.
-- Version metadata dan GitHub artifact names selaras pada v0.9.89.
+- Parsed all production and unit-test Java sources with `javalang`.
+- Parsed all Android XML resources and the manifest.
+- Checked duplicate Java method signatures.
+- Verified drawable references introduced by the tab-space UI.
+- Compiled and executed the pure-Java `BrowserSpacePolicy` smoke test.
+- Verified version metadata and GitHub Actions artifact names.
+- Verified ZIP integrity after packaging.
 
-## Skenario yang dicakup
+## Tab-space scenarios checked at source level
 
-1. File >100 MB mengubah progres tanpa membangun ulang seluruh daftar.
-2. Beberapa download aktif hanya memperbarui row masing-masing.
-3. Speed berfluktuasi tetapi teks kecepatan tetap stabil.
-4. ETA diperbarui dari throughput rata-rata.
-5. Network transfer selesai lalu UI berpindah ke **Memverifikasi**.
-6. Copy ke Downloads menampilkan progres **Menyimpan**.
-7. Copy gagal membersihkan partial destination dan staging file tetap dapat dibuka.
-8. Copy berhasil menghapus staging file dan memakai content URI.
-9. Proses berhenti saat finalisasi lalu dipulihkan tanpa mengunduh ulang payload lengkap.
-10. HLS menampilkan progres segmen secara benar.
-11. Activity masuk background dan UI ticker berhenti tanpa menghentikan download engine.
-12. Unduhan dimulai tanpa membuka Download Manager secara paksa.
+1. Normal tab switcher opens with **Umum** selected.
+2. Selecting **Privat** brings the dedicated private task forward on Android 9+.
+3. Selecting **Umum** from the private task brings the normal task forward.
+4. The `+` action follows the selected space.
+5. Closing the final dedicated private tab returns to the normal task.
+6. Opening a bookmark in a private tab passes the URL through an intent to the private process.
+7. Legacy Android 6–8 keeps the selector local because separate WebView data directories are unavailable.
 
-## Batas lingkungan
+## Environment limitation
 
-APK Android penuh belum dikompilasi secara lokal karena runtime ini tidak menyediakan Android SDK dan Gradle. Workflow GitHub yang disertakan tetap menjalankan unit test serta build debug/release APK.
-
-## Build configuration correction
-
-- Root `gradle.properties` tersedia dan mengaktifkan AndroidX.
-- Source/dependency scan tidak menemukan penggunaan `android.support.*`, sehingga Jetifier aman dinonaktifkan.
-- Metadata versi aplikasi dan artifact workflow konsisten pada v0.9.89.
-- Kegagalan yang dilaporkan pada `:app:checkDebugAarMetadata` telah ditangani di tingkat konfigurasi project.
+A full Android Gradle build was not executed in this container because Android SDK and Gradle are not installed. The included GitHub Actions workflow remains the authoritative full build check.

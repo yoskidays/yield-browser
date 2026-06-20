@@ -1,47 +1,19 @@
-# Release Notes — YieldBrowser v0.9.89
+# YieldBrowser v0.9.90
 
-## Smooth download UI
+## Professional tab spaces
 
-- Mengganti `ScrollView + LinearLayout` dengan `RecyclerView + ListAdapter + DiffUtil`.
-- Menambahkan stable item ID dan immutable UI snapshot.
-- Menghindari `removeAllViews()` pada setiap perubahan progres.
-- Menambahkan tab **Mengunduh** dan **Selesai**.
-- Menambahkan empty state, filter kategori, pencarian, sorting, dan mode multi-select yang tetap ringan.
+- Added explicit **Umum | Privat** profile selector in the tab switcher.
+- Normal and private tabs remain separate; an existing tab is never converted between profiles.
+- The `+` button creates a tab in the selected profile space.
+- Added a persistent private-profile banner and quick action to return to normal browsing.
+- Added private home actions for opening a normal tab or another private tab.
+- Closing the final private tab automatically returns to the normal browser task.
+- Profile-switch intents bring the existing task forward instead of duplicating activities.
+- Updated profile actions in Quick Menu and Settings.
 
-## Live progress
+## Existing improvements retained
 
-- Progres presisi 0–10.000 dan animasi progress bar.
-- UI ticker 300 ms yang berhenti otomatis ketika Activity berada di background.
-- Exponential moving average untuk kecepatan.
-- Estimasi waktu tersisa berdasarkan throughput stabil.
-- Perbaikan tampilan progres HLS berdasarkan jumlah segmen, bukan mencampur byte dengan jumlah segmen.
-
-## Finalization pipeline
-
-- Menambahkan status `verifying` dan `saving`.
-- Menampilkan progres penyalinan ke MediaStore/SAF.
-- Buffer ekspor dinaikkan menjadi 256 KB.
-- Partial MediaStore/SAF output dibersihkan jika ekspor gagal atau dibatalkan.
-- Staging file dihapus setelah ekspor berhasil.
-- Rename file mendukung content URI/MediaStore setelah staging file dihapus.
-- Pemulihan finalisasi dapat melanjutkan langsung tanpa mengunduh ulang payload yang sudah lengkap.
-
-## Interaction
-
-- Download Manager tidak lagi terbuka otomatis 250 ms setelah unduhan dimulai.
-- Menambahkan banner nonintrusif dengan tombol **Lihat**.
-- Foreground notification menampilkan progres finalisasi yang sebenarnya.
-- Notifikasi antrean lama dibatalkan ketika item mulai menjadi download aktif.
-
-## Tests
-
-- Menambahkan `DownloadUiMetricsTest`.
-- Menambahkan pengujian persistensi status finalisasi.
-- Mempertahankan seluruh pengujian protocol, HLS, storage, tab lifecycle, dan private profile.
-
-## AndroidX build configuration
-
-- Menambahkan root `gradle.properties` dengan `android.useAndroidX=true`.
-- Menonaktifkan Jetifier karena project tidak memakai `android.support.*`.
-- Menambahkan konfigurasi JVM, parallel build, dan Gradle build cache.
-- Memperbaiki kegagalan `:app:checkDebugAarMetadata` pada GitHub Actions.
+- Isolated incognito WebView process/profile.
+- Smooth RecyclerView-based download manager.
+- Validated multipart download engine and background download notification behavior.
+- AndroidX build configuration.
