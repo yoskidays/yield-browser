@@ -78,6 +78,8 @@ import android.widget.Toast;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewFeature;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -2598,7 +2600,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.91";
+        return "0.9.93";
     }
 
     private void showAboutYieldDialog() {
@@ -10434,7 +10436,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                             ? safeBeforePageStarted
                             : getTabReferenceUrl(activeOwner);
                     if ((referenceUrlForDirectImage == null || referenceUrlForDirectImage.length() == 0)) referenceUrlForDirectImage = currentUrl;
-                    if (!isTrustedMainFrameNavigation(url) && isDirectImageMainFrameNavigation(url, referenceUrlForDirectImage)) {
+                    boolean compatibilityFlow = isCompatibilityNavigationFlow(url, referenceUrlForDirectImage)
+                            || isCompatibilityNavigationFlow(url, currentUrl);
+                    if (!compatibilityFlow && !isTrustedMainFrameNavigation(url)
+                            && isDirectImageMainFrameNavigation(url, referenceUrlForDirectImage)) {
                         restoreAfterBlockedNavigation(view, url);
                         return;
                     }
@@ -10442,7 +10447,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         restoreAfterBlockedNavigation(view, url);
                         return;
                     }
-                    if (adBlock && adBlockRedirectBlocker
+                    if (!compatibilityFlow && adBlock && adBlockRedirectBlocker
                             && !isTrustedMainFrameNavigation(url)
                             && !isSearchEngineResultNavigation(url, currentUrl)
                             && (isSuspiciousPopupNavigation(url, currentUrl) || isLikelyAdClickUrl(url))) {
@@ -10469,9 +10474,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 if (commitOwner != null) commitOwner.currentPageUrlForRequest = finalUrl;
                 syncNightModeWebSettingsForUrl(finalUrl);
                 scheduleNightModeSyncForPage(finalUrl);
-                if (adBlock) {
+                boolean compatibilityPage = isStrictSiteCompatibilityUrl(finalUrl)
+                        || isSiteCompatibilityModeActiveForUrl(finalUrl);
+                if (adBlock && !compatibilityPage) {
                     injectAdBlockCssEarly();
                     if (hasUserFiltersForCurrentHost()) applyUserFiltersForCurrentPage();
+                } else if (compatibilityPage) {
+                    scheduleUniversalReaderCompatibilityRepair(finalUrl);
                 }
             }
 
@@ -10512,8 +10521,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     cancelSmoothSearchTransition();
                 }
                 if (pageReloadGuarded) {
-                    // v0.9.60: situs compatibility tetap harus mengikuti Desktop/Mobile toggle.
-                    // Jangan inject adblock/fitur berat, cukup profile + viewport sesuai mode aktif.
+                    // Compatibility pages keep first-party scripts/images untouched. Apply only
+                    // browser profile, viewport, safe night mode, and targeted content repair.
+                    applyPlainCompatibilitySettings();
+                    scheduleNightModeSyncForPage(finalUrl);
+                    scheduleUniversalReaderCompatibilityRepair(finalUrl);
                     if (desktopMode) {
                         mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 350);
                         mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1200);
@@ -10542,6 +10554,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         }
                     }
                     scheduleUniversalBlankCompatibilityRecovery(finalUrl);
+                    scheduleUniversalReaderCompatibilityRepair(finalUrl);
                     updateVideoControlsVisibility();
                 }
                 if (currentTab == null) currentTab = getCurrentTab();
@@ -10712,17 +10725,32 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
     }
 
+    private boolean isAlgorithmicDarkeningSupported() {
+        try {
+            return WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private void applyAlgorithmicDarkening(WebSettings settings, boolean active) {
+        if (settings == null) return;
+        try {
+            // WebSettings#setForceDark is a no-op for apps targeting API 33+.
+            // AndroidX WebKit delegates this call to the installed WebView provider,
+            // so Android 10/11 can use algorithmic darkening when the provider supports it.
+            if (isAlgorithmicDarkeningSupported()) {
+                WebSettingsCompat.setAlgorithmicDarkeningAllowed(settings, active);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private void syncNightModeWebSettingsForUrl(String url) {
         if (webView == null) return;
         boolean active = isNightModeActiveForUrl(url);
         try {
-            WebSettings settings = webView.getSettings();
-            if (Build.VERSION.SDK_INT >= 29) {
-                settings.setForceDark(active ? WebSettings.FORCE_DARK_ON : WebSettings.FORCE_DARK_OFF);
-            }
-            if (Build.VERSION.SDK_INT >= 33) {
-                settings.setAlgorithmicDarkeningAllowed(active);
-            }
+            applyAlgorithmicDarkening(webView.getSettings(), active);
         } catch (Exception ignored) {
         }
         try {
@@ -10774,54 +10802,62 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private void applyNightModeToWebPage() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) return;
         String pageUrl = getEffectiveCurrentUrl();
-        if (isSiteCompatibilityModeActiveForUrl(pageUrl)) return;
+        boolean compatibilityMode = isSiteCompatibilityModeActiveForUrl(pageUrl)
+                || isStrictSiteCompatibilityUrl(pageUrl);
 
         syncNightModeWebSettingsForUrl(pageUrl);
         boolean active = isNightModeActiveForUrl(pageUrl);
+        boolean algorithmic = isAlgorithmicDarkeningSupported();
 
         String js;
         if (active) {
-            // v0.9.47: Night ON memasang style gelap tunggal dan membersihkan style light-off.
-            js =
-                    "javascript:(function(){"
-                            + "try{"
-                            + "var light=document.getElementById('yield-light-style');if(light)light.remove();"
-                            + "var id='yield-night-style';"
-                            + "var old=document.getElementById(id);if(old)old.remove();"
-                            + "var s=document.createElement('style');s.id=id;"
-                            + "s.innerHTML="
-                            + "'html,body{background:#0b0d10!important;color-scheme:dark!important;}' + "
-                            + "':root{color-scheme:dark!important;}' + "
-                            + "'input,textarea,select{color-scheme:dark!important;}' + "
-                            + "'img,video,canvas,svg,picture{filter:none!important;}';"
-                            + "(document.head||document.documentElement).appendChild(s);"
-                            + "var meta=document.querySelector('meta[name=color-scheme]');"
-                            + "if(!meta){meta=document.createElement('meta');meta.name='color-scheme';(document.head||document.documentElement).appendChild(meta);}"
-                            + "meta.setAttribute('content','dark light');"
-                            + "}"
-                            + "catch(e){}"
-                            + "})()";
+            // When the WebView provider supports algorithmic darkening, keep DOM changes minimal.
+            // This avoids breaking image-heavy/anti-adblock sites while the renderer darkens content.
+            String fallbackCss = algorithmic
+                    ? ":root{color-scheme:dark!important;}html,body{background-color:#0b0d10!important;}input,textarea,select,button{color-scheme:dark!important;}img,video,canvas,svg,picture{filter:none!important;}"
+                    : ":root{color-scheme:dark!important;}html,body{background:#0b0d10!important;color:#e8eaed!important;}"
+                    + "body,main,article,section,aside,header,footer,nav,form,dialog{background-color:#0b0d10!important;color:#e8eaed!important;}"
+                    + "input,textarea,select,button{background-color:#202124!important;color:#e8eaed!important;border-color:#5f6368!important;color-scheme:dark!important;}"
+                    + "a{color:#8ab4f8!important;}hr{border-color:#454950!important;}"
+                    + "img,video,canvas,svg,picture{filter:none!important;}";
+
+            // Compatibility mode still receives the minimal dark contract. Heavy fallback CSS is
+            // intentionally avoided there so chapter images and site layout remain untouched.
+            if (compatibilityMode && !algorithmic) {
+                fallbackCss = ":root{color-scheme:dark!important;}html,body{background:#0b0d10!important;color:#e8eaed!important;}"
+                        + "input,textarea,select,button{color-scheme:dark!important;}img,video,canvas,svg,picture{filter:none!important;}";
+            }
+
+            js = "javascript:(function(){"
+                    + "try{"
+                    + "var light=document.getElementById('yield-light-style');if(light)light.remove();"
+                    + "var id='yield-night-style';var old=document.getElementById(id);if(old)old.remove();"
+                    + "var s=document.createElement('style');s.id=id;s.textContent=\"" + escapeForJsDoubleQuotes(fallbackCss) + "\";"
+                    + "(document.head||document.documentElement).appendChild(s);"
+                    + "var meta=document.querySelector('meta[name=color-scheme]');"
+                    + "if(!meta){meta=document.createElement('meta');meta.name='color-scheme';(document.head||document.documentElement).appendChild(meta);}"
+                    + "meta.setAttribute('content','dark light');"
+                    + "document.documentElement.style.colorScheme='dark';"
+                    + "if(document.body)document.body.style.colorScheme='dark';"
+                    + "}catch(e){}"
+                    + "})()";
         } else {
-            // v0.9.47: OFF harus menang melawan bfcache/history dan sisa dark CSS sebelumnya.
-            // Karena beberapa halaman tersimpan dari riwayat membawa DOM gelap lama, pasang light guard ringan.
-            js =
-                    "javascript:(function(){"
-                            + "try{"
-                            + "var ids=['yield-night-style','yield-dark-style','yield-force-dark'];"
-                            + "for(var i=0;i<ids.length;i++){var x=document.getElementById(ids[i]);if(x)x.remove();}"
-                            + "var html=document.documentElement;"
-                            + "if(html){html.style.colorScheme='light';html.style.background='';html.style.backgroundColor='';html.classList.remove('dark','night','night-mode','dark-mode');}"
-                            + "if(document.body){document.body.style.colorScheme='light';document.body.style.background='';document.body.style.backgroundColor='';document.body.style.color='';document.body.classList.remove('dark','night','night-mode','dark-mode');}"
-                            + "var meta=document.querySelector('meta[name=color-scheme]');"
-                            + "if(!meta){meta=document.createElement('meta');meta.name='color-scheme';(document.head||document.documentElement).appendChild(meta);}"
-                            + "meta.setAttribute('content','light');"
-                            + "var light=document.getElementById('yield-light-style');if(light)light.remove();"
-                            + "light=document.createElement('style');light.id='yield-light-style';"
-                            + "light.innerHTML=':root,html,body{color-scheme:light!important;} html,body{background:#ffffff!important;} input,textarea,select{color-scheme:light!important;} img,video,canvas,svg,picture{filter:none!important;}';"
-                            + "(document.head||document.documentElement).appendChild(light);"
-                            + "}"
-                            + "catch(e){}"
-                            + "})()";
+            js = "javascript:(function(){"
+                    + "try{"
+                    + "var ids=['yield-night-style','yield-dark-style','yield-force-dark'];"
+                    + "for(var i=0;i<ids.length;i++){var x=document.getElementById(ids[i]);if(x)x.remove();}"
+                    + "var html=document.documentElement;"
+                    + "if(html){html.style.colorScheme='light';html.style.background='';html.style.backgroundColor='';html.classList.remove('dark','night','night-mode','dark-mode');}"
+                    + "if(document.body){document.body.style.colorScheme='light';document.body.style.background='';document.body.style.backgroundColor='';document.body.style.color='';document.body.classList.remove('dark','night','night-mode','dark-mode');}"
+                    + "var meta=document.querySelector('meta[name=color-scheme]');"
+                    + "if(!meta){meta=document.createElement('meta');meta.name='color-scheme';(document.head||document.documentElement).appendChild(meta);}"
+                    + "meta.setAttribute('content','light');"
+                    + "var light=document.getElementById('yield-light-style');if(light)light.remove();"
+                    + "light=document.createElement('style');light.id='yield-light-style';"
+                    + "light.textContent=':root,html,body{color-scheme:light!important;}html,body{background:#ffffff!important;}input,textarea,select{color-scheme:light!important;}img,video,canvas,svg,picture{filter:none!important;}';"
+                    + "(document.head||document.documentElement).appendChild(light);"
+                    + "}catch(e){}"
+                    + "})()";
         }
 
         try {
@@ -11185,13 +11221,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
 
         try {
-            boolean activeNight = isNightModeActiveForCurrentSite();
-            if (Build.VERSION.SDK_INT >= 29) {
-                settings.setForceDark(activeNight ? WebSettings.FORCE_DARK_ON : WebSettings.FORCE_DARK_OFF);
-            }
-            if (Build.VERSION.SDK_INT >= 33) {
-                settings.setAlgorithmicDarkeningAllowed(activeNight);
-            }
+            applyAlgorithmicDarkening(settings, isNightModeActiveForCurrentSite());
         } catch (Exception ignored) {
         }
 
@@ -11343,6 +11373,55 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         return false;
     }
 
+    private boolean isCompatibilityNavigationFlow(String targetUrl, String sourceUrl) {
+        try {
+            boolean compatibility = isSiteCompatibilityModeActiveForUrl(targetUrl)
+                    || isSiteCompatibilityModeActiveForUrl(sourceUrl)
+                    || isStrictSiteCompatibilityUrl(targetUrl)
+                    || isStrictSiteCompatibilityUrl(sourceUrl);
+            if (!compatibility) return false;
+            String targetHost = hostOfUrl(targetUrl);
+            String sourceHost = hostOfUrl(sourceUrl);
+            if (targetHost.length() == 0 || sourceHost.length() == 0) return compatibility;
+            return sameOrSubDomain(targetHost, sourceHost) || sameOrSubDomain(sourceHost, targetHost);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void repairUniversalReaderPage(String url) {
+        if (webView == null || !ReaderCompatibilityPolicy.isEligiblePageUrl(url)) return;
+        runPageScript(UniversalReaderRepairScript.build());
+    }
+
+    private void scheduleUniversalReaderCompatibilityRepair(String url) {
+        if (!ReaderCompatibilityPolicy.isEligiblePageUrl(url)) return;
+        final TabInfo expectedTab = findTabByWebView(webView);
+        final WebView expectedView = webView;
+        if (expectedTab == null || expectedView == null) return;
+        final String expectedHost = hostOfUrl(url);
+        final boolean compatibilityMode = isStrictSiteCompatibilityUrl(url)
+                || isSiteCompatibilityModeActiveForUrl(url)
+                || isReloadLoopGuardActiveForUrl(url);
+        final boolean readerPathHint = ReaderCompatibilityPolicy.hasReaderPathHint(url);
+        long[] schedule = ReaderCompatibilityPolicy.retrySchedule(compatibilityMode, readerPathHint);
+        for (long delay : schedule) {
+            postForActiveTab(expectedTab, expectedView, delay, () -> {
+                try {
+                    String active = extractOriginalUrl(expectedView.getUrl());
+                    if (active == null || active.length() == 0) active = expectedTab.currentPageUrlForRequest;
+                    if (!ReaderCompatibilityPolicy.isEligiblePageUrl(active)) return;
+                    String activeHost = hostOfUrl(active);
+                    if (expectedHost.length() > 0 && activeHost.length() > 0
+                            && !sameOrSubDomain(activeHost, expectedHost)
+                            && !sameOrSubDomain(expectedHost, activeHost)) return;
+                    repairUniversalReaderPage(active);
+                } catch (Exception ignored) {
+                }
+            });
+        }
+    }
+
     private void applyPlainCompatibilitySettings() {
         if (webView == null) return;
         try {
@@ -11351,6 +11430,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             settings.setDomStorageEnabled(true);
             settings.setDatabaseEnabled(true);
             settings.setLoadsImagesAutomatically(true);
+            try { settings.setBlockNetworkImage(false); } catch (Exception ignored) {}
             settings.setCacheMode(isPrivateWebView(webView) ? WebSettings.LOAD_NO_CACHE : WebSettings.LOAD_DEFAULT);
             settings.setJavaScriptCanOpenWindowsAutomatically(true);
             settings.setSupportMultipleWindows(false);
@@ -11364,7 +11444,9 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (desktopMode) applyDesktopProfile(settings);
             else applyMobileProfile(settings);
             applyProfileCookiePolicy(webView);
-            try { webView.setBackgroundColor(Color.WHITE); } catch (Exception ignored) {}
+            boolean activeNight = isNightModeActiveForCurrentSite();
+            applyAlgorithmicDarkening(settings, activeNight);
+            try { webView.setBackgroundColor(activeNight ? COLOR_BG : Color.WHITE); } catch (Exception ignored) {}
         } catch (Exception ignored) {
         }
     }
@@ -11406,6 +11488,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         expectedView.setVisibility(View.VISIBLE);
                     }
                     expectedView.setAlpha(1f);
+                    scheduleUniversalReaderCompatibilityRepair(active);
                 }
             } catch (Exception ignored) {
             }
