@@ -114,4 +114,22 @@ public final class DownloadHistoryCodecTest {
         assertEquals(100, restored.part1Done);
         assertEquals(150, restored.part2Done);
     }
+
+    @Test
+    public void savingDownloadRestoresAsRecoverablePause() {
+        DownloadItem source = new DownloadItem(1, "https://example.com/large.bin",
+                "large.bin", "/tmp/large.bin", "saving", 100);
+        source.finalizeProgress = 73;
+        source.finalizeBytes = 730;
+        source.finalizeTotalBytes = 1_000;
+
+        DownloadItem restored = DownloadHistoryCodec.deserialize(
+                DownloadHistoryCodec.serialize(source), 2);
+
+        assertNotNull(restored);
+        assertEquals("paused", restored.status);
+        assertEquals(0, restored.finalizeProgress);
+        assertEquals(730, restored.finalizeBytes);
+        assertEquals(1_000, restored.finalizeTotalBytes);
+    }
 }

@@ -76,6 +76,9 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
@@ -110,7 +113,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 
-public final class MainActivity extends Activity {
+public class MainActivity extends Activity {
 
     // ===== UI references =====
 
@@ -157,14 +160,36 @@ public final class MainActivity extends Activity {
     private String webHorizontalGestureGuardHost = "";
 
     // ===== Download manager UI state =====
-    private LinearLayout activeDownloadListPanel;
+    private RecyclerView activeDownloadRecyclerView;
+    private DownloadListAdapter activeDownloadAdapter;
+    private LinearLayout activeDownloadCategoryPanel;
+    private LinearLayout activeDownloadControlsPanel;
+    private TextView activeDownloadTitleView;
+    private TextView activeDownloadStorageView;
+    private TextView activeDownloadRunningTab;
+    private TextView activeDownloadCompletedTab;
+    private TextView activeDownloadEmptyView;
     private Dialog activeDownloadDialog;
+    private String activeDownloadSection = "Mengunduh";
+    private boolean downloadUiTickerRunning;
+    private final Runnable downloadUiTicker = new Runnable() {
+        @Override
+        public void run() {
+            if (!downloadUiTickerRunning || activeDownloadDialog == null
+                    || !activeDownloadDialog.isShowing()) return;
+            renderDownloadList();
+            mainHandler.postDelayed(this, 300L);
+        }
+    };
     private String activeDownloadCategory = "Semua";
     private String activeDownloadSearchQuery = "";
     private String activeDownloadSort = "Tanggal";
     private boolean downloadSelectMode = false;
     private final Set<Integer> selectedDownloadIds = new HashSet<>();
     private final Object downloadHistoryLock = new Object();
+    private String lastDownloadControlsSignature = "";
+    private long lastDownloadStorageUiMs;
+    private String cachedDownloadStorageText = "Penyimpanan tersedia";
 
     private int tabCount = 1;
     private int nextDownloadId = 1000;
@@ -258,6 +283,8 @@ public final class MainActivity extends Activity {
     // menjadi URL tab video/YouTube yang baru ditutup.
     private boolean skipNextSwitchTabStateSave = false;
     private boolean historyClearLock = false;
+    /** True only inside the dedicated :incognito WebView process/profile. */
+    private boolean dedicatedPrivateProfile = false;
 
     // ===== Navigation and compatibility guards =====
     // v0.9.41: guard untuk situs yang memaksa reload berulang.
@@ -367,14 +394,39 @@ public final class MainActivity extends Activity {
 
 
     // ===== Activity lifecycle =====
+    /** Overridden by PrivateBrowserActivity, which runs in a separate WebView data-directory process. */
+    protected boolean useDedicatedPrivateProfile() {
+        return false;
+    }
+
+    private TabInfo createProfileTab(String normalTitle, String privateTitle, String url,
+                                     boolean requestedPrivate, boolean adTab) {
+        boolean privateTab = dedicatedPrivateProfile || requestedPrivate;
+        String title = privateTab ? privateTitle : normalTitle;
+        return new TabInfo(title, url, privateTab, adTab);
+    }
+
+    private TabInfo createProfileTab(String normalTitle, String privateTitle, String url,
+                                     boolean requestedPrivate) {
+        return createProfileTab(normalTitle, privateTitle, url, requestedPrivate, false);
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        dedicatedPrivateProfile = useDedicatedPrivateProfile();
+        if (dedicatedPrivateProfile && !YieldBrowserApplication.isIncognitoProfileReady()) {
+            Toast.makeText(this, "Profil privat terisolasi tidak tersedia pada perangkat ini",
+                    Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
         loadSettings();
         loadDownloadHistory();
         loadShortcuts();
-        loadBrowserHistory();
+        if (!dedicatedPrivateProfile) loadBrowserHistory();
+        else historyData.clear();
         loadBookmarkData();
         restoreTabsSession();
         ensureDefaultTab();
@@ -401,8 +453,9 @@ public final class MainActivity extends Activity {
         homeScroll = createHomeContent();
         contentFrame.addView(homeScroll, new FrameLayout.LayoutParams(-1, -1));
 
-        webView = createBrowserWebView(View.GONE);
-        try { getCurrentTab().webView = webView; } catch (Exception ignored) {}
+        TabInfo initialTab = getCurrentTab();
+        webView = createBrowserWebView(initialTab, View.GONE);
+        try { initialTab.webView = webView; } catch (Exception ignored) {}
         contentFrame.addView(webView, new FrameLayout.LayoutParams(-1, -1));
 
         navigationLoadingOverlay = createNavigationLoadingOverlay();
@@ -469,12 +522,16 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        downloadUiTickerRunning = false;
+        mainHandler.removeCallbacks(downloadUiTicker);
         try {
             saveCurrentTabState();
-            saveTabsSession();
-            recordCurrentPageToHistory();
-            recordWebViewBackForwardHistory();
-            saveBrowserHistory();
+            if (!dedicatedPrivateProfile) {
+                saveTabsSession();
+                recordCurrentPageToHistory();
+                recordWebViewBackForwardHistory();
+                saveBrowserHistory();
+            }
         } catch (Exception ignored) {}
         if (videoBackgroundPlay && webView != null && !isYouTubePlaybackUrl(getEffectiveCurrentUrl())) {
             try {
@@ -489,10 +546,12 @@ public final class MainActivity extends Activity {
     protected void onStop() {
         try {
             saveCurrentTabState();
-            saveTabsSession();
-            recordCurrentPageToHistory();
-            recordWebViewBackForwardHistory();
-            saveBrowserHistory();
+            if (!dedicatedPrivateProfile) {
+                saveTabsSession();
+                recordCurrentPageToHistory();
+                recordWebViewBackForwardHistory();
+                saveBrowserHistory();
+            }
         } catch (Exception ignored) {}
         super.onStop();
     }
@@ -500,20 +559,66 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        loadBrowserHistory();
+        if (!dedicatedPrivateProfile) loadBrowserHistory();
         handleOpenDownloadsIntent(getIntent());
+        if (activeDownloadDialog != null && activeDownloadDialog.isShowing()) {
+            downloadUiTickerRunning = true;
+            mainHandler.removeCallbacks(downloadUiTicker);
+            mainHandler.post(downloadUiTicker);
+        }
     }
 
     @Override
     protected void onDestroy() {
+        downloadUiTickerRunning = false;
+        mainHandler.removeCallbacks(downloadUiTicker);
+        try {
+            if (activeDownloadDialog != null && activeDownloadDialog.isShowing()) {
+                activeDownloadDialog.dismiss();
+            }
+        } catch (Exception ignored) {}
         try {
             saveCurrentTabState();
-            saveTabsSession();
-            recordCurrentPageToHistory();
-            recordWebViewBackForwardHistory();
-            saveBrowserHistory();
+            if (!dedicatedPrivateProfile) {
+                saveTabsSession();
+                recordCurrentPageToHistory();
+                recordWebViewBackForwardHistory();
+                saveBrowserHistory();
+            }
+            for (int i = tabs.size() - 1; i >= 0; i--) {
+                TabInfo tab = tabs.get(i);
+                if (tab != null) {
+                    tab.closed = true;
+                    destroyTabWebView(tab);
+                }
+            }
+            tabs.clear();
         } catch (Exception ignored) {}
         super.onDestroy();
+    }
+
+    private void discardPrivateTabsForExplicitExit() {
+        try {
+            invalidateTabScopedAsyncWork();
+            for (int i = tabs.size() - 1; i >= 0; i--) {
+                TabInfo tab = tabs.get(i);
+                if (tab == null || !tab.privateTab) continue;
+                tab.closed = true;
+                destroyTabWebView(tab);
+                tabs.remove(i);
+            }
+            if (tabs.isEmpty()) tabs.add(createProfileTab("Tab utama", "Tab privat", "", false));
+            currentTabIndex = Math.max(0, Math.min(currentTabIndex, tabs.size() - 1));
+            TabInfo active = getCurrentTab();
+            activateNavigationContextForTab(active);
+            webView = active.webView;
+            if (addressBar != null) addressBar.setText(active.url == null ? "" : active.url);
+            // Prevent onPause/onStop/onDestroy from using stale private address-bar text as a
+            // fallback for an empty normal tab after the private tab has been discarded.
+            skipNextShowHomeTabSave = true;
+            saveTabsSession();
+        } catch (Exception ignored) {
+        }
     }
 
     private void handleOpenDownloadsIntent(Intent intent) {
@@ -953,7 +1058,7 @@ content.addView(space(dp(36)));
         nav.setPadding(dp(8), dp(4), dp(8), dp(6));
         nav.setBackgroundColor(Color.parseColor("#090A0D"));
 
-        nav.addView(bottomNavButton(R.drawable.ic_home, "Home", v -> showHome()));
+        nav.addView(bottomNavButton(R.drawable.ic_home, "Home", v -> navigateCurrentTabHome()));
         nav.addView(bottomNavButton(R.drawable.ic_bookmark, "Bookmark", v -> showBookmarkList()));
         nav.addView(bottomNavButton(R.drawable.ic_search, "Search", v -> {
             if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE && homeSearchInput != null) {
@@ -1008,15 +1113,81 @@ content.addView(space(dp(36)));
         return item;
     }
 
+    private static final class WebViewBinding {
+        final TabInfo tab;
+        final long generation;
+
+        WebViewBinding(TabInfo tab, long generation) {
+            this.tab = tab;
+            this.generation = generation;
+        }
+    }
+
     private TabInfo findTabByWebView(WebView candidate) {
         if (candidate == null) return null;
         try {
+            Object tag = candidate.getTag();
+            if (tag instanceof WebViewBinding) {
+                WebViewBinding binding = (WebViewBinding) tag;
+                TabInfo owner = binding.tab;
+                if (owner != null && !owner.closed && owner.webView == candidate
+                        && owner.webViewGeneration == binding.generation) {
+                    return owner;
+                }
+                return null;
+            }
+            // Legacy fallback for a WebView created before bindings were introduced.
             for (TabInfo tab : tabs) {
-                if (tab != null && tab.webView == candidate) return tab;
+                if (tab != null && !tab.closed && tab.webView == candidate) return tab;
             }
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    private boolean isLiveTabWebView(TabInfo tab, WebView candidate, long generation) {
+        return tab != null && !tab.closed && candidate != null
+                && tab.webView == candidate && tab.webViewGeneration == generation
+                && findTabByWebView(candidate) == tab;
+    }
+
+    private boolean isPrivateWebView(WebView candidate) {
+        if (dedicatedPrivateProfile) return true;
+        if (candidate == null) return false;
+        try {
+            Object tag = candidate.getTag();
+            if (tag instanceof WebViewBinding) {
+                TabInfo owner = ((WebViewBinding) tag).tab;
+                if (owner != null) return owner.privateTab;
+            }
+        } catch (Exception ignored) {
+        }
+        TabInfo owner = findTabByWebView(candidate);
+        return owner != null && owner.privateTab;
+    }
+
+    private void applyProfileCookiePolicy(WebView candidate) {
+        if (candidate == null) return;
+        try {
+            CookieManager manager = CookieManager.getInstance();
+            // Cookies remain enabled inside the profile so logins work. In the dedicated private
+            // process they are stored in the incognito data directory and deleted on profile exit.
+            manager.setAcceptCookie(true);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                manager.setAcceptThirdPartyCookies(candidate,
+                        PrivateProfilePolicy.allowThirdPartyCookies(isPrivateWebView(candidate)));
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void postForActiveTab(TabInfo tab, WebView candidate, long delayMs, Runnable action) {
+        if (tab == null || candidate == null || action == null) return;
+        final long generation = tab.webViewGeneration;
+        mainHandler.postDelayed(() -> {
+            if (!isLiveTabWebView(tab, candidate, generation) || !isCurrentTabInfo(tab)) return;
+            action.run();
+        }, delayMs);
     }
 
     private void attachWebViewToContentFrame(WebView candidate) {
@@ -1042,16 +1213,17 @@ content.addView(space(dp(36)));
 
     private WebView ensureTabWebView(TabInfo tab, int visibility) {
         if (tab == null) return webView;
+        if (tab.closed) return null;
         try {
             if (tab.webView == null) {
-                WebView created = createBrowserWebView(visibility);
+                WebView created = createBrowserWebView(tab, visibility);
                 tab.webView = created;
                 attachWebViewToContentFrame(created);
             } else {
                 webView = tab.webView;
                 attachWebViewToContentFrame(webView);
                 try { applyBrowserSettings(); } catch (Exception ignored) {}
-                try { CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true); } catch (Exception ignored) {}
+                try { applyProfileCookiePolicy(webView); } catch (Exception ignored) {}
                 webView.setVisibility(visibility);
             }
             return tab.webView;
@@ -1071,8 +1243,50 @@ content.addView(space(dp(36)));
         }
     }
 
+    private void invalidateTabScopedAsyncWork() {
+        translateSessionToken++;
+        nightModeApplyToken++;
+        browserModeToken++;
+        pendingHideKeyboardAfterNavigation = false;
+        cancelSmoothSearchTransition();
+    }
+
+    private void activateNavigationContextForTab(TabInfo tab) {
+        if (tab == null || tab.closed) {
+            currentPageUrlForRequest = "";
+            lastSafeHttpUrl = "";
+            trustedMainFrameHost = "";
+            trustedMainFrameUntilMs = 0L;
+            return;
+        }
+        String activeUrl = cleanTabSessionUrl(tab.currentPageUrlForRequest);
+        if (activeUrl.length() == 0) activeUrl = cleanTabSessionUrl(tab.url);
+        String safeUrl = cleanTabSessionUrl(tab.lastSafeUrl);
+        if (safeUrl.length() == 0) safeUrl = activeUrl;
+        currentPageUrlForRequest = activeUrl;
+        lastSafeHttpUrl = safeUrl;
+
+        // Trust windows are navigation-scoped, never transferable between tabs.
+        trustedMainFrameHost = "";
+        trustedMainFrameUntilMs = 0L;
+        reloadLoopLastKey = "";
+        reloadLoopWindowStartMs = 0L;
+        reloadLoopCount = 0;
+        reloadLoopGuardHost = "";
+        reloadLoopGuardKey = "";
+        reloadLoopGuardUntilMs = 0L;
+        siteCompatibilityHost = "";
+        siteCompatibilityUntilMs = 0L;
+        autoCompatibilityRecoveryHost = "";
+        autoCompatibilityRecoveryKey = "";
+        autoCompatibilityRecoveryUntilMs = 0L;
+        webHorizontalGestureGuard = false;
+        webHorizontalGestureGuardHost = "";
+    }
+
     private void activateTabWebView(TabInfo tab, boolean showWebPage) {
         try {
+            activateNavigationContextForTab(tab);
             WebView target = ensureTabWebView(tab, showWebPage ? View.VISIBLE : View.GONE);
             webView = target;
             hideInactiveTabWebViews(target);
@@ -1084,13 +1298,33 @@ content.addView(space(dp(36)));
     }
 
     private void destroyTabWebView(TabInfo tab) {
-        if (tab == null || tab.webView == null) return;
+        if (tab == null) return;
         WebView doomed = tab.webView;
         tab.webView = null;
-        try { doomed.stopLoading(); } catch (Exception ignored) {}
-        try { if (contentFrame != null) contentFrame.removeView(doomed); } catch (Exception ignored) {}
-        try { doomed.destroy(); } catch (Exception ignored) {}
+        tab.webViewGeneration++;
+        if (doomed == null) return;
+
+        // Detach ownership and callbacks before stopping the renderer. A late about:blank/error
+        // callback must never be interpreted as navigation belonging to the replacement tab.
         if (webView == doomed) webView = null;
+        if (tab.privateTab) {
+            try { doomed.clearHistory(); } catch (Exception ignored) {}
+            try { doomed.clearFormData(); } catch (Exception ignored) {}
+            try { doomed.clearSslPreferences(); } catch (Exception ignored) {}
+            try { doomed.clearCache(true); } catch (Exception ignored) {}
+        }
+        try { doomed.setTag(null); } catch (Exception ignored) {}
+        try { doomed.setDownloadListener(null); } catch (Exception ignored) {}
+        try { doomed.removeJavascriptInterface("YieldVideoBridge"); } catch (Exception ignored) {}
+        try { doomed.removeJavascriptInterface("YieldAdBlockBridge"); } catch (Exception ignored) {}
+        try { doomed.removeJavascriptInterface("YieldTranslateBridge"); } catch (Exception ignored) {}
+        try { doomed.setWebViewClient(new WebViewClient()); } catch (Exception ignored) {}
+        try { doomed.setWebChromeClient(new WebChromeClient()); } catch (Exception ignored) {}
+        try { doomed.stopLoading(); } catch (Exception ignored) {}
+        try { doomed.loadUrl("about:blank"); } catch (Exception ignored) {}
+        try { if (contentFrame != null) contentFrame.removeView(doomed); } catch (Exception ignored) {}
+        try { doomed.removeAllViews(); } catch (Exception ignored) {}
+        try { doomed.destroy(); } catch (Exception ignored) {}
     }
 
     private boolean hasLivePage(WebView candidate) {
@@ -1107,7 +1341,7 @@ content.addView(space(dp(36)));
 
     private void ensureDefaultTab() {
         if (tabs.isEmpty()) {
-            tabs.add(new TabInfo("Tab utama", "", false));
+            tabs.add(createProfileTab("Tab utama", "Tab privat", "", false));
         }
         currentTabIndex = Math.max(0, Math.min(currentTabIndex, tabs.size() - 1));
         tabCount = tabs.size();
@@ -1123,7 +1357,8 @@ content.addView(space(dp(36)));
     }
     private boolean isCurrentTabInfo(TabInfo tab) {
         try {
-            return tab != null && !tabs.isEmpty() && currentTabIndex >= 0 && currentTabIndex < tabs.size() && tabs.get(currentTabIndex) == tab;
+            return tab != null && !tab.closed && !tabs.isEmpty() && currentTabIndex >= 0
+                    && currentTabIndex < tabs.size() && tabs.get(currentTabIndex) == tab;
         } catch (Exception e) {
             return false;
         }
@@ -1138,7 +1373,7 @@ content.addView(space(dp(36)));
     }
 
     private void prepareTabForMainFrameNavigation(TabInfo tab, String url) {
-        if (tab == null || url == null || url.trim().length() == 0) return;
+        if (tab == null || tab.closed || url == null || url.trim().length() == 0) return;
         try {
             String clean = cleanTabSessionUrl(url);
             if (!isHttpOrHttpsUrl(clean)) return;
@@ -1206,7 +1441,7 @@ content.addView(space(dp(36)));
     }
 
     private void syncTabIsolationAfterCommit(TabInfo tab, String url) {
-        if (tab == null || url == null) return;
+        if (tab == null || tab.closed || url == null) return;
         try {
             String host = BrowserUrlUtils.safeHostForTabIsolation(url);
             if (host.length() > 0) tab.isolationHost = host;
@@ -1269,7 +1504,7 @@ content.addView(space(dp(36)));
         if (clean.length() == 0) return true;
         if (tab != null && tab.adTab) return true;
         if (!isRestorableTabSessionUrl(clean)) return false;
-        if (tab == null) return false;
+        if (tab == null || tab.closed) return false;
 
         // v0.9.84-smart-isolation: URL hanya boleh masuk ke tab pemiliknya sendiri.
         // Jika domain berbeda tanpa navigasi user/trusted, anggap itu stale state dari tab lain,
@@ -1293,7 +1528,7 @@ content.addView(space(dp(36)));
     }
 
     private void commitTabUrlIfSafe(TabInfo tab, String candidateUrl, String candidateTitle) {
-        if (tab == null) return;
+        if (tab == null || tab.closed) return;
         String clean = cleanTabSessionUrl(candidateUrl);
         if (tab.adTab) {
             tab.url = clean;
@@ -1326,16 +1561,40 @@ content.addView(space(dp(36)));
         return url.length() == 0 ? "" : null;
     }
 
+    private boolean isPersistableTab(TabInfo tab) {
+        return tab != null && TabSessionPolicy.shouldPersist(tab.closed, tab.privateTab, tab.adTab);
+    }
+
+    private TabInfo findPersistedSelectionCandidate() {
+        if (tabs.isEmpty()) return null;
+        boolean[] persistable = new boolean[tabs.size()];
+        for (int i = 0; i < tabs.size(); i++) persistable[i] = isPersistableTab(tabs.get(i));
+        int selected = TabSessionPolicy.nearestPersistableIndex(persistable, currentTabIndex);
+        return selected >= 0 ? tabs.get(selected) : null;
+    }
+
     private void restoreTabsSession() {
+        if (dedicatedPrivateProfile) {
+            tabs.clear();
+            tabs.add(createProfileTab("Tab utama", "Tab privat", "", true));
+            currentTabIndex = 0;
+            tabCount = 1;
+            return;
+        }
         try {
             SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
             String raw = p.getString(KEY_TABS_SESSION_V1, "");
             if (raw == null || raw.trim().length() == 0) return;
 
+            int requestedIndex = Math.max(0, p.getInt(KEY_TABS_CURRENT_INDEX_V1, 0));
+            int restoredAtOrBefore = -1;
+            int firstRestoredAfter = -1;
+            int serializedIndex = 0;
             ArrayList<TabInfo> restored = new ArrayList<>();
             String[] rows = raw.split("\n");
             for (String row : rows) {
                 if (row == null || row.trim().length() == 0) continue;
+                int rowIndex = serializedIndex++;
                 String[] parts = row.split("\t", -1);
                 if (parts.length < 4) continue;
                 String title = decode(parts[0]);
@@ -1343,25 +1602,35 @@ content.addView(space(dp(36)));
                 boolean privateTab = "1".equals(parts[2]);
                 boolean adTab = "1".equals(parts[3]);
                 String savedIsolationHost = parts.length >= 5 ? decode(parts[4]) : "";
-                if (adTab) continue; // tab iklan sementara tidak dipulihkan setelah restart.
-                if (title == null || title.trim().length() == 0) title = privateTab ? "Tab privat" : "Tab baru";
+                String savedTabId = parts.length >= 6 ? decode(parts[5]) : "";
+
+                // Private/ad tabs are intentionally ephemeral. Legacy private rows are discarded
+                // during migration so they cannot leak into a future normal browsing session.
+                if (privateTab || adTab) continue;
+                if (title == null || title.trim().length() == 0) title = "Tab baru";
                 if (url == null) url = "";
                 url = cleanTabSessionUrl(url);
                 if (url.length() > 0 && !isRestorableTabSessionUrl(url)) continue;
-                TabInfo restoredTab = new TabInfo(title, url, privateTab, false);
+
+                TabInfo restoredTab = new TabInfo(savedTabId, title, url, false, false);
                 if (url.length() > 0) {
                     restoredTab.lastSafeUrl = url;
                     restoredTab.lastSafeTitle = title;
                     restoredTab.currentPageUrlForRequest = url;
-                    String host = savedIsolationHost != null && savedIsolationHost.length() > 0 ? savedIsolationHost : BrowserUrlUtils.safeHostForTabIsolation(url);
+                    String host = savedIsolationHost != null && savedIsolationHost.length() > 0
+                            ? savedIsolationHost : BrowserUrlUtils.safeHostForTabIsolation(url);
                     restoredTab.isolationHost = host == null ? "" : host;
                 }
+                int newIndex = restored.size();
                 restored.add(restoredTab);
+                if (rowIndex <= requestedIndex) restoredAtOrBefore = newIndex;
+                else if (firstRestoredAfter < 0) firstRestoredAfter = newIndex;
             }
             if (!restored.isEmpty()) {
                 tabs.clear();
                 tabs.addAll(restored);
-                currentTabIndex = Math.max(0, Math.min(p.getInt(KEY_TABS_CURRENT_INDEX_V1, 0), tabs.size() - 1));
+                int selected = restoredAtOrBefore >= 0 ? restoredAtOrBefore : firstRestoredAfter;
+                currentTabIndex = Math.max(0, Math.min(selected < 0 ? 0 : selected, tabs.size() - 1));
                 tabCount = tabs.size();
             }
         } catch (Exception ignored) {
@@ -1369,17 +1638,18 @@ content.addView(space(dp(36)));
     }
 
     private void saveTabsSession() {
+        if (!PrivateProfilePolicy.shouldPersistBrowserSession(dedicatedPrivateProfile)) return;
         try {
             if (tabs.isEmpty()) ensureDefaultTab();
+            TabInfo persistedSelection = findPersistedSelectionCandidate();
             StringBuilder sb = new StringBuilder();
             int savedIndex = 0;
             int savedCount = 0;
-            for (int i = 0; i < tabs.size(); i++) {
-                TabInfo tab = tabs.get(i);
-                if (tab == null || tab.adTab) continue;
+            for (TabInfo tab : tabs) {
+                if (!isPersistableTab(tab)) continue;
                 String url = getSafeUrlForSession(tab);
                 if (url == null) continue;
-                if (i == currentTabIndex) savedIndex = savedCount;
+                if (tab == persistedSelection) savedIndex = savedCount;
                 String title = tab.title == null ? "" : tab.title;
                 if (url.length() > 0 && tab.lastSafeTitle != null && tab.lastSafeTitle.length() > 0
                         && !canCommitUrlToTab(tab, tab.url)) {
@@ -1387,21 +1657,27 @@ content.addView(space(dp(36)));
                 }
                 if (sb.length() > 0) sb.append('\n');
                 String isolationHost = tab.isolationHost == null ? "" : tab.isolationHost;
-                if (isolationHost.length() == 0 && url.length() > 0) isolationHost = BrowserUrlUtils.safeHostForTabIsolation(url);
+                if (isolationHost.length() == 0 && url.length() > 0) {
+                    isolationHost = BrowserUrlUtils.safeHostForTabIsolation(url);
+                }
                 sb.append(encode(title)).append('\t')
                         .append(encode(url)).append('\t')
-                        .append(tab.privateTab ? "1" : "0").append('\t')
-                        .append("0").append('\t')
-                        .append(encode(isolationHost));
+                        .append("0\t0\t")
+                        .append(encode(isolationHost)).append('\t')
+                        .append(encode(tab.id));
                 savedCount++;
             }
             if (savedCount <= 0) {
-                sb.append(encode("Tab utama")).append('\t').append(encode("")).append('\t').append("0\t0\t");
+                TabInfo fallback = createProfileTab("Tab utama", "Tab privat", "", false);
+                sb.append(encode(fallback.title)).append('\t').append(encode(""))
+                        .append("\t0\t0\t\t").append(encode(fallback.id));
                 savedIndex = 0;
+                savedCount = 1;
             }
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putString(KEY_TABS_SESSION_V1, sb.toString())
-                    .putInt(KEY_TABS_CURRENT_INDEX_V1, Math.max(0, Math.min(savedIndex, Math.max(0, savedCount - 1))))
+                    .putInt(KEY_TABS_CURRENT_INDEX_V1,
+                            Math.max(0, Math.min(savedIndex, Math.max(0, savedCount - 1))))
                     .apply();
         } catch (Exception ignored) {
         }
@@ -1411,6 +1687,7 @@ content.addView(space(dp(36)));
         try {
             ensureDefaultTab();
             TabInfo tab = getCurrentTab();
+            activateNavigationContextForTab(tab);
             updateTabsCountUi();
             if (tab.url != null && tab.url.length() > 0 && isRestorableTabSessionUrl(tab.url)) {
                 addressBar.setText(tab.url);
@@ -1481,7 +1758,8 @@ content.addView(space(dp(36)));
 
     private void newNormalTab() {
         saveCurrentTabState();
-        tabs.add(new TabInfo("Tab baru", "", false));
+        invalidateTabScopedAsyncWork();
+        tabs.add(createProfileTab("Tab baru", "Tab privat", "", false));
         currentTabIndex = tabs.size() - 1;
         activateTabWebView(getCurrentTab(), false);
         updateTabsCountUi();
@@ -1490,24 +1768,41 @@ content.addView(space(dp(36)));
         skipNextShowHomeTabSave = true;
         showHome();
         saveTabsSession();
-        Toast.makeText(this, "Tab baru dibuat", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, dedicatedPrivateProfile ? "Tab privat baru" : "Tab baru dibuat",
+                Toast.LENGTH_SHORT).show();
+    }
+
+    private void launchDedicatedPrivateProfile() {
+        try {
+            Intent intent = new Intent(this, PrivateBrowserActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(intent);
+        } catch (Exception e) {
+            Toast.makeText(this, "Profil privat tidak dapat dibuka", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void newPrivateTab() {
+        // Android 9+ supports a dedicated WebView data directory per process. This is the only
+        // safe way to keep cookies, service workers, cache, DOM storage and HTTP auth separate
+        // from the normal browser profile while still using Android WebView.
+        if (PrivateProfilePolicy.shouldLaunchDedicatedProfile(
+                dedicatedPrivateProfile, Build.VERSION.SDK_INT)) {
+            launchDedicatedPrivateProfile();
+            return;
+        }
+
+        // Compatibility fallback for Android 6-8, where WebView data-directory suffixes are not
+        // available. The tab remains non-persistent and receives stricter per-WebView settings,
+        // but cannot provide full cookie-store isolation from the normal process.
         saveCurrentTabState();
-        tabs.add(new TabInfo("Tab privat", "", true));
+        invalidateTabScopedAsyncWork();
+        tabs.add(createProfileTab("Tab baru", "Tab privat", "", true));
         currentTabIndex = tabs.size() - 1;
         activateTabWebView(getCurrentTab(), false);
         updateTabsCountUi();
         addressBar.setText("");
         if (homeSearchInput != null) homeSearchInput.setText("");
-        try {
-            if (webView != null) {
-                webView.clearHistory();
-                webView.clearCache(false);
-            }
-        } catch (Exception ignored) {
-        }
         skipNextShowHomeTabSave = true;
         showHome();
         saveTabsSession();
@@ -1516,11 +1811,14 @@ content.addView(space(dp(36)));
 
     private void switchToTab(int index) {
         if (index < 0 || index >= tabs.size()) return;
+        boolean changingTab = index != currentTabIndex;
         boolean saveBeforeSwitch = !skipNextSwitchTabStateSave;
         skipNextSwitchTabStateSave = false;
         if (saveBeforeSwitch) saveCurrentTabState();
+        if (changingTab) invalidateTabScopedAsyncWork();
         currentTabIndex = index;
         TabInfo tab = getCurrentTab();
+        activateNavigationContextForTab(tab);
         updateTabsCountUi();
 
         if (tab.url == null || tab.url.length() == 0) {
@@ -1595,43 +1893,66 @@ content.addView(space(dp(36)));
         Toast.makeText(this, tab.privateTab ? "Tab privat" : "Tab aktif", Toast.LENGTH_SHORT).show();
     }
 
-    private void closeTab(int index) {
-        if (tabs.isEmpty() || index < 0 || index >= tabs.size()) return;
+    private void switchToTab(TabInfo tab) {
+        if (tab == null || tab.closed) return;
+        int index = tabs.indexOf(tab);
+        if (index >= 0) switchToTab(index);
+    }
 
-        boolean closingCurrent = index == currentTabIndex;
-        TabInfo removed = tabs.remove(index);
+    private void closeTab(TabInfo removed) {
+        if (removed == null || removed.closed || tabs.isEmpty()) return;
+        int index = tabs.indexOf(removed);
+        if (index < 0) return;
+
+        TabInfo activeBeforeClose = getCurrentTab();
+        boolean closingCurrent = activeBeforeClose == removed;
+        TabInfo replacement = activeBeforeClose;
+        if (closingCurrent && tabs.size() > 1) {
+            replacement = index < tabs.size() - 1 ? tabs.get(index + 1) : tabs.get(index - 1);
+        }
+
+        // Invalidate ownership and delayed page work before destruction so the outgoing tab
+        // cannot mutate the replacement tab after close.
+        if (closingCurrent) invalidateTabScopedAsyncWork();
+        removed.closed = true;
         destroyTabWebView(removed);
+        tabs.remove(index);
 
         if (tabs.isEmpty()) {
-            tabs.add(new TabInfo("Tab utama", "", false));
+            if (PrivateProfilePolicy.shouldCloseWindowAfterLastTab(
+                    dedicatedPrivateProfile, tabs.size())) {
+                updateTabsCountUi();
+                finish();
+                return;
+            }
+            TabInfo fallback = createProfileTab("Tab utama", "Tab privat", "", false);
+            tabs.add(fallback);
             currentTabIndex = 0;
+            activateTabWebView(fallback, false);
             addressBar.setText("");
             if (homeSearchInput != null) homeSearchInput.setText("");
-            activateTabWebView(getCurrentTab(), false);
             skipNextShowHomeTabSave = true;
             showHome();
         } else {
-            if (currentTabIndex > index) currentTabIndex--;
-            if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
+            int replacementIndex = tabs.indexOf(replacement);
+            currentTabIndex = replacementIndex >= 0
+                    ? replacementIndex : Math.max(0, Math.min(index, tabs.size() - 1));
             if (closingCurrent) {
-                // Jangan panggil saveCurrentTabState() di awal switchToTab, karena WebView/address bar
-                // masih bisa membawa URL tab yang baru ditutup. Kalau disimpan, tab pengganti
-                // akan tertimpa URL tab tertutup, terutama setelah restore aplikasi pada halaman video.
+                // The outgoing tab is already invalidated; never save its stale URL into the replacement.
                 skipNextSwitchTabStateSave = true;
                 switchToTab(currentTabIndex);
             } else {
                 TabInfo active = getCurrentTab();
-                activateTabWebView(active, active.url != null && active.url.length() > 0 && homeScroll != null && homeScroll.getVisibility() != View.VISIBLE);
+                activateNavigationContextForTab(active);
+                boolean showPage = active.url != null && !active.url.isEmpty()
+                        && homeScroll != null && homeScroll.getVisibility() != View.VISIBLE;
+                activateTabWebView(active, showPage);
             }
-        }
-
-        if (removed.privateTab) {
-            try { if (webView != null && isCurrentPrivateTab()) webView.clearCache(false); } catch (Exception ignored) {}
         }
 
         updateTabsCountUi();
         saveTabsSession();
-        Toast.makeText(this, "Tab ditutup", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, removed.privateTab ? "Tab privat ditutup" : "Tab ditutup", Toast.LENGTH_SHORT).show();
     }
 
     private void showTabsPanel() {
@@ -1776,14 +2097,14 @@ content.addView(space(dp(36)));
         close.setTextSize(26);
         close.setGravity(Gravity.CENTER);
         close.setOnClickListener(v -> {
-            closeTab(index);
-            switchDialogSmooth(dialog, () -> showTabsPanel());
+            closeTab(tab);
+            switchDialogSmooth(dialog, this::showTabsPanel);
         });
         row.addView(close, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
         row.setOnClickListener(v -> {
             dialog.dismiss();
-            switchToTab(index);
+            switchToTab(tab);
         });
 
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
@@ -1894,10 +2215,13 @@ content.addView(space(dp(36)));
         }));
         menu.addView(menuRow(R.drawable.ic_exit, "Keluar", v -> {
             try {
-                recordCurrentPageToHistory();
-                recordWebViewBackForwardHistory();
-                saveBrowserHistory();
+                if (!dedicatedPrivateProfile) {
+                    recordCurrentPageToHistory();
+                    recordWebViewBackForwardHistory();
+                    saveBrowserHistory();
+                }
             } catch (Exception ignored) {}
+            discardPrivateTabsForExplicitExit();
             dialog.dismiss();
             finish();
         }));
@@ -3744,6 +4068,11 @@ private void showDownloadSettingsPanel() {
     }
 
     private void showHistoryPanel() {
+        if (dedicatedPrivateProfile) {
+            Toast.makeText(this, "Histori tidak disimpan dalam profil privat",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
         recordCurrentPageToHistory();
         recordWebViewBackForwardHistory();
         loadBrowserHistory();
@@ -4635,6 +4964,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private void persistHistoryEverywhere() {
+        if (dedicatedPrivateProfile) return;
         String value = serializeHistoryList(historyData);
 
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
@@ -4744,6 +5074,10 @@ private void showDownloadSettingsPanel() {
     }
 
     private void loadBrowserHistory() {
+        if (dedicatedPrivateProfile) {
+            historyData.clear();
+            return;
+        }
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         SharedPreferences h = historyStore();
 
@@ -4768,10 +5102,12 @@ private void showDownloadSettingsPanel() {
     }
 
     private void saveBrowserHistory() {
+        if (dedicatedPrivateProfile) return;
         persistHistoryEverywhere();
     }
 
     private void clearBrowserHistoryManually() {
+        if (dedicatedPrivateProfile) return;
         historyClearLock = true;
         historyData.clear();
         lastSafeHttpUrl = "";
@@ -4818,9 +5154,9 @@ private void showDownloadSettingsPanel() {
         try {
             TabInfo currentTab = getCurrentTab();
             if (currentTab != null) {
-                currentTab.url = "";
+                currentTab.resetToHome();
                 currentTab.title = "Tab utama";
-                currentTab.adTab = false;
+                activateNavigationContextForTab(currentTab);
             }
         } catch (Exception ignored) {
         }
@@ -5284,83 +5620,154 @@ private void showDownloadSettingsPanel() {
 
     // ===== Download manager UI =====
     private void showDownloadManager() {
+        if (activeDownloadDialog != null && activeDownloadDialog.isShowing()) {
+            renderDownloadList();
+            return;
+        }
+
         Dialog dialog = new Dialog(this);
         activeDownloadDialog = dialog;
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(18), dp(18), dp(10));
+        root.setPadding(dp(16), dp(14), dp(16), dp(10));
         root.setBackgroundColor(COLOR_BG);
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView title = new TextView(this);
-        title.setText(downloadSelectMode ? selectedDownloadIds.size() + " dipilih" : "Download");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(28);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
-
-        ImageButton settings = smallTopIcon(R.drawable.ic_settings, "Pengaturan unduhan", v -> showDownloadSettingsPanel());
-        header.addView(settings, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        activeDownloadTitleView = new TextView(this);
+        activeDownloadTitleView.setText("Unduhan");
+        activeDownloadTitleView.setTextColor(Color.WHITE);
+        activeDownloadTitleView.setTextSize(27);
+        activeDownloadTitleView.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(activeDownloadTitleView, new LinearLayout.LayoutParams(0, dp(50), 1));
 
         ImageButton search = smallTopIcon(R.drawable.ic_search, "Cari unduhan", v -> showDownloadSearchDialog());
-        header.addView(search, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        header.addView(search, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        ImageButton settings = smallTopIcon(R.drawable.ic_settings, "Pengaturan unduhan", v -> showDownloadSettingsPanel());
+        header.addView(settings, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
         TextView close = new TextView(this);
         close.setText("×");
         close.setTextColor(Color.parseColor("#D7DAE0"));
-        close.setTextSize(36);
+        close.setTextSize(34);
         close.setGravity(Gravity.CENTER);
+        close.setContentDescription("Tutup Download Manager");
         close.setOnClickListener(v -> dialog.dismiss());
-        header.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        header.addView(close, new LinearLayout.LayoutParams(dp(42), dp(42)));
         root.addView(header);
 
-        TextView storage = new TextView(this);
-        storage.setText(getStorageUsageText());
-        storage.setTextColor(COLOR_SUBTEXT);
-        storage.setTextSize(13);
-        storage.setPadding(0, dp(2), 0, dp(12));
-        root.addView(storage);
+        activeDownloadStorageView = new TextView(this);
+        activeDownloadStorageView.setTextColor(COLOR_SUBTEXT);
+        activeDownloadStorageView.setTextSize(12);
+        activeDownloadStorageView.setPadding(0, 0, 0, dp(10));
+        root.addView(activeDownloadStorageView);
 
-        View line = new View(this);
-        line.setBackgroundColor(Color.parseColor("#2A2E36"));
-        root.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
+        LinearLayout sectionTabs = new LinearLayout(this);
+        sectionTabs.setOrientation(LinearLayout.HORIZONTAL);
+        sectionTabs.setGravity(Gravity.CENTER_VERTICAL);
+        sectionTabs.setPadding(0, dp(2), 0, dp(10));
+        activeDownloadRunningTab = downloadSectionTab("Mengunduh");
+        activeDownloadCompletedTab = downloadSectionTab("Selesai");
+        sectionTabs.addView(activeDownloadRunningTab, new LinearLayout.LayoutParams(0, dp(42), 1));
+        LinearLayout.LayoutParams completedTabParams = new LinearLayout.LayoutParams(0, dp(42), 1);
+        completedTabParams.setMargins(dp(8), 0, 0, 0);
+        sectionTabs.addView(activeDownloadCompletedTab, completedTabParams);
+        root.addView(sectionTabs);
+        renderDownloadSectionTabs();
 
         HorizontalScrollView categoryScroll = new HorizontalScrollView(this);
         categoryScroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout categories = new LinearLayout(this);
-        categories.setOrientation(LinearLayout.HORIZONTAL);
-        categories.setPadding(0, dp(12), 0, dp(8));
-        categories.addView(downloadCategoryChip("Semua"));
-        categories.addView(downloadCategoryChip("Video"));
-        categories.addView(downloadCategoryChip("APK"));
-        categories.addView(downloadCategoryChip("Dokumen"));
-        categories.addView(downloadCategoryChip("Musik"));
-        categories.addView(downloadCategoryChip("Lainnya"));
-        categoryScroll.addView(categories);
+        activeDownloadCategoryPanel = new LinearLayout(this);
+        activeDownloadCategoryPanel.setOrientation(LinearLayout.HORIZONTAL);
+        activeDownloadCategoryPanel.setPadding(0, 0, 0, dp(8));
+        categoryScroll.addView(activeDownloadCategoryPanel);
         root.addView(categoryScroll, new LinearLayout.LayoutParams(-1, -2));
+        renderDownloadCategoryChips();
 
-        activeDownloadListPanel = new LinearLayout(this);
-        activeDownloadListPanel.setOrientation(LinearLayout.VERTICAL);
+        activeDownloadControlsPanel = new LinearLayout(this);
+        activeDownloadControlsPanel.setOrientation(LinearLayout.VERTICAL);
+        root.addView(activeDownloadControlsPanel, new LinearLayout.LayoutParams(-1, -2));
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.addView(activeDownloadListPanel);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        activeDownloadRecyclerView = new RecyclerView(this);
+        activeDownloadRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        activeDownloadRecyclerView.setHasFixedSize(false);
+        activeDownloadRecyclerView.setItemAnimator(null);
+        activeDownloadRecyclerView.setClipToPadding(false);
+        activeDownloadRecyclerView.setPadding(0, dp(8), 0, dp(18));
+        activeDownloadAdapter = new DownloadListAdapter(new DownloadListAdapter.Callback() {
+            @Override
+            public void onRowClick(int downloadId, View anchor) {
+                DownloadItem item = findDownloadItemById(downloadId);
+                if (item == null) return;
+                if (downloadSelectMode) {
+                    toggleDownloadSelection(item);
+                } else if ("completed".equals(item.status)) {
+                    openDownloadedFile(item);
+                } else if ("failed".equals(item.status) || "paused".equals(item.status)
+                        || "queued".equals(item.status)) {
+                    showDownloadItemMenu(anchor, item);
+                }
+            }
 
-        renderDownloadList();
+            @Override
+            public boolean onRowLongClick(int downloadId) {
+                DownloadItem item = findDownloadItemById(downloadId);
+                if (item == null) return false;
+                downloadSelectMode = true;
+                toggleDownloadSelection(item);
+                return true;
+            }
+
+            @Override
+            public void onPrimaryAction(int downloadId) {
+                DownloadItem item = findDownloadItemById(downloadId);
+                if (item != null) handleDownloadPrimaryAction(item);
+            }
+
+            @Override
+            public void onMore(int downloadId, View anchor) {
+                DownloadItem item = findDownloadItemById(downloadId);
+                if (item != null) showDownloadItemMenu(anchor, item);
+            }
+        });
+        activeDownloadRecyclerView.setAdapter(activeDownloadAdapter);
+
+        FrameLayout listFrame = new FrameLayout(this);
+        listFrame.addView(activeDownloadRecyclerView, new FrameLayout.LayoutParams(-1, -1));
+        activeDownloadEmptyView = new TextView(this);
+        activeDownloadEmptyView.setTextColor(COLOR_SUBTEXT);
+        activeDownloadEmptyView.setTextSize(15);
+        activeDownloadEmptyView.setGravity(Gravity.CENTER);
+        activeDownloadEmptyView.setPadding(dp(20), dp(40), dp(20), dp(40));
+        activeDownloadEmptyView.setVisibility(View.GONE);
+        listFrame.addView(activeDownloadEmptyView, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(listFrame, new LinearLayout.LayoutParams(-1, 0, 1));
 
         dialog.setContentView(root);
         dialog.setOnDismissListener(d -> {
+            downloadUiTickerRunning = false;
+            mainHandler.removeCallbacks(downloadUiTicker);
             activeDownloadDialog = null;
-            activeDownloadListPanel = null;
+            activeDownloadRecyclerView = null;
+            activeDownloadAdapter = null;
+            activeDownloadCategoryPanel = null;
+            activeDownloadControlsPanel = null;
+            activeDownloadTitleView = null;
+            activeDownloadStorageView = null;
+            activeDownloadRunningTab = null;
+            activeDownloadCompletedTab = null;
+            activeDownloadEmptyView = null;
             downloadSelectMode = false;
             selectedDownloadIds.clear();
+            lastDownloadControlsSignature = "";
         });
 
+        dialog.show();
         if (dialog.getWindow() != null) {
             Window window = dialog.getWindow();
             window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
@@ -5370,7 +5777,48 @@ private void showDownloadSettingsPanel() {
             lp.height = WindowManager.LayoutParams.MATCH_PARENT;
             window.setAttributes(lp);
         }
-        dialog.show();
+
+        renderDownloadList();
+        downloadUiTickerRunning = true;
+        mainHandler.removeCallbacks(downloadUiTicker);
+        mainHandler.postDelayed(downloadUiTicker, 300L);
+    }
+
+    private TextView downloadSectionTab(String label) {
+        TextView tab = new TextView(this);
+        tab.setText(label);
+        tab.setTextSize(14);
+        tab.setTypeface(Typeface.DEFAULT_BOLD);
+        tab.setGravity(Gravity.CENTER);
+        tab.setOnClickListener(v -> {
+            if (label.equals(activeDownloadSection)) return;
+            activeDownloadSection = label;
+            downloadSelectMode = false;
+            selectedDownloadIds.clear();
+            lastDownloadControlsSignature = "";
+            renderDownloadSectionTabs();
+            renderDownloadList();
+        });
+        return tab;
+    }
+
+    private void renderDownloadSectionTabs() {
+        styleDownloadSectionTab(activeDownloadRunningTab, "Mengunduh".equals(activeDownloadSection));
+        styleDownloadSectionTab(activeDownloadCompletedTab, "Selesai".equals(activeDownloadSection));
+    }
+
+    private void styleDownloadSectionTab(TextView tab, boolean selected) {
+        if (tab == null) return;
+        tab.setTextColor(selected ? Color.parseColor("#141414") : Color.WHITE);
+        tab.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20242B"),
+                dp(17), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
+    }
+
+    private void renderDownloadCategoryChips() {
+        if (activeDownloadCategoryPanel == null) return;
+        activeDownloadCategoryPanel.removeAllViews();
+        String[] labels = {"Semua", "Video", "APK", "Dokumen", "Musik", "Lainnya"};
+        for (String label : labels) activeDownloadCategoryPanel.addView(downloadCategoryChip(label));
     }
 
     private TextView downloadCategoryChip(String label) {
@@ -5382,18 +5830,15 @@ private void showDownloadSettingsPanel() {
         chip.setTypeface(Typeface.DEFAULT_BOLD);
         chip.setGravity(Gravity.CENTER);
         chip.setPadding(dp(14), 0, dp(14), 0);
-        chip.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20232A"), dp(18), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
+        chip.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20232A"),
+                dp(18), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
         chip.setOnClickListener(v -> {
             activeDownloadCategory = label;
             selectedDownloadIds.clear();
             downloadSelectMode = false;
-            if (activeDownloadDialog != null && activeDownloadDialog.isShowing()) {
-                Dialog currentDialog = activeDownloadDialog;
-                currentDialog.dismiss();
-                mainHandler.post(this::showDownloadManager);
-            } else {
-                renderDownloadList();
-            }
+            lastDownloadControlsSignature = "";
+            renderDownloadCategoryChips();
+            renderDownloadList();
         });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, dp(36));
         params.setMargins(0, 0, dp(8), 0);
@@ -5434,6 +5879,7 @@ private void showDownloadSettingsPanel() {
                 .setTitle("Urutkan unduhan")
                 .setSingleChoiceItems(options, checked, (dialog, which) -> {
                     activeDownloadSort = options[which];
+                    lastDownloadControlsSignature = "";
                     dialog.dismiss();
                     renderDownloadList();
                 })
@@ -5442,38 +5888,51 @@ private void showDownloadSettingsPanel() {
     }
 
     private void renderDownloadList() {
-        if (activeDownloadListPanel == null) return;
-        activeDownloadListPanel.removeAllViews();
-
-        activeDownloadListPanel.addView(downloadToolRow());
-        activeDownloadListPanel.addView(downloadQueueControlRow());
-
+        if (activeDownloadAdapter == null) return;
         ArrayList<DownloadItem> items = getFilteredDownloadItems();
-
-        if (items.isEmpty()) {
-            TextView empty = new TextView(this);
-            String msg = activeDownloadSearchQuery.length() > 0
-                    ? "Tidak ada unduhan yang cocok."
-                    : "Belum ada unduhan di kategori ini.";
-            empty.setText(msg);
-            empty.setTextColor(COLOR_SUBTEXT);
-            empty.setTextSize(15);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(0, dp(48), 0, dp(48));
-            activeDownloadListPanel.addView(empty, new LinearLayout.LayoutParams(-1, -2));
-            return;
+        ArrayList<DownloadUiItem> snapshots = new ArrayList<>(items.size());
+        for (DownloadItem item : items) snapshots.add(buildDownloadUiItem(item));
+        activeDownloadAdapter.submitList(snapshots);
+        if (activeDownloadEmptyView != null) {
+            boolean empty = snapshots.isEmpty();
+            activeDownloadEmptyView.setVisibility(empty ? View.VISIBLE : View.GONE);
+            activeDownloadEmptyView.setText(activeDownloadSearchQuery == null || activeDownloadSearchQuery.isEmpty()
+                    ? ("Selesai".equals(activeDownloadSection)
+                        ? "Belum ada file yang selesai diunduh."
+                        : "Belum ada unduhan aktif atau tertunda.")
+                    : "Tidak ada unduhan yang cocok dengan pencarian.");
         }
 
-        TextView section = new TextView(this);
-        section.setText(getDownloadSectionTitle(items.size()));
-        section.setTextColor(COLOR_SUBTEXT);
-        section.setTextSize(16);
-        section.setTypeface(Typeface.DEFAULT_BOLD);
-        section.setPadding(0, dp(16), 0, dp(8));
-        activeDownloadListPanel.addView(section);
+        if (activeDownloadTitleView != null) {
+            activeDownloadTitleView.setText(downloadSelectMode
+                    ? selectedDownloadIds.size() + " dipilih" : "Unduhan");
+        }
+        if (activeDownloadStorageView != null) {
+            long now = System.currentTimeMillis();
+            if (now - lastDownloadStorageUiMs >= 2_000L) {
+                cachedDownloadStorageText = getStorageUsageText();
+                lastDownloadStorageUiMs = now;
+            }
+            int active = countActiveDownloads();
+            int queued = countQueuedDownloads();
+            activeDownloadStorageView.setText(cachedDownloadStorageText
+                    + "  •  aktif " + active + "  •  antri " + queued);
+        }
+        renderDownloadControlsIfNeeded();
+    }
 
-        for (DownloadItem item : items) {
-            activeDownloadListPanel.addView(downloadRow(item));
+    private void renderDownloadControlsIfNeeded() {
+        if (activeDownloadControlsPanel == null) return;
+        String signature = activeDownloadSection + "|" + activeDownloadSort + "|"
+                + downloadSelectMode + "|" + selectedDownloadIds.size() + "|"
+                + countActiveDownloads() + "|" + countQueuedDownloads() + "|"
+                + downloadQueuePaused + "|" + downloadMaxActive;
+        if (signature.equals(lastDownloadControlsSignature)) return;
+        lastDownloadControlsSignature = signature;
+        activeDownloadControlsPanel.removeAllViews();
+        activeDownloadControlsPanel.addView(downloadToolRow());
+        if ("Mengunduh".equals(activeDownloadSection)) {
+            activeDownloadControlsPanel.addView(downloadQueueControlRow());
         }
     }
 
@@ -5481,26 +5940,27 @@ private void showDownloadSettingsPanel() {
         LinearLayout tools = new LinearLayout(this);
         tools.setOrientation(LinearLayout.HORIZONTAL);
         tools.setGravity(Gravity.CENTER_VERTICAL);
-        tools.setPadding(0, dp(8), 0, dp(4));
+        tools.setPadding(0, dp(2), 0, dp(3));
 
         TextView sort = downloadToolButton("Urut: " + activeDownloadSort);
         sort.setOnClickListener(v -> showDownloadSortDialog());
-        tools.addView(sort, new LinearLayout.LayoutParams(0, dp(42), 1));
+        tools.addView(sort, new LinearLayout.LayoutParams(0, dp(40), 1));
 
         TextView select = downloadToolButton(downloadSelectMode ? "Batal pilih" : "Pilih");
         select.setOnClickListener(v -> {
             downloadSelectMode = !downloadSelectMode;
             selectedDownloadIds.clear();
+            lastDownloadControlsSignature = "";
             renderDownloadList();
         });
-        LinearLayout.LayoutParams selectParams = new LinearLayout.LayoutParams(0, dp(42), 1);
+        LinearLayout.LayoutParams selectParams = new LinearLayout.LayoutParams(0, dp(40), 1);
         selectParams.setMargins(dp(8), 0, 0, 0);
         tools.addView(select, selectParams);
 
         if (downloadSelectMode) {
             TextView share = downloadToolButton("Bagikan");
             share.setOnClickListener(v -> shareSelectedDownloads());
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(42), 1);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(40), 1);
             p.setMargins(dp(8), 0, 0, 0);
             tools.addView(share, p);
 
@@ -5508,11 +5968,10 @@ private void showDownloadSettingsPanel() {
             delete.setTextColor(Color.WHITE);
             delete.setBackground(roundRect(Color.parseColor("#E5484D"), dp(18), 0, Color.TRANSPARENT));
             delete.setOnClickListener(v -> deleteSelectedDownloads());
-            LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, dp(42), 1);
+            LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, dp(40), 1);
             p2.setMargins(dp(8), 0, 0, 0);
             tools.addView(delete, p2);
         }
-
         return tools;
     }
 
@@ -5520,24 +5979,24 @@ private void showDownloadSettingsPanel() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(4), 0, dp(4));
+        row.setPadding(0, dp(3), 0, dp(5));
 
-        TextView pause = downloadToolButton("Pause semua");
+        TextView pause = downloadToolButton("Jeda semua");
         pause.setOnClickListener(v -> pauseAllDownloads());
-        row.addView(pause, new LinearLayout.LayoutParams(0, dp(38), 1));
+        row.addView(pause, new LinearLayout.LayoutParams(0, dp(37), 1));
 
-        TextView resume = downloadToolButton("Resume semua");
+        TextView resume = downloadToolButton("Lanjutkan");
         resume.setOnClickListener(v -> resumeAllDownloads());
-        LinearLayout.LayoutParams resumeLp = new LinearLayout.LayoutParams(0, dp(38), 1);
+        LinearLayout.LayoutParams resumeLp = new LinearLayout.LayoutParams(0, dp(37), 1);
         resumeLp.setMargins(dp(8), 0, 0, 0);
         row.addView(resume, resumeLp);
 
-        TextView queue = downloadToolButton("Queue " + countActiveDownloads() + "/" + downloadMaxActive + " • " + countQueuedDownloads());
+        TextView queue = downloadToolButton("Queue " + countActiveDownloads() + "/"
+                + downloadMaxActive + " • " + countQueuedDownloads());
         queue.setOnClickListener(v -> showDownloadQueueSettingsDialog());
-        LinearLayout.LayoutParams queueLp = new LinearLayout.LayoutParams(0, dp(38), 1);
+        LinearLayout.LayoutParams queueLp = new LinearLayout.LayoutParams(0, dp(37), 1);
         queueLp.setMargins(dp(8), 0, 0, 0);
         row.addView(queue, queueLp);
-
         return row;
     }
 
@@ -5545,7 +6004,7 @@ private void showDownloadSettingsPanel() {
         TextView button = new TextView(this);
         button.setText(text);
         button.setTextColor(Color.WHITE);
-        button.setTextSize(13);
+        button.setTextSize(12);
         button.setTypeface(Typeface.DEFAULT_BOLD);
         button.setGravity(Gravity.CENTER);
         button.setSingleLine(true);
@@ -5558,6 +6017,7 @@ private void showDownloadSettingsPanel() {
         ArrayList<DownloadItem> result = new ArrayList<>();
         synchronized (downloadItems) {
             for (DownloadItem item : new ArrayList<>(downloadItems)) {
+                if (!matchesDownloadSection(item)) continue;
                 if (!matchesDownloadCategory(item, activeDownloadCategory)) continue;
                 if (!matchesDownloadSearch(item)) continue;
                 result.add(item);
@@ -5565,38 +6025,39 @@ private void showDownloadSettingsPanel() {
         }
 
         if ("Antrian".equals(activeDownloadSort)) return result;
-
         Collections.sort(result, (a, b) -> {
             if ("Nama".equals(activeDownloadSort)) {
                 return safeText(a.fileName).compareToIgnoreCase(safeText(b.fileName));
             }
             if ("Ukuran".equals(activeDownloadSort)) {
-                long sa = getDownloadSize(a);
-                long sb = getDownloadSize(b);
-                return Long.compare(sb, sa);
+                return Long.compare(getDownloadSize(b), getDownloadSize(a));
             }
             return Integer.compare(b.id, a.id);
         });
         return result;
     }
 
+    private boolean matchesDownloadSection(DownloadItem item) {
+        if (item == null) return false;
+        boolean completed = "completed".equals(item.status);
+        return "Selesai".equals(activeDownloadSection) ? completed : !completed;
+    }
+
     private boolean matchesDownloadSearch(DownloadItem item) {
-        if (activeDownloadSearchQuery == null || activeDownloadSearchQuery.trim().length() == 0) return true;
-        String q = activeDownloadSearchQuery.toLowerCase();
-        return safeText(item.fileName).toLowerCase().contains(q)
-                || safeText(item.url).toLowerCase().contains(q)
-                || getDownloadHost(item).toLowerCase().contains(q);
+        if (activeDownloadSearchQuery == null || activeDownloadSearchQuery.trim().isEmpty()) return true;
+        String q = activeDownloadSearchQuery.toLowerCase(Locale.US);
+        return safeText(item.fileName).toLowerCase(Locale.US).contains(q)
+                || safeText(item.url).toLowerCase(Locale.US).contains(q)
+                || getDownloadHost(item).toLowerCase(Locale.US).contains(q);
     }
 
     private boolean matchesDownloadCategory(DownloadItem item, String category) {
-        if ("Semua".equals(category)) return true;
-        String type = getDownloadCategory(item);
-        return category.equals(type);
+        return "Semua".equals(category) || category.equals(getDownloadCategory(item));
     }
 
     private String getDownloadCategory(DownloadItem item) {
         String hinted = normalizeDetectedCategory(item.categoryHint);
-        if (hinted.length() > 0) return hinted;
+        if (!hinted.isEmpty()) return hinted;
         String detected = inferDownloadCategoryFromData(item.fileName, item.url, "");
         item.categoryHint = detected;
         return detected;
@@ -5605,9 +6066,8 @@ private void showDownloadSettingsPanel() {
     private String normalizeDetectedCategory(String raw) {
         if (raw == null) return "";
         raw = raw.trim();
-        if ("Video".equals(raw) || "APK".equals(raw) || "Dokumen".equals(raw) || "Musik".equals(raw) || "Lainnya".equals(raw)) {
-            return raw;
-        }
+        if ("Video".equals(raw) || "APK".equals(raw) || "Dokumen".equals(raw)
+                || "Musik".equals(raw) || "Lainnya".equals(raw)) return raw;
         return "";
     }
 
@@ -5616,206 +6076,138 @@ private void showDownloadSettingsPanel() {
         if (mime.startsWith("video/")) return "Video";
         if (mime.startsWith("audio/")) return "Musik";
         if (mime.equals("application/vnd.android.package-archive")) return "APK";
-        if (mime.contains("pdf") || mime.contains("word") || mime.contains("excel") || mime.contains("powerpoint") || mime.startsWith("text/")) return "Dokumen";
+        if (mime.contains("pdf") || mime.contains("word") || mime.contains("excel")
+                || mime.contains("powerpoint") || mime.startsWith("text/")) return "Dokumen";
 
         String combined = (safeText(fileName) + " " + safeText(url)).toLowerCase(Locale.US);
-        if (combined.contains(".mp4") || combined.contains(".mkv") || combined.contains(".webm") || combined.contains(".avi") || combined.contains(".mov") || combined.contains(".3gp") || combined.contains(".m3u8")) return "Video";
+        if (combined.contains(".mp4") || combined.contains(".mkv") || combined.contains(".webm")
+                || combined.contains(".avi") || combined.contains(".mov") || combined.contains(".3gp")
+                || combined.contains(".m3u8")) return "Video";
         if (combined.contains(".apk") || combined.contains(".xapk") || combined.contains(".apks")) return "APK";
-        if (combined.contains(".mp3") || combined.contains(".m4a") || combined.contains(".wav") || combined.contains(".ogg") || combined.contains(".flac")) return "Musik";
-        if (combined.contains(".pdf") || combined.contains(".doc") || combined.contains(".docx") || combined.contains(".xls") || combined.contains(".xlsx") || combined.contains(".ppt") || combined.contains(".pptx") || combined.contains(".txt")) return "Dokumen";
-
+        if (combined.contains(".mp3") || combined.contains(".m4a") || combined.contains(".wav")
+                || combined.contains(".ogg") || combined.contains(".flac")) return "Musik";
+        if (combined.contains(".pdf") || combined.contains(".doc") || combined.contains(".docx")
+                || combined.contains(".xls") || combined.contains(".xlsx") || combined.contains(".ppt")
+                || combined.contains(".pptx") || combined.contains(".txt")) return "Dokumen";
         return "Lainnya";
     }
 
-    private String getDownloadSectionTitle(int count) {
-        String base = activeDownloadCategory;
-        if (activeDownloadSearchQuery != null && activeDownloadSearchQuery.length() > 0) {
-            base += " • hasil \"" + activeDownloadSearchQuery + "\"";
-        }
-        return base + " - " + count + " file";
-    }
-
-    private View downloadRow(DownloadItem item) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(10), 0, dp(10));
-        row.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-
-        if (downloadSelectMode) {
-            TextView check = new TextView(this);
-            boolean selected = selectedDownloadIds.contains(item.id);
-            check.setText(selected ? "✓" : "");
-            check.setTextColor(Color.parseColor("#111111"));
-            check.setTextSize(18);
-            check.setTypeface(Typeface.DEFAULT_BOLD);
-            check.setGravity(Gravity.CENTER);
-            check.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20232A"), dp(16), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
-            LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(dp(32), dp(32));
-            checkParams.setMargins(0, 0, dp(10), 0);
-            row.addView(check, checkParams);
-        }
-
-        LinearLayout textWrap = new LinearLayout(this);
-        textWrap.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1);
-        textParams.setMargins(0, 0, dp(8), 0);
-
-        LinearLayout titleLine = new LinearLayout(this);
-        titleLine.setOrientation(LinearLayout.HORIZONTAL);
-        titleLine.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView categoryBadge = new TextView(this);
-        categoryBadge.setText(getDownloadCategory(item));
-        categoryBadge.setTextColor(Color.parseColor("#111111"));
-        categoryBadge.setTextSize(10);
-        categoryBadge.setTypeface(Typeface.DEFAULT_BOLD);
-        categoryBadge.setGravity(Gravity.CENTER);
-        categoryBadge.setPadding(dp(8), 0, dp(8), 0);
-        categoryBadge.setBackground(roundRect(COLOR_ACCENT, dp(10), 0, Color.TRANSPARENT));
-        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(-2, dp(22));
-        badgeParams.setMargins(0, 0, dp(8), 0);
-        titleLine.addView(categoryBadge, badgeParams);
-
-        TextView name = new TextView(this);
-        name.setText(item.fileName);
-        name.setTextColor(Color.WHITE);
-        name.setTextSize(15);
-        name.setSingleLine(true);
-        name.setEllipsize(TextUtils.TruncateAt.END);
-        titleLine.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
-        textWrap.addView(titleLine);
-
-        TextView sub = new TextView(this);
-        sub.setText(getDownloadSubtitle(item));
-        sub.setTextColor(COLOR_SUBTEXT);
-        sub.setTextSize(12);
-        sub.setSingleLine(true);
-        sub.setEllipsize(TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(-1, -2);
-        subParams.setMargins(0, dp(3), 0, 0);
-        textWrap.addView(sub, subParams);
-
-        TextView engine = new TextView(this);
-        engine.setText(getDownloadEngineVisibleText(item));
-        engine.setTextColor(item.connectionCount >= 2 ? COLOR_ON : COLOR_ACCENT);
-        engine.setTextSize(12);
-        engine.setTypeface(Typeface.DEFAULT_BOLD);
-        engine.setSingleLine(true);
-        engine.setEllipsize(TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams engineParams = new LinearLayout.LayoutParams(-1, -2);
-        engineParams.setMargins(0, dp(3), 0, 0);
-        textWrap.addView(engine, engineParams);
-
-        if ("running".equals(item.status) || "paused".equals(item.status) || "queued".equals(item.status)) {
-            ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-            bar.setMax(100);
-            bar.setProgress(item.progress);
-            bar.setProgressDrawable(new ColorDrawable(COLOR_ACCENT));
-            LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, dp(4));
-            barParams.setMargins(0, dp(8), 0, 0);
-            textWrap.addView(bar, barParams);
-
-            TextView percent = new TextView(this);
-            percent.setText(item.progress + "% • " + readableSpeed(item.speedBytesPerSecond));
-            percent.setTextColor(Color.parseColor("#C9CDD4"));
-            percent.setTextSize(11);
-            percent.setPadding(0, dp(4), 0, 0);
-            textWrap.addView(percent);
-        }
-
-        row.addView(textWrap, textParams);
-
-        if ("running".equals(item.status) || "paused".equals(item.status) || "queued".equals(item.status) || "failed".equals(item.status)) {
-            TextView action = new TextView(this);
-            if ("running".equals(item.status)) {
-                action.setText("Ⅱ");
-            } else if ("paused".equals(item.status) || "queued".equals(item.status)) {
-                action.setText("▶");
-            } else {
-                action.setText("↻");
-            }
-            action.setTextColor(Color.WHITE);
-            action.setTextSize(18);
-            action.setTypeface(Typeface.DEFAULT_BOLD);
-            action.setGravity(Gravity.CENTER);
-            action.setMinWidth(dp(48));
-            action.setMinHeight(dp(48));
-            action.setPadding(dp(4), 0, dp(4), 0);
-            action.setClickable(true);
-            action.setFocusable(true);
-            action.setHapticFeedbackEnabled(true);
-            action.setBackground(roundRect(Color.parseColor("#20232A"), dp(22), dp(1), COLOR_BORDER));
-            action.setOnClickListener(v -> handleDownloadPrimaryAction(item));
-            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(dp(48), dp(48));
-            actionParams.setMargins(0, 0, dp(8), 0);
-            row.addView(action, actionParams);
-            action.bringToFront();
-        }
-
-        TextView more = new TextView(this);
-        more.setText("⋮");
-        more.setTextColor(Color.parseColor("#D6D9DE"));
-        more.setTextSize(28);
-        more.setGravity(Gravity.CENTER);
-        more.setOnClickListener(v -> showDownloadItemMenu(v, item));
-        row.addView(more, new LinearLayout.LayoutParams(dp(42), dp(52)));
-
-        row.setOnClickListener(v -> {
-            if (downloadSelectMode) {
-                toggleDownloadSelection(item);
-            } else if ("completed".equals(item.status)) {
-                openDownloadedFile(item);
-            } else if ("failed".equals(item.status) || "paused".equals(item.status) || "queued".equals(item.status)) {
-                showDownloadItemMenu(v, item);
-            } else {
-                Toast.makeText(this, getConnectionLabel(item) + " • " + item.progress + "%", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        row.setOnLongClickListener(v -> {
-            downloadSelectMode = true;
-            toggleDownloadSelection(item);
-            return true;
-        });
-
-        return row;
-    }
-
-    private String getDownloadEngineVisibleText(DownloadItem item) {
-        if (item == null) return "Mengecek koneksi";
-        if ("queued".equals(item.status)) return item.engineInfo != null && item.engineInfo.length() > 0 ? item.engineInfo : "Antri • menunggu slot";
-        if (item.hlsDownload) return "HLS/m3u8";
-        int visibleConnections = item.activeConnectionLimit > 0 ? item.activeConnectionLimit : item.connectionCount;
-        if (visibleConnections >= 4) return "4 koneksi sukses";
-        if (visibleConnections == 3) return "3 koneksi balanced";
-        if (visibleConnections >= 2) return "2 koneksi sukses";
-        if (visibleConnections == 1) return "1 koneksi sukses";
-        if ("paused".equals(item.status)) return "Dijeda";
-        if ("failed".equals(item.status)) return "Gagal • klik ↻";
-        return "Mengecek koneksi";
-    }
-
-    private String getDownloadSubtitle(DownloadItem item) {
-        String size = readableFileSize(getDownloadSize(item));
-        String host = getDownloadHost(item);
-        String status;
-
-        if ("running".equals(item.status)) {
-            status = "download • " + item.progress + "%";
-        } else if ("queued".equals(item.status)) {
-            status = "antri • menunggu slot";
-        } else if ("paused".equals(item.status)) {
-            status = "dijeda • " + item.progress + "%";
-        } else if ("failed".equals(item.status)) {
-            status = item.failReason != null && item.failReason.length() > 0 ? "gagal • " + item.failReason : "terputus/gagal";
+    private DownloadUiItem buildDownloadUiItem(DownloadItem item) {
+        long total = item.hlsDownload ? 0L : Math.max(0L, item.totalBytes);
+        long downloaded = item.hlsDownload
+                ? Math.max(0L, item.hlsOutputBytes)
+                : Math.max(0L, item.downloadedBytes);
+        int progressBasisPoints = calculateUiProgressBasisPoints(item, downloaded, total);
+        int progressPercent = Math.min(100, Math.max(0, Math.round(progressBasisPoints / 100f)));
+        String status = safeText(item.status);
+        String sizeText;
+        if ("completed".equals(status)) {
+            sizeText = readableFileSize(getDownloadSize(item));
+        } else if (item.hlsDownload && item.totalBytes > 0) {
+            sizeText = readableFileSize(item.hlsOutputBytes) + " • "
+                    + item.hlsCompletedSegments + "/" + item.totalBytes + " segmen";
+        } else if (total > 0) {
+            sizeText = readableFileSize(downloaded) + " / " + readableFileSize(total);
+        } else if (downloaded > 0) {
+            sizeText = readableFileSize(downloaded);
         } else {
-            status = "selesai";
+            sizeText = "Menyiapkan ukuran file";
         }
 
-        if (host.length() > 0) return size + " • " + status + " • " + host;
-        return size + " • " + status;
+        String activityText;
+        String detailText = getDownloadHost(item);
+        boolean showProgress = true;
+        boolean showPrimaryAction = true;
+        String primaryAction;
+
+        if ("saving".equals(status)) {
+            activityText = "Menyimpan ke Downloads…";
+            detailText = "File selesai diunduh • jangan tutup proses";
+            showPrimaryAction = false;
+            primaryAction = "";
+        } else if ("verifying".equals(status)) {
+            activityText = "Memverifikasi file…";
+            detailText = "Memastikan file lengkap sebelum disimpan";
+            showProgress = false;
+            showPrimaryAction = false;
+            primaryAction = "";
+        } else if ("running".equals(status)) {
+            double speed = item.smoothedSpeedBytesPerSecond > 0
+                    ? item.smoothedSpeedBytesPerSecond : item.speedBytesPerSecond;
+            activityText = readableSpeed(speed);
+            String eta = formatEta(item.etaSeconds);
+            if (!eta.isEmpty()) activityText += " • " + eta;
+            primaryAction = "Ⅱ";
+        } else if ("queued".equals(status)) {
+            int position = getDownloadQueuePosition(item);
+            activityText = position > 0 ? "Menunggu antrean • posisi " + position : "Menunggu slot download";
+            detailText = "Siap dimulai otomatis";
+            primaryAction = "▶";
+        } else if ("paused".equals(status)) {
+            activityText = "Dijeda • " + progressPercent + "%";
+            detailText = "Tekan lanjutkan untuk meneruskan";
+            primaryAction = "▶";
+        } else if ("failed".equals(status)) {
+            activityText = "Download gagal";
+            detailText = safeText(item.failReason).isEmpty() ? "Tekan ulangi untuk mencoba lagi" : item.failReason;
+            primaryAction = "↻";
+        } else {
+            activityText = "Selesai";
+            detailText = detailText.isEmpty() ? "Ketuk untuk membuka file" : detailText;
+            showProgress = false;
+            showPrimaryAction = false;
+            primaryAction = "";
+            progressBasisPoints = 10_000;
+            progressPercent = 100;
+        }
+
+        return new DownloadUiItem(item.id, item.fileName, getDownloadCategory(item), status,
+                sizeText, activityText, detailText, progressBasisPoints, progressPercent,
+                showProgress, showPrimaryAction, primaryAction, downloadSelectMode,
+                selectedDownloadIds.contains(item.id));
     }
+
+    private int calculateUiProgressBasisPoints(DownloadItem item, long downloaded, long total) {
+        if (item == null) return 0;
+        if ("saving".equals(item.status) || "verifying".equals(item.status)) {
+            return Math.max(0, Math.min(10_000, item.finalizeProgress * 100));
+        }
+        if (item.hlsDownload && item.totalBytes > 0) {
+            return DownloadUiMetrics.progressBasisPoints(
+                    item.hlsCompletedSegments, item.totalBytes, item.progress);
+        }
+        return DownloadUiMetrics.progressBasisPoints(downloaded, total, item.progress);
+    }
+
+    private String formatEta(long seconds) {
+        if (seconds <= 0 || seconds == Long.MAX_VALUE) return "";
+        if (seconds < 60) return "tersisa " + Math.max(1, seconds) + " detik";
+        long minutes = seconds / 60;
+        if (minutes < 60) return "tersisa " + minutes + " menit";
+        long hours = minutes / 60;
+        long remainMinutes = minutes % 60;
+        return "tersisa " + hours + " jam" + (remainMinutes > 0 ? " " + remainMinutes + " menit" : "");
+    }
+
+    private int getDownloadQueuePosition(DownloadItem target) {
+        int position = 0;
+        synchronized (downloadItems) {
+            for (DownloadItem item : downloadItems) {
+                if (!"queued".equals(item.status)) continue;
+                position++;
+                if (item == target || item.id == target.id) return position;
+            }
+        }
+        return 0;
+    }
+
+    private DownloadItem findDownloadItemById(int id) {
+        synchronized (downloadItems) {
+            for (DownloadItem item : downloadItems) if (item.id == id) return item;
+        }
+        return null;
+    }
+
 
     private long getDownloadSize(DownloadItem item) {
         if (item == null) return 0;
@@ -5846,20 +6238,41 @@ private void showDownloadSettingsPanel() {
         return text == null ? "" : text;
     }
 
+    private void resetDownloadSpeedState(DownloadItem item) {
+        if (item == null) return;
+        item.speedBytesPerSecond = 0;
+        item.smoothedSpeedBytesPerSecond = 0;
+        item.etaSeconds = -1L;
+        item.lastSpeedTimeMs = 0L;
+        item.lastSpeedBytes = item.downloadedBytes;
+    }
+
     private void updateDownloadSpeed(DownloadItem item, long currentBytes) {
         if (item == null) return;
         long now = System.currentTimeMillis();
         synchronized (item.stateLock) {
             if (item.lastSpeedTimeMs <= 0) {
+                item.speedBytesPerSecond = 0;
+                item.smoothedSpeedBytesPerSecond = 0;
+                item.etaSeconds = -1L;
                 item.lastSpeedTimeMs = now;
                 item.lastSpeedBytes = currentBytes;
-                item.speedBytesPerSecond = 0;
                 return;
             }
             long elapsed = now - item.lastSpeedTimeMs;
-            if (elapsed < 800) return;
-            long delta = Math.max(0, currentBytes - item.lastSpeedBytes);
-            item.speedBytesPerSecond = (delta * 1000.0) / Math.max(1, elapsed);
+            if (elapsed < 500L) return;
+            long delta = Math.max(0L, currentBytes - item.lastSpeedBytes);
+            double sample = (delta * 1000.0) / Math.max(1L, elapsed);
+            item.speedBytesPerSecond = sample;
+            if (sample > 0) {
+                item.smoothedSpeedBytesPerSecond = DownloadUiMetrics.smoothSpeed(
+                        item.smoothedSpeedBytesPerSecond, sample);
+            } else {
+                item.smoothedSpeedBytesPerSecond = DownloadUiMetrics.smoothSpeed(
+                        item.smoothedSpeedBytesPerSecond, 0);
+            }
+            item.etaSeconds = DownloadUiMetrics.estimateRemainingSeconds(
+                    item.totalBytes, currentBytes, item.smoothedSpeedBytesPerSecond);
             item.lastSpeedTimeMs = now;
             item.lastSpeedBytes = currentBytes;
         }
@@ -5953,11 +6366,15 @@ private void showDownloadSettingsPanel() {
 
 
     // ===== Download queue manager =====
+    private boolean isActiveDownloadStatus(String status) {
+        return "running".equals(status) || "verifying".equals(status) || "saving".equals(status);
+    }
+
     private int countActiveDownloads() {
         int count = 0;
         synchronized (downloadItems) {
             for (DownloadItem item : downloadItems) {
-                if ("running".equals(item.status)) count++;
+                if (isActiveDownloadStatus(item.status)) count++;
             }
         }
         return count;
@@ -5967,10 +6384,50 @@ private void showDownloadSettingsPanel() {
         return item != null && item.runGeneration == generation && !"removed".equals(item.status);
     }
 
+    private DownloadItem findForegroundActiveDownload() {
+        DownloadItem selected = null;
+        synchronized (downloadItems) {
+            for (DownloadItem item : downloadItems) {
+                if (item == null || !isActiveDownloadStatus(item.status)) continue;
+                if (selected == null || item.speedBytesPerSecond > selected.speedBytesPerSecond) {
+                    selected = item;
+                }
+            }
+        }
+        return selected;
+    }
+
+    private int getVisibleDownloadProgressPercent(DownloadItem item) {
+        if (item == null) return 0;
+        if ("saving".equals(item.status) || "verifying".equals(item.status)) {
+            return Math.max(0, Math.min(100, item.finalizeProgress));
+        }
+        return Math.max(0, Math.min(100, item.progress));
+    }
+
+    private String getForegroundDownloadText(DownloadItem item) {
+        if (item == null) return "Mengunduh";
+        if ("saving".equals(item.status)) {
+            return "Menyimpan ke Downloads… " + getVisibleDownloadProgressPercent(item) + "%";
+        }
+        if ("verifying".equals(item.status)) return "Memverifikasi file…";
+        double speed = item.smoothedSpeedBytesPerSecond > 0
+                ? item.smoothedSpeedBytesPerSecond : item.speedBytesPerSecond;
+        String text = "Mengunduh • " + getVisibleDownloadProgressPercent(item) + "%";
+        if (speed > 0) text += " • " + readableSpeed(speed);
+        return text;
+    }
+
     private void updateDownloadKeepAliveState() {
         try {
-            if (countActiveDownloads() > 0) DownloadKeepAliveService.start(this);
-            else DownloadKeepAliveService.stop(this);
+            int activeCount = countActiveDownloads();
+            DownloadItem selected = findForegroundActiveDownload();
+            if (activeCount > 0 && selected != null) {
+                DownloadKeepAliveService.startOrUpdate(this, selected, activeCount,
+                        getForegroundDownloadText(selected));
+            } else {
+                DownloadKeepAliveService.stop(this);
+            }
         } catch (Exception ignored) {
         }
     }
@@ -6028,7 +6485,7 @@ private void showDownloadSettingsPanel() {
                 item.runGeneration++;
                 item.status = "running";
                 item.pauseRequested = false;
-                item.speedBytesPerSecond = 0;
+                resetDownloadSpeedState(item);
                 item.activeConnectionLimit = 0;
                 item.lastSpeedTimeMs = 0;
                 item.lastSpeedBytes = item.downloadedBytes;
@@ -6038,6 +6495,7 @@ private void showDownloadSettingsPanel() {
 
             saveDownloadHistory();
             refreshDownloadPanel();
+            cancelDownloadNotification(item);
             updateDownloadKeepAliveState();
             showDownloadNotification(item, item.downloadedBytes > 0 ? "Melanjutkan unduhan" : "Mulai mengunduh", true);
             startTwoConnectionDownload(item, out);
@@ -6075,7 +6533,7 @@ private void showDownloadSettingsPanel() {
                     item.pauseRequested = true;
                     stopActiveDownloadTransports(item);
                     item.status = "paused";
-                    item.speedBytesPerSecond = 0;
+                    resetDownloadSpeedState(item);
                     item.engineInfo = getConnectionLabel(item) + " • dijeda";
                     showDownloadNotification(item, "Unduhan dijeda", false);
                 } else if ("queued".equals(item.status)) {
@@ -6099,7 +6557,7 @@ private void showDownloadSettingsPanel() {
                     item.status = "queued";
                     item.pauseRequested = false;
                     item.engineInfo = "Antri • menunggu slot";
-                    item.speedBytesPerSecond = 0;
+                    resetDownloadSpeedState(item);
                 }
             }
         }
@@ -6198,7 +6656,7 @@ private void showDownloadSettingsPanel() {
         item.pauseRequested = true;
         stopActiveDownloadTransports(item);
         item.status = "paused";
-        item.speedBytesPerSecond = 0;
+        resetDownloadSpeedState(item);
         item.engineInfo = getConnectionLabel(item) + " • dijeda";
         saveDownloadHistory();
         refreshDownloadPanel();
@@ -6212,10 +6670,27 @@ private void showDownloadSettingsPanel() {
         if (item == null || !"paused".equals(item.status)) return;
         try {
             item.pauseRequested = false;
-            item.speedBytesPerSecond = 0;
+            resetDownloadSpeedState(item);
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = item.downloadedBytes;
             downloadQueuePaused = false;
+
+            File staged = item.path == null || item.path.isEmpty() ? null : new File(item.path);
+            boolean networkPayloadComplete = staged != null && staged.exists() && staged.length() > 0
+                    && ((!item.hlsDownload && item.totalBytes > 0
+                            && item.downloadedBytes >= item.totalBytes
+                            && staged.length() == item.totalBytes)
+                        || (item.hlsDownload && item.totalBytes > 0
+                            && item.hlsCompletedSegments >= item.totalBytes));
+            if (networkPayloadComplete) {
+                item.runGeneration++;
+                item.status = "verifying";
+                item.engineInfo = "Memulihkan tahap penyimpanan";
+                refreshDownloadPanel();
+                updateDownloadKeepAliveState();
+                new Thread(() -> completeDownload(item), "yield-finalize-recovery-" + item.id).start();
+                return;
+            }
 
             boolean slotAvailable = !downloadQueueEnabled || countActiveDownloads() < Math.max(1, downloadMaxActive);
             if (slotAvailable) {
@@ -6257,10 +6732,13 @@ private void showDownloadSettingsPanel() {
             item.hlsOutputBytes = 0;
             item.hlsPlaylistFingerprint = "";
             item.hlsInitMapWritten = false;
+            item.finalizeProgress = 0;
+            item.finalizeBytes = 0;
+            item.finalizeTotalBytes = 0;
             item.turboTargetConnections = 0;
             item.turboProfile = "";
             item.turboRetryPenalty = 0;
-            item.speedBytesPerSecond = 0;
+            resetDownloadSpeedState(item);
             item.lastSpeedTimeMs = 0;
             item.lastSpeedBytes = 0;
             item.engineInfo = "Mengecek koneksi";
@@ -6369,8 +6847,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private void renameDownloadedFile(DownloadItem item) {
-        File currentFile = new File(item.path);
-        if (!currentFile.exists()) {
+        if (item == null || getBestDownloadUri(item) == null) {
             Toast.makeText(this, "File tidak ditemukan", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -6385,22 +6862,45 @@ private void showDownloadSettingsPanel() {
                 .setView(input)
                 .setPositiveButton("Simpan", (dialog, which) -> {
                     String newName = input.getText().toString().trim();
-                    if (newName.length() == 0) {
+                    if (newName.isEmpty()) {
                         Toast.makeText(this, "Nama file kosong", Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    File newFile = new File(currentFile.getParentFile(), newName);
-                    if (newFile.exists()) {
-                        Toast.makeText(this, "Nama file sudah ada", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    if (currentFile.renameTo(newFile)) {
-                        item.fileName = newName;
-                        item.path = newFile.getAbsolutePath();
-                        saveDownloadHistory();
-                        renderDownloadList();
-                        Toast.makeText(this, "Nama file diperbarui", Toast.LENGTH_SHORT).show();
-                    } else {
+                    try {
+                        boolean renamed = false;
+                        if (item.publicUri != null && !item.publicUri.isEmpty()) {
+                            Uri uri = Uri.parse(item.publicUri);
+                            try {
+                                Uri renamedUri = DocumentsContract.renameDocument(
+                                        getContentResolver(), uri, newName);
+                                if (renamedUri != null) {
+                                    item.publicUri = renamedUri.toString();
+                                    renamed = true;
+                                }
+                            } catch (Exception ignored) {
+                                ContentValues values = new ContentValues();
+                                values.put(MediaStore.MediaColumns.DISPLAY_NAME, newName);
+                                renamed = getContentResolver().update(uri, values, null, null) > 0;
+                            }
+                        }
+                        if (!renamed && item.path != null && !item.path.isEmpty()) {
+                            File currentFile = new File(item.path);
+                            File parent = currentFile.getParentFile();
+                            File newFile = parent == null ? null : new File(parent, newName);
+                            if (newFile != null && !newFile.exists() && currentFile.renameTo(newFile)) {
+                                item.path = newFile.getAbsolutePath();
+                                renamed = true;
+                            }
+                        }
+                        if (renamed) {
+                            item.fileName = newName;
+                            saveDownloadHistory();
+                            renderDownloadList();
+                            Toast.makeText(this, "Nama file diperbarui", Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(this, "Gagal mengganti nama", Toast.LENGTH_SHORT).show();
+                        }
+                    } catch (Exception e) {
                         Toast.makeText(this, "Gagal mengganti nama", Toast.LENGTH_SHORT).show();
                     }
                 })
@@ -6519,6 +7019,7 @@ private void showDownloadSettingsPanel() {
             item.engineInfo = "Mengecek koneksi";
             item.userAgent = userAgent == null ? "" : userAgent;
             item.referer = referer == null ? "" : referer;
+            item.cookieHeader = buildAntiHotlinkCookieHeader(fileUrl, item);
             item.categoryHint = inferDownloadCategoryFromData(fileName, fileUrl, "");
 
             synchronized (downloadItems) {
@@ -6527,17 +7028,72 @@ private void showDownloadSettingsPanel() {
             saveDownloadHistory();
             refreshDownloadPanel();
             showDownloadNotification(item, "Masuk antrian", true);
-            Toast.makeText(this, "Unduhan masuk antrian Download.", Toast.LENGTH_SHORT).show();
-            mainHandler.postDelayed(() -> {
-                if (activeDownloadDialog == null || !activeDownloadDialog.isShowing()) showDownloadManager();
-                else renderDownloadList();
-            }, 250);
+            showDownloadStartedBanner(item);
             enqueueOrStartDownload(item, out);
         } catch (Exception e) {
             Toast.makeText(this, "Gagal memulai unduhan: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
+
+
+    private void showDownloadStartedBanner(DownloadItem item) {
+        runOnUiThread(() -> {
+            if (contentFrame == null || item == null) {
+                Toast.makeText(this, "Unduhan dimulai", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            LinearLayout banner = new LinearLayout(this);
+            banner.setOrientation(LinearLayout.HORIZONTAL);
+            banner.setGravity(Gravity.CENTER_VERTICAL);
+            banner.setPadding(dp(14), dp(10), dp(10), dp(10));
+            banner.setBackground(roundRect(Color.parseColor("#242830"), dp(18), dp(1), COLOR_BORDER));
+            banner.setAlpha(0f);
+            banner.setTranslationY(dp(18));
+
+            LinearLayout textWrap = new LinearLayout(this);
+            textWrap.setOrientation(LinearLayout.VERTICAL);
+            TextView title = new TextView(this);
+            title.setText("Unduhan dimulai");
+            title.setTextColor(Color.WHITE);
+            title.setTextSize(14);
+            title.setTypeface(Typeface.DEFAULT_BOLD);
+            textWrap.addView(title);
+            TextView name = new TextView(this);
+            name.setText(item.fileName);
+            name.setTextColor(COLOR_SUBTEXT);
+            name.setTextSize(12);
+            name.setSingleLine(true);
+            name.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+            textWrap.addView(name);
+            banner.addView(textWrap, new LinearLayout.LayoutParams(0, -2, 1));
+
+            TextView open = new TextView(this);
+            open.setText("Lihat");
+            open.setTextColor(COLOR_ACCENT);
+            open.setTextSize(13);
+            open.setTypeface(Typeface.DEFAULT_BOLD);
+            open.setGravity(Gravity.CENTER);
+            open.setPadding(dp(14), dp(8), dp(14), dp(8));
+            open.setOnClickListener(v -> {
+                try { contentFrame.removeView(banner); } catch (Exception ignored) {}
+                showDownloadManager();
+            });
+            banner.addView(open, new LinearLayout.LayoutParams(-2, dp(42)));
+
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+            lp.setMargins(dp(14), dp(14), dp(14), dp(76));
+            contentFrame.addView(banner, lp);
+            banner.animate().alpha(1f).translationY(0f).setDuration(180L).start();
+            mainHandler.postDelayed(() -> {
+                if (banner.getParent() == null) return;
+                banner.animate().alpha(0f).translationY(dp(14)).setDuration(180L)
+                        .withEndAction(() -> {
+                            try { contentFrame.removeView(banner); } catch (Exception ignored) {}
+                        }).start();
+            }, 4200L);
+        });
+    }
 
     private void ensureDownloadNotificationPermission() {
         if (Build.VERSION.SDK_INT < 33
@@ -6897,6 +7453,12 @@ private void showDownloadSettingsPanel() {
     private String buildAntiHotlinkCookieHeader(String fileUrl, DownloadItem item) {
         try {
             LinkedHashSet<String> cookies = new LinkedHashSet<>();
+            if (item != null && item.cookieHeader != null && !item.cookieHeader.trim().isEmpty()) {
+                for (String part : item.cookieHeader.split(";")) {
+                    String trimmed = part.trim();
+                    if (!trimmed.isEmpty()) cookies.add(trimmed);
+                }
+            }
             String[] sources = new String[]{fileUrl, item != null ? item.referer : "",
                     getRootUrl(fileUrl), item != null ? getRootUrl(item.referer) : ""};
             for (String source : sources) {
@@ -7314,7 +7876,7 @@ private void showDownloadSettingsPanel() {
                 if (!isCurrentDownloadRun(item, generation)) return;
                 if (item.pauseRequested || "paused".equals(item.status)) {
                     item.status = "paused";
-                    item.speedBytesPerSecond = 0;
+                    resetDownloadSpeedState(item);
                     item.engineInfo = getTurboLabel(item, workerSlots) + " • dijeda";
                     saveDownloadHistory();
                     refreshDownloadPanel();
@@ -7533,7 +8095,7 @@ private void showDownloadSettingsPanel() {
                 if (!isCurrentDownloadRun(item, generation)) return;
                 if (item.pauseRequested || "paused".equals(item.status)) {
                     item.status = "paused";
-                    item.speedBytesPerSecond = 0;
+                    resetDownloadSpeedState(item);
                     item.engineInfo = "Stable 2 koneksi • dijeda";
                     saveDownloadHistory();
                     refreshDownloadPanel();
@@ -7751,7 +8313,7 @@ private void showDownloadSettingsPanel() {
                 if (!isCurrentDownloadRun(item, generation)) return;
                 if (item.pauseRequested || "paused".equals(item.status)) {
                     item.status = "paused";
-                    item.speedBytesPerSecond = 0;
+                    resetDownloadSpeedState(item);
                     item.engineInfo = "HLS • dijeda pada segmen " + item.hlsCompletedSegments;
                     saveDownloadHistory();
                     refreshDownloadPanel();
@@ -7768,7 +8330,7 @@ private void showDownloadSettingsPanel() {
                 if (!isCurrentDownloadRun(item, generation)) return;
                 if (item.pauseRequested || "paused".equals(item.status)) {
                     item.status = "paused";
-                    item.speedBytesPerSecond = 0;
+                    resetDownloadSpeedState(item);
                     item.engineInfo = "HLS • dijeda";
                     saveDownloadHistory();
                     refreshDownloadPanel();
@@ -8086,7 +8648,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (!isCurrentDownloadRun(item, generation)) return;
             if (item.pauseRequested || "paused".equals(item.status)) {
                 item.status = "paused";
-                item.speedBytesPerSecond = 0;
+                resetDownloadSpeedState(item);
                 item.engineInfo = "Safe 1 koneksi • dijeda";
                 saveDownloadHistory();
                 refreshDownloadPanel();
@@ -8112,7 +8674,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             }
             if (item.pauseRequested || "paused".equals(item.status)) {
                 item.status = "paused";
-                item.speedBytesPerSecond = 0;
+                resetDownloadSpeedState(item);
                 item.engineInfo = "Safe 1 koneksi • dijeda";
                 saveDownloadHistory();
                 refreshDownloadPanel();
@@ -8133,53 +8695,88 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private void completeDownload(DownloadItem item) {
         if (item == null || "removed".equals(item.status)) return;
         stopActiveDownloadTransports(item);
-        item.progress = 100;
-        item.status = "completed";
         item.pauseRequested = false;
-        item.speedBytesPerSecond = 0;
+        resetDownloadSpeedState(item);
         item.retryCount = 0;
-        exportCompletedDownload(item);
+        item.status = "verifying";
+        item.finalizeProgress = 12;
+        item.engineInfo = "Memverifikasi file";
         saveDownloadHistory();
         refreshDownloadPanel();
         updateDownloadKeepAliveState();
-        showDownloadNotification(item, "Unduhan selesai", false);
+        showDownloadNotification(item, "Memverifikasi file…", true);
+
+        File source = item.path == null ? null : new File(item.path);
+        if (source == null || !source.exists() || source.length() <= 0) {
+            failDownload(item, "File hasil download tidak ditemukan");
+            return;
+        }
+        if (!item.hlsDownload && item.totalBytes > 0 && source.length() != item.totalBytes) {
+            failDownload(item, "Ukuran file tidak sesuai setelah download");
+            return;
+        }
+
+        item.finalizeProgress = 100;
+        item.status = "saving";
+        item.finalizeBytes = 0;
+        item.finalizeTotalBytes = Math.max(1L, source.length());
+        item.engineInfo = "Menyimpan ke Downloads";
+        saveDownloadHistory();
+        refreshDownloadPanel();
+        showDownloadNotification(item, "Menyimpan ke Downloads…", true);
+
+        boolean exported = exportCompletedDownload(item, source);
+        if ("removed".equals(item.status)) return;
+
+        item.progress = 100;
+        item.finalizeProgress = 100;
+        item.status = "completed";
+        item.engineInfo = exported
+                ? getConnectionLabel(item) + " • tersimpan"
+                : getConnectionLabel(item) + " • tersimpan di aplikasi";
+        saveDownloadHistory();
+        refreshDownloadPanel();
+        updateDownloadKeepAliveState();
+        showDownloadNotification(item, exported ? "Unduhan selesai" : "Unduhan selesai • penyimpanan lokal", false);
         runOnUiThread(() -> Toast.makeText(this, "Unduhan selesai: " + item.fileName,
                 Toast.LENGTH_SHORT).show());
-        mainHandler.postDelayed(this::pumpDownloadQueue, 250);
+        mainHandler.postDelayed(this::pumpDownloadQueue, 180L);
     }
 
-    private void exportCompletedDownload(DownloadItem item) {
-        if (item == null || item.path == null || item.path.isEmpty()) return;
-        File source = new File(item.path);
-        if (!source.exists()) return;
+    private boolean exportCompletedDownload(DownloadItem item, File source) {
+        if (item == null || source == null || !source.exists()) return false;
         try {
             Uri exported = selectedDownloadTreeUri != null && !selectedDownloadTreeUri.isEmpty()
-                    ? copyFileToSelectedTree(source, item.fileName)
-                    : copyFileToDefaultDownloads(source, item.fileName);
-            if (exported != null) {
-                item.publicUri = exported.toString();
-                item.engineInfo = getConnectionLabel(item) + " • tersimpan";
-                runOnUiThread(() -> Toast.makeText(this, "Disimpan ke folder unduhan",
-                        Toast.LENGTH_SHORT).show());
-            }
+                    ? copyFileToSelectedTree(source, item.fileName, item)
+                    : copyFileToDefaultDownloads(source, item.fileName, item);
+            if (exported == null) return false;
+            item.publicUri = exported.toString();
+            if (source.exists() && source.delete()) item.path = "";
+            return true;
         } catch (Exception e) {
-            runOnUiThread(() -> Toast.makeText(this,
-                    "Download selesai, tetapi gagal disalin ke folder HP", Toast.LENGTH_LONG).show());
+            item.failReason = "Gagal menyalin ke Downloads: " + safeText(e.getMessage());
+            return false;
         }
     }
 
-    private Uri copyFileToSelectedTree(File source, String fileName) throws Exception {
+    private Uri copyFileToSelectedTree(File source, String fileName, DownloadItem item) throws Exception {
         Uri treeUri = Uri.parse(selectedDownloadTreeUri);
         Uri documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri,
                 DocumentsContract.getTreeDocumentId(treeUri));
         Uri newFile = DocumentsContract.createDocument(getContentResolver(), documentUri,
                 getMimeTypeForName(fileName), fileName);
         if (newFile == null) throw new Exception("Tidak bisa membuat file di folder HP");
-        copyFileToUri(source, newFile);
-        return newFile;
+        try {
+            copyFileToUri(source, newFile, item);
+            return newFile;
+        } catch (Exception e) {
+            try { DocumentsContract.deleteDocument(getContentResolver(), newFile); }
+            catch (Exception ignored) {}
+            throw e;
+        }
     }
 
-    private Uri copyFileToDefaultDownloads(File source, String fileName) throws Exception {
+    private Uri copyFileToDefaultDownloads(File source, String fileName, DownloadItem item) throws Exception {
         String mime = getMimeTypeForName(fileName);
         if (Build.VERSION.SDK_INT >= 29) {
             ContentValues values = new ContentValues();
@@ -8190,40 +8787,76 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             values.put(MediaStore.MediaColumns.IS_PENDING, 1);
             Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
             if (uri == null) throw new Exception("Tidak bisa membuat file di Downloads");
-            copyFileToUri(source, uri);
-            ContentValues done = new ContentValues();
-            done.put(MediaStore.MediaColumns.IS_PENDING, 0);
-            getContentResolver().update(uri, done, null, null);
-            return uri;
+            try {
+                copyFileToUri(source, uri, item);
+                ContentValues done = new ContentValues();
+                done.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                getContentResolver().update(uri, done, null, null);
+                return uri;
+            } catch (Exception e) {
+                try { getContentResolver().delete(uri, null, null); } catch (Exception ignored) {}
+                throw e;
+            }
         }
         File directory = new File(Environment.getExternalStoragePublicDirectory(
                 Environment.DIRECTORY_DOWNLOADS), "Yield Browser");
         if (!directory.exists()) directory.mkdirs();
         File target = uniqueFile(new File(directory, fileName));
-        copyFileToFile(source, target);
-        return Uri.fromFile(target);
+        try {
+            copyFileToFile(source, target, item);
+            return Uri.fromFile(target);
+        } catch (Exception e) {
+            try { if (target.exists()) target.delete(); } catch (Exception ignored) {}
+            throw e;
+        }
     }
 
-    private void copyFileToUri(File source, Uri uri) throws Exception {
+    private void copyFileToUri(File source, Uri uri, DownloadItem item) throws Exception {
         try (InputStream input = new FileInputStream(source);
              OutputStream output = getContentResolver().openOutputStream(uri, "w")) {
             if (output == null) throw new Exception("Output folder tidak tersedia");
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-            output.flush();
+            copyWithFinalizeProgress(input, output, source.length(), item);
         }
     }
 
-    private void copyFileToFile(File source, File target) throws Exception {
+    private void copyFileToFile(File source, File target, DownloadItem item) throws Exception {
         try (InputStream input = new FileInputStream(source);
              OutputStream output = new FileOutputStream(target)) {
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-            output.flush();
+            copyWithFinalizeProgress(input, output, source.length(), item);
         }
     }
+
+    private void copyWithFinalizeProgress(InputStream input, OutputStream output,
+                                          long totalBytes, DownloadItem item) throws Exception {
+        byte[] buffer = new byte[256 * 1024];
+        long copied = 0L;
+        long lastUiUpdate = 0L;
+        int read;
+        while ((read = input.read(buffer)) != -1) {
+            if (item != null && (item.pauseRequested || "removed".equals(item.status))) {
+                throw new Exception("Penyimpanan dibatalkan");
+            }
+            output.write(buffer, 0, read);
+            copied += read;
+            long now = System.currentTimeMillis();
+            if (item != null && (now - lastUiUpdate >= 250L || copied >= totalBytes)) {
+                item.finalizeBytes = copied;
+                item.finalizeTotalBytes = Math.max(1L, totalBytes);
+                item.finalizeProgress = (int) Math.min(100L,
+                        copied * 100L / Math.max(1L, totalBytes));
+                refreshDownloadPanel();
+                if (now - item.lastProgressPersistMs >= 1200L || copied >= totalBytes) {
+                    item.lastProgressPersistMs = now;
+                    saveDownloadHistory();
+                    showDownloadNotification(item,
+                            "Menyimpan ke Downloads… " + item.finalizeProgress + "%", true);
+                }
+                lastUiUpdate = now;
+            }
+        }
+        output.flush();
+    }
+
 
     private String getMimeTypeForName(String fileName) {
         try {
@@ -8257,7 +8890,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             final int retryGeneration = item.runGeneration;
             item.status = "running";
             item.pauseRequested = false;
-            item.speedBytesPerSecond = 0;
+            resetDownloadSpeedState(item);
             item.failReason = reason == null ? "Koneksi terputus" : reason;
             item.engineInfo = "Retry otomatis " + item.retryCount + "/" + DOWNLOAD_RETRY_MAX;
             saveDownloadHistory();
@@ -8278,7 +8911,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         item.runGeneration++;
         item.status = "failed";
         item.pauseRequested = false;
-        item.speedBytesPerSecond = 0;
+        resetDownloadSpeedState(item);
         item.failReason = reason == null ? "Koneksi/server menolak unduhan" : reason;
         item.engineInfo = getConnectionLabel(item) + " • terputus/gagal";
         saveDownloadHistory();
@@ -8296,8 +8929,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             NotificationChannel channel = new NotificationChannel(CHANNEL_DOWNLOADS,
                     "Yield Downloads", NotificationManager.IMPORTANCE_LOW);
             channel.setDescription("Progress unduhan Yield Browser");
+            channel.setSound(null, null);
+            channel.enableVibration(false);
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            if (manager != null) manager.createNotificationChannel(channel);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+                manager.deleteNotificationChannel("yield_download_engine");
+            }
         }
     }
 
@@ -8310,29 +8948,49 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private void showDownloadNotification(DownloadItem item, String text, boolean ongoing) {
+        if (item == null || "removed".equals(item.status)) return;
+
+        // A running download is represented by the foreground service's progress notification.
+        // Do not create a second "engine/background" notification or a duplicate per-item one.
+        if (isActiveDownloadStatus(item.status) && ongoing) {
+            updateDownloadKeepAliveState();
+            return;
+        }
+
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (manager == null || item == null || "removed".equals(item.status)) return;
-        Intent intent = new Intent(this, DownloadOpenReceiver.class);
-        intent.setAction(ACTION_OPEN_DOWNLOADS);
-        intent.putExtra("open_downloads", true);
-        intent.putExtra("download_id", item.id);
+        if (manager == null) return;
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
-        PendingIntent pending = PendingIntent.getBroadcast(this, item.id + 12000, intent, flags);
+        PendingIntent pending;
+        if (dedicatedPrivateProfile) {
+            Intent openPrivate = new Intent(this, PrivateBrowserActivity.class);
+            openPrivate.putExtra("open_downloads", true);
+            openPrivate.putExtra("download_id", item.id);
+            openPrivate.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            pending = PendingIntent.getActivity(this, item.id + 12000, openPrivate, flags);
+        } else {
+            Intent intent = new Intent(this, DownloadOpenReceiver.class);
+            intent.setAction(ACTION_OPEN_DOWNLOADS);
+            intent.putExtra("open_downloads", true);
+            intent.putExtra("download_id", item.id);
+            pending = PendingIntent.getBroadcast(this, item.id + 12000, intent, flags);
+        }
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_DOWNLOADS)
                 : new Notification.Builder(this);
         String line = text;
-        if ("running".equals(item.status)) line = text + " • " + getConnectionLabel(item);
-        else if ("paused".equals(item.status)) line = "Dijeda • " + getConnectionLabel(item);
+        if ("paused".equals(item.status)) line = "Dijeda • " + getConnectionLabel(item);
         builder.setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle(item.fileName)
                 .setContentText(line)
                 .setContentIntent(pending)
+                .setCategory(Notification.CATEGORY_PROGRESS)
+                .setOnlyAlertOnce(true)
                 .setAutoCancel(!ongoing)
-                .setOngoing(ongoing);
-        if ("running".equals(item.status) || "paused".equals(item.status)) {
-            builder.setProgress(100, Math.max(0, Math.min(100, item.progress)), false);
+                .setOngoing(ongoing)
+                .setVisibility(Notification.VISIBILITY_PRIVATE);
+        if (ongoing || "paused".equals(item.status)) {
+            builder.setProgress(100, getVisibleDownloadProgressPercent(item), false);
         }
         manager.notify(item.id, builder.build());
     }
@@ -8912,7 +9570,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
 
         int protectedIndex = currentTabIndex;
-        TabInfo adTab = new TabInfo("Tab iklan", safeUrl, false, true);
+        TabInfo adTab = createProfileTab("Tab iklan", "Tab iklan privat", safeUrl, false, true);
         tabs.add(adTab);
         updateTabsCountUi();
 
@@ -8934,11 +9592,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (index < 0) return;
 
             boolean closingCurrent = index == currentTabIndex;
-            tabs.remove(index);
+            if (closingCurrent) invalidateTabScopedAsyncWork();
+            adTab.closed = true;
             destroyTabWebView(adTab);
+            tabs.remove(index);
 
             if (tabs.isEmpty()) {
-                tabs.add(new TabInfo("Tab utama", "", false));
+                tabs.add(createProfileTab("Tab utama", "Tab privat", "", false));
                 currentTabIndex = 0;
                 addressBar.setText("");
                 if (homeSearchInput != null) homeSearchInput.setText("");
@@ -8975,8 +9635,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 if (tab == null || !tab.adTab) continue;
 
                 boolean closingCurrent = i == currentTabIndex;
-                tabs.remove(i);
+                if (closingCurrent) invalidateTabScopedAsyncWork();
+                tab.closed = true;
                 destroyTabWebView(tab);
+                tabs.remove(i);
                 changed = true;
 
                 if (closingCurrent) {
@@ -8987,7 +9649,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             }
 
             if (tabs.isEmpty()) {
-                tabs.add(new TabInfo("Tab utama", "", false));
+                tabs.add(createProfileTab("Tab utama", "Tab privat", "", false));
                 currentTabIndex = 0;
                 addressBar.setText("");
                 if (homeSearchInput != null) homeSearchInput.setText("");
@@ -9012,9 +9674,24 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
     }
     @SuppressLint("SetJavaScriptEnabled")
-    private WebView createBrowserWebView(int visibility) {
+    private WebView createBrowserWebView(TabInfo owner, int visibility) {
         WebView fresh = new WebView(this);
         fresh.setVisibility(visibility);
+        if (owner != null) {
+            long generation = ++owner.webViewGeneration;
+            fresh.setTag(new WebViewBinding(owner, generation));
+        }
+        boolean privateProfile = dedicatedPrivateProfile || (owner != null && owner.privateTab);
+        if (privateProfile) {
+            try { fresh.setSaveEnabled(false); } catch (Exception ignored) {}
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try { fresh.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS); }
+                catch (Exception ignored) {}
+            }
+            try { fresh.clearHistory(); } catch (Exception ignored) {}
+            try { fresh.clearFormData(); } catch (Exception ignored) {}
+            try { fresh.clearCache(true); } catch (Exception ignored) {}
+        }
         webView = fresh;
         configureWebView();
         return fresh;
@@ -9029,7 +9706,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         TabInfo activeTab = getCurrentTab();
         try { destroyTabWebView(activeTab); } catch (Exception ignored) {}
 
-        WebView fresh = createBrowserWebView(showWebPage ? View.VISIBLE : View.GONE);
+        WebView fresh = createBrowserWebView(activeTab, showWebPage ? View.VISIBLE : View.GONE);
         activeTab.webView = fresh;
         attachWebViewToContentFrame(fresh);
         hideInactiveTabWebViews(fresh);
@@ -9071,11 +9748,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         webView.addJavascriptInterface(new VideoBridge(), "YieldVideoBridge");
         webView.addJavascriptInterface(new AdBlockBridge(), "YieldAdBlockBridge");
         webView.addJavascriptInterface(new TranslateBridge(), "YieldTranslateBridge");
-        try {
-            CookieManager cm = CookieManager.getInstance();
-            cm.setAcceptCookie(true);
-            if (Build.VERSION.SDK_INT >= 21) cm.setAcceptThirdPartyCookies(webView, true);
-        } catch (Exception ignored) {}
+        applyProfileCookiePolicy(webView);
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             beginDownloadFromWeb(url, contentDisposition, mimeType, userAgent);
         });
@@ -10040,7 +10713,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private void applyBrowserSettings() {
         if (webView == null) return;
         WebSettings settings = webView.getSettings();
+        boolean privateProfile = isPrivateWebView(webView);
         settings.setJavaScriptEnabled(true);
+        // Incognito keeps modern site storage functional, but the storage lives inside the
+        // dedicated private WebView profile and is purged when that profile closes.
         settings.setDomStorageEnabled(true);
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
@@ -10050,7 +10726,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         try { settings.setMediaPlaybackRequiresUserGesture(youtubePage || !videoBackgroundPlay); } catch (Exception ignored) {}
         settings.setJavaScriptCanOpenWindowsAutomatically(!(adBlock && adBlockPopupBlocker));
         settings.setDatabaseEnabled(true);
-        settings.setCacheMode((speedMode || (videoBufferBooster && !youtubePage)) ? WebSettings.LOAD_CACHE_ELSE_NETWORK : WebSettings.LOAD_DEFAULT);
+        settings.setCacheMode(privateProfile
+                ? WebSettings.LOAD_NO_CACHE
+                : ((speedMode || (videoBufferBooster && !youtubePage))
+                ? WebSettings.LOAD_CACHE_ELSE_NETWORK : WebSettings.LOAD_DEFAULT));
+        try { settings.setSaveFormData(!privateProfile); } catch (Exception ignored) {}
+        try { settings.setAllowFileAccess(!privateProfile); } catch (Exception ignored) {}
+        try { settings.setAllowContentAccess(true); } catch (Exception ignored) {}
         settings.setLoadsImagesAutomatically(!dataSaver);
         settings.setTextZoom(textZoom <= 0 ? 100 : textZoom);
 
@@ -10227,7 +10909,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             settings.setDomStorageEnabled(true);
             settings.setDatabaseEnabled(true);
             settings.setLoadsImagesAutomatically(true);
-            settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+            settings.setCacheMode(isPrivateWebView(webView) ? WebSettings.LOAD_NO_CACHE : WebSettings.LOAD_DEFAULT);
             settings.setJavaScriptCanOpenWindowsAutomatically(true);
             settings.setSupportMultipleWindows(false);
             settings.setBuiltInZoomControls(true);
@@ -10239,9 +10921,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             }
             if (desktopMode) applyDesktopProfile(settings);
             else applyMobileProfile(settings);
-            CookieManager cm = CookieManager.getInstance();
-            cm.setAcceptCookie(true);
-            if (Build.VERSION.SDK_INT >= 21) cm.setAcceptThirdPartyCookies(webView, true);
+            applyProfileCookiePolicy(webView);
             try { webView.setBackgroundColor(Color.WHITE); } catch (Exception ignored) {}
         } catch (Exception ignored) {
         }
@@ -10267,24 +10947,27 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private void scheduleCompatibilityLoadFallback(String url) {
+        final TabInfo expectedTab = findTabByWebView(webView);
+        final WebView expectedView = webView;
         final String expectedHost = hostOfUrl(url);
-        mainHandler.postDelayed(() -> {
+        postForActiveTab(expectedTab, expectedView, 3500L, () -> {
             try {
-                if (webView == null) return;
-                String active = getEffectiveCurrentUrl();
+                String active = extractOriginalUrl(expectedView.getUrl());
+                if (active == null || active.length() == 0) active = expectedTab.currentPageUrlForRequest;
                 String activeHost = hostOfUrl(active);
-                if (expectedHost.length() > 0 && activeHost.length() > 0 && sameOrSubDomain(activeHost, expectedHost)) {
-                    // Jangan biarkan overlay transisi/search menutup halaman terlalu lama.
+                if (expectedHost.length() > 0 && activeHost.length() > 0
+                        && sameOrSubDomain(activeHost, expectedHost)) {
                     cancelSmoothSearchTransition();
                     if (progressBar != null) progressBar.setVisibility(View.GONE);
-                    if (webView.getVisibility() != View.VISIBLE) {
+                    if (expectedView.getVisibility() != View.VISIBLE) {
                         if (homeScroll != null) homeScroll.setVisibility(View.GONE);
-                        webView.setVisibility(View.VISIBLE);
+                        expectedView.setVisibility(View.VISIBLE);
                     }
-                    webView.setAlpha(1f);
+                    expectedView.setAlpha(1f);
                 }
-            } catch (Exception ignored) {}
-        }, 3500);
+            } catch (Exception ignored) {
+            }
+        });
     }
 
     private String decodeEvaluateJavascriptString(String value) {
@@ -10366,21 +11049,26 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private void scheduleUniversalBlankCompatibilityRecovery(String url) {
         try {
-            if (webView == null) return;
+            final TabInfo expectedTab = findTabByWebView(webView);
+            final WebView expectedView = webView;
+            if (expectedTab == null || expectedView == null) return;
             if (!isUniversalCompatibilityCandidateUrl(url)) return;
             final String expectedHost = hostOfUrl(url);
             final String expectedKey = navigationLoopKey(url);
             if (expectedHost.length() == 0 || expectedKey.length() == 0) return;
-            mainHandler.postDelayed(() -> {
+            final long generation = expectedTab.webViewGeneration;
+            postForActiveTab(expectedTab, expectedView, 1600L, () -> {
                 try {
-                    if (webView == null) return;
-                    String activeUrl = getEffectiveCurrentUrl();
-                    if (activeUrl == null || activeUrl.length() == 0) activeUrl = currentPageUrlForRequest;
+                    String activeUrl = extractOriginalUrl(expectedView.getUrl());
+                    if (activeUrl == null || activeUrl.length() == 0) {
+                        activeUrl = expectedTab.currentPageUrlForRequest;
+                    }
                     String activeHost = hostOfUrl(activeUrl);
                     String activeKey = navigationLoopKey(activeUrl);
                     if (!sameOrSubDomain(activeHost, expectedHost)) return;
                     if (!expectedKey.equals(activeKey)) return;
-                    if (isStrictSiteCompatibilityUrl(activeUrl) || isSiteCompatibilityModeActiveForUrl(activeUrl)) return;
+                    if (isStrictSiteCompatibilityUrl(activeUrl)
+                            || isSiteCompatibilityModeActiveForUrl(activeUrl)) return;
                     String js = "(function(){try{var b=document.body, d=document.documentElement; if(!b){return '0|0|0|0|0|0|'+document.readyState;}"
                             + "var t=((b.innerText||'').replace(/\\s+/g,'')).length;"
                             + "var n=b.querySelectorAll('*').length;"
@@ -10390,11 +11078,14 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                             + "var s=Math.max(b.scrollHeight||0,(d&&d.scrollHeight)||0);"
                             + "return [t,n,m,l,h,s,document.readyState].join('|');"
                             + "}catch(e){return '0|0|0|0|0|0|error';}})();";
-                    webView.evaluateJavascript(js, value -> {
+                    expectedView.evaluateJavascript(js, value -> {
                         try {
-                            if (webView == null) return;
-                            String currentUrl = getEffectiveCurrentUrl();
-                            if (currentUrl == null || currentUrl.length() == 0) currentUrl = currentPageUrlForRequest;
+                            if (!isLiveTabWebView(expectedTab, expectedView, generation)
+                                    || !isCurrentTabInfo(expectedTab)) return;
+                            String currentUrl = extractOriginalUrl(expectedView.getUrl());
+                            if (currentUrl == null || currentUrl.length() == 0) {
+                                currentUrl = expectedTab.currentPageUrlForRequest;
+                            }
                             String currentHost = hostOfUrl(currentUrl);
                             String currentKey = navigationLoopKey(currentUrl);
                             if (!sameOrSubDomain(currentHost, expectedHost)) return;
@@ -10410,7 +11101,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     });
                 } catch (Exception ignored) {
                 }
-            }, 1600L);
+            });
         } catch (Exception ignored) {
         }
     }
@@ -10828,8 +11519,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (owner == null && view == webView) owner = getCurrentTab();
             final TabInfo targetTab = owner;
             final WebView targetView = view;
+            final long targetGeneration = targetTab != null ? targetTab.webViewGeneration : -1L;
             String tabSafeUrl = getTabReferenceUrl(targetTab);
-            if ((tabSafeUrl == null || tabSafeUrl.length() == 0) && lastSafeHttpUrl != null) tabSafeUrl = lastSafeHttpUrl;
+            if ((tabSafeUrl == null || tabSafeUrl.length() == 0)
+                    && isCurrentTabInfo(targetTab) && lastSafeHttpUrl != null) {
+                tabSafeUrl = lastSafeHttpUrl;
+            }
 
             if (isTrustedDownloadIntentUrl(blockedUrl)) {
                 return;
@@ -10873,7 +11568,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 try {
                     WebView restoreView = targetView;
                     if (restoreView == null && targetTab != null) restoreView = targetTab.webView;
-                    if (restoreView == null) return;
+                    if (!isLiveTabWebView(targetTab, restoreView, targetGeneration)) return;
 
                     String current = restoreView.getUrl();
                     boolean currentBad = current == null
@@ -11290,7 +11985,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         pendingHideKeyboardAfterNavigation = true;
         String text = addressBar.getText().toString().trim();
         if (text.length() == 0) {
-            showHome();
+            navigateCurrentTabHome();
             return;
         }
         String url;
@@ -11700,11 +12395,27 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
     }
 
+    private void navigateCurrentTabHome() {
+        invalidateTabScopedAsyncWork();
+        try {
+            saveCurrentTabState();
+            TabInfo tab = getCurrentTab();
+            tab.resetToHome();
+            destroyTabWebView(tab);
+            activateNavigationContextForTab(tab);
+            skipNextShowHomeTabSave = true;
+            showHome();
+            saveTabsSession();
+        } catch (Exception ignored) {
+            skipNextShowHomeTabSave = true;
+            showHome();
+        }
+    }
+
     private void showHome() {
         cancelSmoothSearchTransition();
-// Home hanya menyembunyikan halaman web, bukan menghapus state halaman.
-        // Jadi kalau tidak sengaja kepencet Home, halaman terakhir masih bisa dikembalikan lewat gesture.
-        // Saat tab baru/privat baru dibuat, jangan simpan URL lama ke tab kosong baru.
+        // Internal callers may render Home without mutating an already-empty tab. The explicit
+        // Home button uses navigateCurrentTabHome(), which clears URL, history state, and WebView.
         try {
             if (skipNextShowHomeTabSave) {
                 skipNextShowHomeTabSave = false;
@@ -11716,8 +12427,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (webView != null) webView.stopLoading();
         } catch (Exception ignored) {}
 
-        homeScroll.setVisibility(View.VISIBLE);
-        webView.setVisibility(View.GONE);
+        if (homeScroll != null) homeScroll.setVisibility(View.VISIBLE);
+        if (webView != null) webView.setVisibility(View.GONE);
         if (addressBar != null) addressBar.setText("");
         if (homeSearchInput != null) homeSearchInput.setText("");
 
@@ -12049,13 +12760,17 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             exitVideoFullscreenToPortraitMode();
             return;
         }
-if (topBarView != null && topBarView.getVisibility() == View.GONE) {
+        if (topBarView != null && topBarView.getVisibility() == View.GONE) {
             exitFullscreenMode();
             return;
         }
-        if (webView.getVisibility() == View.VISIBLE && webView.canGoBack()) webView.goBack();
-        else if (webView.getVisibility() == View.VISIBLE) showHome();
-        else super.onBackPressed();
+        if (webView != null && webView.getVisibility() == View.VISIBLE && webView.canGoBack()) {
+            webView.goBack();
+        } else if (webView != null && webView.getVisibility() == View.VISIBLE) {
+            showHome();
+        } else {
+            super.onBackPressed();
+        }
     }
 
 

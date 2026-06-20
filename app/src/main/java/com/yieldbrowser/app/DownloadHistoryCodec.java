@@ -14,6 +14,8 @@ final class DownloadHistoryCodec {
             case "failed":
             case "paused":
             case "running":
+            case "verifying":
+            case "saving":
             case "queued":
                 return true;
             default:
@@ -60,7 +62,10 @@ final class DownloadHistoryCodec {
                     + item.hlsInitMapWritten + DELIMITER
                     + item.turboTargetConnections + DELIMITER
                     + StorageCodec.encode(item.turboProfile) + DELIMITER
-                    + item.turboRetryPenalty;
+                    + item.turboRetryPenalty + DELIMITER
+                    + item.finalizeProgress + DELIMITER
+                    + item.finalizeBytes + DELIMITER
+                    + item.finalizeTotalBytes;
         }
     }
 
@@ -111,6 +116,9 @@ final class DownloadHistoryCodec {
         item.turboTargetConnections = parseInt(parts, 35, 0);
         item.turboProfile = decodeAt(parts, 36);
         item.turboRetryPenalty = parseInt(parts, 37, 0);
+        item.finalizeProgress = parseInt(parts, 38, 0);
+        item.finalizeBytes = parseLong(parts, 39, 0L);
+        item.finalizeTotalBytes = parseLong(parts, 40, 0L);
         normalizeRestoredState(item);
         return item;
     }
@@ -158,6 +166,11 @@ final class DownloadHistoryCodec {
             item.status = "paused";
             item.speedBytesPerSecond = 0;
             item.engineInfo = "Dijeda setelah aplikasi ditutup";
+        } else if ("verifying".equals(item.status) || "saving".equals(item.status)) {
+            item.status = "paused";
+            item.speedBytesPerSecond = 0;
+            item.finalizeProgress = 0;
+            item.engineInfo = "Penyimpanan terhenti • lanjutkan untuk memulihkan";
         }
     }
 

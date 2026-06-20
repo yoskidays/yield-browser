@@ -25,6 +25,8 @@ final class DownloadItem {
 
     volatile String userAgent = "";
     volatile String referer = "";
+    /** Runtime-only cookie snapshot; intentionally excluded from persistent download history. */
+    volatile String cookieHeader = "";
     volatile String failReason = "";
     volatile String categoryHint = "";
     volatile String publicUri = "";
@@ -53,6 +55,11 @@ final class DownloadItem {
     volatile boolean hlsInitMapWritten;
 
     volatile double speedBytesPerSecond;
+    volatile double smoothedSpeedBytesPerSecond;
+    volatile long etaSeconds = -1L;
+    volatile int finalizeProgress;
+    volatile long finalizeBytes;
+    volatile long finalizeTotalBytes;
     volatile long lastSpeedTimeMs;
     volatile long lastSpeedBytes;
     volatile long lastActionClickMs;
