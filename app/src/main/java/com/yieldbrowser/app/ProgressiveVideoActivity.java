@@ -18,8 +18,8 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-import android.widget.MediaController;
 import android.widget.ProgressBar;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.VideoView;
 
@@ -49,6 +49,15 @@ public final class ProgressiveVideoActivity extends Activity {
     private TextView retryButton;
     private View topBar;
     private View bottomBar;
+    // v0.9.92: kontrol video kustom (MediaController bawaan sering tidak muncul di FrameLayout).
+    private View controlsBar;
+    private TextView playPauseBtn;
+    private SeekBar seekBar;
+    private TextView currentTimeText;
+    private TextView durationText;
+    private boolean userSeeking;
+    private boolean controlsVisible;
+    private int lastProgressPercent;
 
     private String mediaUrl = "";
     private String statusUrl = "";
@@ -69,6 +78,17 @@ public final class ProgressiveVideoActivity extends Activity {
             handler.postDelayed(this, 1000L);
         }
     };
+
+    private final Runnable controlsTick = new Runnable() {
+        @Override
+        public void run() {
+            if (destroyed) return;
+            if (prepared && controlsVisible) updateSeekUi();
+            handler.postDelayed(this, 500L);
+        }
+    };
+
+    private final Runnable hideControlsRunnable = () -> setControlsVisible(false);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -93,6 +113,7 @@ public final class ProgressiveVideoActivity extends Activity {
             return;
         }
         handler.post(statusTicker);
+        handler.post(controlsTick);
     }
 
     private void buildUi(String title) {
@@ -133,6 +154,15 @@ public final class ProgressiveVideoActivity extends Activity {
         videoView = new VideoView(this);
         videoView.setBackgroundColor(Color.BLACK);
         playerFrame.addView(videoView, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+
+        View tapCatcher = new View(this);
+        tapCatcher.setBackgroundColor(Color.TRANSPARENT);
+        tapCatcher.setOnClickListener(v -> toggleControls());
+        playerFrame.addView(tapCatcher, new FrameLayout.LayoutParams(-1, -1));
+
+        controlsBar = buildControlsBar();
+        controlsBar.setVisibility(View.GONE);
+        playerFrame.addView(controlsBar, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
 
         LinearLayout waiting = new LinearLayout(this);
         waiting.setOrientation(LinearLayout.VERTICAL);
@@ -192,11 +222,12 @@ public final class ProgressiveVideoActivity extends Activity {
 
         setContentView(root);
 
-        MediaController controller = new MediaController(this);
-        controller.setAnchorView(videoView);
-        videoView.setMediaController(controller);
         videoView.setOnPreparedListener(this::onPrepared);
-        videoView.setOnCompletionListener(mp -> statusText.setText("Pemutaran selesai"));
+        videoView.setOnCompletionListener(mp -> {
+            statusText.setText("Pemutaran selesai");
+            updatePlayPauseGlyph();
+            setControlsVisible(true);
+        });
         videoView.setOnErrorListener((mp, what, extra) -> onPlaybackError());
     }
 
@@ -207,6 +238,8 @@ public final class ProgressiveVideoActivity extends Activity {
         if (resumePositionMs > 0) videoView.seekTo(resumePositionMs);
         hideWaiting();
         videoView.start();
+        updatePlayPauseGlyph();
+        setControlsVisible(true);
     }
 
     private boolean onPlaybackError() {
@@ -283,6 +316,7 @@ public final class ProgressiveVideoActivity extends Activity {
 
     private void applyStatus(String state, int progress, long speed, boolean playable) {
         if (destroyed) return;
+        lastProgressPercent = Math.max(0, Math.min(100, progress));
         downloadProgress.setProgress(Math.max(0, Math.min(100, progress)));
         String text;
         if ("running".equals(state)) {
@@ -345,6 +379,7 @@ public final class ProgressiveVideoActivity extends Activity {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
         if (topBar != null) topBar.setVisibility(isInPictureInPictureMode ? View.GONE : View.VISIBLE);
         if (bottomBar != null) bottomBar.setVisibility(isInPictureInPictureMode ? View.GONE : View.VISIBLE);
+        if (isInPictureInPictureMode) setControlsVisible(false);
     }
 
     @Override
@@ -355,6 +390,7 @@ public final class ProgressiveVideoActivity extends Activity {
             if (videoView != null && videoView.isPlaying()) {
                 resumePositionMs = videoView.getCurrentPosition();
                 videoView.pause();
+                updatePlayPauseGlyph();
             }
         } catch (Exception ignored) {
         }
@@ -364,7 +400,10 @@ public final class ProgressiveVideoActivity extends Activity {
     protected void onResume() {
         super.onResume();
         try {
-            if (prepared && videoView != null && !videoView.isPlaying()) videoView.start();
+            if (prepared && videoView != null && !videoView.isPlaying()) {
+                videoView.start();
+                updatePlayPauseGlyph();
+            }
         } catch (Exception ignored) {
         }
     }
@@ -395,6 +434,169 @@ public final class ProgressiveVideoActivity extends Activity {
                 if (connection != null) connection.disconnect();
             }
         }, "yield-player-close").start();
+    }
+
+    private View buildControlsBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(10), dp(6), dp(10), dp(6));
+        bar.setBackgroundColor(Color.parseColor("#CC000000"));
+
+        playPauseBtn = new TextView(this);
+        playPauseBtn.setText("\u275A\u275A"); // pause glyph
+        playPauseBtn.setTextColor(Color.WHITE);
+        playPauseBtn.setTextSize(18);
+        playPauseBtn.setGravity(Gravity.CENTER);
+        playPauseBtn.setOnClickListener(v -> togglePlayPause());
+        bar.addView(playPauseBtn, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        currentTimeText = new TextView(this);
+        currentTimeText.setText("0:00");
+        currentTimeText.setTextColor(Color.parseColor("#E8EBF0"));
+        currentTimeText.setTextSize(12);
+        LinearLayout.LayoutParams ctLp = new LinearLayout.LayoutParams(-2, -2);
+        ctLp.setMargins(dp(6), 0, dp(6), 0);
+        bar.addView(currentTimeText, ctLp);
+
+        seekBar = new SeekBar(this);
+        seekBar.setMax(1000);
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (fromUser) {
+                    long dur = safeDuration();
+                    if (dur > 0) currentTimeText.setText(formatTime(dur * progress / 1000L));
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar sb) {
+                userSeeking = true;
+                handler.removeCallbacks(hideControlsRunnable);
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar sb) {
+                userSeeking = false;
+                seekToProgress(sb.getProgress());
+                scheduleHideControls();
+            }
+        });
+        LinearLayout.LayoutParams sbLp = new LinearLayout.LayoutParams(0, -2, 1f);
+        bar.addView(seekBar, sbLp);
+
+        durationText = new TextView(this);
+        durationText.setText("0:00");
+        durationText.setTextColor(Color.parseColor("#E8EBF0"));
+        durationText.setTextSize(12);
+        LinearLayout.LayoutParams dtLp = new LinearLayout.LayoutParams(-2, -2);
+        dtLp.setMargins(dp(6), 0, dp(6), 0);
+        bar.addView(durationText, dtLp);
+
+        return bar;
+    }
+
+    private void toggleControls() {
+        setControlsVisible(!controlsVisible);
+    }
+
+    private void setControlsVisible(boolean visible) {
+        controlsVisible = visible;
+        if (controlsBar != null) controlsBar.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (topBar != null) topBar.setVisibility(visible ? View.VISIBLE : View.GONE);
+        handler.removeCallbacks(hideControlsRunnable);
+        if (visible) {
+            updateSeekUi();
+            updatePlayPauseGlyph();
+            scheduleHideControls();
+        }
+    }
+
+    private void scheduleHideControls() {
+        handler.removeCallbacks(hideControlsRunnable);
+        boolean playing;
+        try {
+            playing = videoView != null && videoView.isPlaying();
+        } catch (Exception e) {
+            playing = false;
+        }
+        if (playing && !userSeeking) handler.postDelayed(hideControlsRunnable, 3500L);
+    }
+
+    private void togglePlayPause() {
+        if (videoView == null) return;
+        try {
+            if (videoView.isPlaying()) videoView.pause();
+            else videoView.start();
+        } catch (Exception ignored) {
+        }
+        updatePlayPauseGlyph();
+        setControlsVisible(true);
+    }
+
+    private void updatePlayPauseGlyph() {
+        if (playPauseBtn == null) return;
+        boolean playing;
+        try {
+            playing = videoView != null && videoView.isPlaying();
+        } catch (Exception e) {
+            playing = false;
+        }
+        playPauseBtn.setText(playing ? "\u275A\u275A" : "\u25B6");
+        if (playing) scheduleHideControls();
+        else handler.removeCallbacks(hideControlsRunnable);
+    }
+
+    private void updateSeekUi() {
+        if (seekBar == null || videoView == null) return;
+        long dur = safeDuration();
+        long pos;
+        try {
+            pos = Math.max(0, videoView.getCurrentPosition());
+        } catch (Exception e) {
+            pos = 0;
+        }
+        if (dur > 0) {
+            if (!userSeeking) seekBar.setProgress((int) (pos * 1000L / dur));
+            durationText.setText(formatTime(dur));
+            if (lastProgressPercent > 0) seekBar.setSecondaryProgress(lastProgressPercent * 10);
+        }
+        if (!userSeeking) currentTimeText.setText(formatTime(pos));
+    }
+
+    private long safeDuration() {
+        try {
+            int d = videoView != null ? videoView.getDuration() : 0;
+            return Math.max(0, d);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private void seekToProgress(int progress) {
+        long dur = safeDuration();
+        if (dur <= 0 || videoView == null) return;
+        long target = dur * progress / 1000L;
+        // Batasi seek hingga bagian yang sudah terunduh agar tidak melompat ke "lubang" data.
+        if (lastProgressPercent > 0 && lastProgressPercent < 100) {
+            long cap = dur * lastProgressPercent / 100L;
+            if (target > cap) target = cap;
+        }
+        try {
+            videoView.seekTo((int) target);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static String formatTime(long ms) {
+        if (ms < 0) ms = 0;
+        long totalSec = ms / 1000L;
+        long h = totalSec / 3600L;
+        long m = (totalSec % 3600L) / 60L;
+        long s = totalSec % 60L;
+        if (h > 0) return String.format(Locale.US, "%d:%02d:%02d", h, m, s);
+        return String.format(Locale.US, "%d:%02d", m, s);
     }
 
     private TextView actionText(String text, int sizeSp) {

@@ -7668,6 +7668,17 @@ private void showDownloadSettingsPanel() {
                 || type.contains("apk") || type.contains("octet-stream");
     }
 
+    // v0.9.92: ukuran buffer baca/tulis adaptif. Untuk file besar, buffer lebih besar mengurangi
+    // jumlah operasi I/O ke flash sehingga throughput naik; untuk file kecil tetap kecil agar hemat
+    // RAM (buffer dialokasikan per koneksi; maksimum 512KB x 4 koneksi = 2MB per unduhan).
+    private int chooseDownloadBufferSize(long totalBytes) {
+        if (totalBytes <= 0L) return 256 * 1024;                            // ukuran belum diketahui
+        if (totalBytes < 4L * 1024L * 1024L) return 64 * 1024;             // file kecil
+        if (totalBytes < 64L * 1024L * 1024L) return DOWNLOAD_BUFFER_SIZE;  // 128KB (default lama)
+        if (totalBytes < 512L * 1024L * 1024L) return 256 * 1024;          // file besar
+        return 512 * 1024;                                                  // file sangat besar
+    }
+
     private int chooseSmartDownloadConnections(DownloadItem item, long totalBytes, String contentType) {
         String url = item == null ? "" : item.url;
         String name = item == null ? "" : item.fileName;
@@ -8364,7 +8375,7 @@ private void showDownloadSettingsPanel() {
             registerDownloadStream(item, input);
             random = new RandomAccessFile(out, "rw");
             random.seek(start);
-            byte[] buffer = new byte[DOWNLOAD_BUFFER_SIZE];
+            byte[] buffer = new byte[chooseDownloadBufferSize(item.totalBytes)];
             while (written < expected) {
                 if (!isCurrentDownloadRun(item, generation)
                         || item.pauseRequested || "paused".equals(item.status)) return;
@@ -8584,7 +8595,7 @@ private void showDownloadSettingsPanel() {
             registerDownloadStream(item, input);
             random = new RandomAccessFile(out, "rw");
             random.seek(start);
-            byte[] buffer = new byte[DOWNLOAD_BUFFER_SIZE];
+            byte[] buffer = new byte[chooseDownloadBufferSize(item.totalBytes)];
             while (written < expected) {
                 if (!isCurrentDownloadRun(item, generation)
                         || item.pauseRequested || "paused".equals(item.status)) return;

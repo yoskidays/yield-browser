@@ -11,14 +11,17 @@ import java.io.Closeable;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.RandomAccessFile;
+import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -42,6 +45,13 @@ final class ProgressiveDownloadServer {
     private static final long CLOSED_SESSION_TTL_MS = 90L * 1000L;
     private static final long WAIT_FOR_TOTAL_MS = 15_000L;
     private static final long WAIT_FOR_BYTES_MS = 120_000L;
+    // v0.9.92: jika byte yang diminta belum tersedia lokal, tunggu sebentar saja lalu beri sinyal,
+    // jangan menggantung 120 detik (penyebab layar blank pada moov-di-akhir).
+    private static final long ORIGIN_FALLBACK_WAIT_MS = 8_000L;
+    // Batas pemindaian header MP4 untuk menemukan atom moov.
+    private static final long MOOV_SCAN_LIMIT = 4L * 1024L * 1024L;
+    private static final int ORIGIN_CONNECT_TIMEOUT = 8_000;
+    private static final int ORIGIN_READ_TIMEOUT = 15_000;
     private static final int STREAM_BUFFER = 64 * 1024;
 
     private static final Object START_LOCK = new Object();
@@ -196,57 +206,85 @@ final class ProgressiveDownloadServer {
         }
 
         boolean partial = headers.containsKey("range");
+        boolean head = "HEAD".equals(method);
+        if (!head && !"GET".equals(method)) return;
         String mime = state.mimeType();
-        long contentLength = range.end - range.start + 1L;
+
+        // HEAD: cukup beri tahu player bahwa range didukung + ukuran total file.
+        if (head) {
+            writeMediaHeaders(output, partial, range.start, range.end, total, mime);
+            return;
+        }
+
+        int sourceGeneration = state.currentGeneration();
+
+        // 1) Byte awal range sudah ada lokal -> sajikan hanya bagian yang tersedia SEKARANG (clamp).
+        //    Player akan meminta lanjutannya. Ini mencegah server menggantung menunggu byte.
+        long availableEnd = state.availableEndExclusive(range.start);
+        if (availableEnd > range.start) {
+            long serveEnd = Math.min(range.end, availableEnd - 1L);
+            writeMediaHeaders(output, partial, range.start, serveEnd, total, mime);
+            streamLocalRange(state, output, range.start, serveEnd, sourceGeneration);
+            return;
+        }
+
+        // 2) Byte awal belum diunduh (mis. atom moov di akhir, atau seek ke depan).
+        //    Ambil langsung dari sumber asli (ala UC) tanpa menunggu download latar belakang.
+        if (state.serveFromOrigin(output, range.start, range.end, total, mime)) {
+            return;
+        }
+
+        // 3) Tunggu sebentar: mungkin byte itu memang sedang menuju (frontier sekuensial).
+        long waitStarted = System.currentTimeMillis();
+        while (System.currentTimeMillis() - waitStarted <= ORIGIN_FALLBACK_WAIT_MS) {
+            if (state.currentGeneration() != sourceGeneration) return;
+            state.touch();
+            availableEnd = state.availableEndExclusive(range.start);
+            if (availableEnd > range.start) {
+                long serveEnd = Math.min(range.end, availableEnd - 1L);
+                writeMediaHeaders(output, partial, range.start, serveEnd, total, mime);
+                streamLocalRange(state, output, range.start, serveEnd, sourceGeneration);
+                return;
+            }
+            if (state.isTerminalWithoutMoreBytes(range.start)) break;
+            sleepQuietly(140L);
+        }
+
+        // 4) Tetap tidak tersedia: beri sinyal jelas (416), jangan biarkan player menggantung.
+        sendRangeNotSatisfiable(output, total);
+    }
+
+    private static void writeMediaHeaders(OutputStream output, boolean partial,
+                                          long start, long end, long total, String mime) throws IOException {
+        long contentLength = end - start + 1L;
         StringBuilder response = new StringBuilder();
         response.append("HTTP/1.1 ").append(partial ? "206 Partial Content" : "200 OK").append("\r\n");
         response.append("Content-Type: ").append(mime).append("\r\n");
         response.append("Accept-Ranges: bytes\r\n");
         response.append("Content-Length: ").append(contentLength).append("\r\n");
         if (partial) {
-            response.append("Content-Range: bytes ").append(range.start).append('-')
-                    .append(range.end).append('/').append(total).append("\r\n");
+            response.append("Content-Range: bytes ").append(start).append('-')
+                    .append(end).append('/').append(total).append("\r\n");
         }
         response.append("Cache-Control: no-store\r\n");
         response.append("Connection: close\r\n\r\n");
         output.write(response.toString().getBytes(StandardCharsets.ISO_8859_1));
         output.flush();
-        if ("HEAD".equals(method)) return;
-        if (!"GET".equals(method)) return;
-
-        streamRange(state, output, range.start, range.end);
     }
 
-    private static void streamRange(SessionState state, OutputStream output,
-                                    long start, long end) throws IOException {
+    // Streaming byte yang DIPASTIKAN sudah tersedia lokal pada [start, end].
+    private static void streamLocalRange(SessionState state, OutputStream output,
+                                         long start, long end, int sourceGeneration) throws IOException {
+        if (end < start) return;
         byte[] buffer = new byte[STREAM_BUFFER];
         long position = start;
-        long waitStarted = 0L;
-        int sourceGeneration = state.currentGeneration();
         SeekableReader reader = null;
         try {
+            reader = state.openReader();
+            if (reader == null) return;
             while (position <= end) {
                 if (state.currentGeneration() != sourceGeneration) return;
-                state.touch();
-                long availableEnd = state.availableEndExclusive(position);
-                if (availableEnd <= position) {
-                    if (state.isTerminalWithoutMoreBytes(position)) return;
-                    if (waitStarted == 0L) waitStarted = System.currentTimeMillis();
-                    if (System.currentTimeMillis() - waitStarted > WAIT_FOR_BYTES_MS) return;
-                    sleepQuietly(140L);
-                    continue;
-                }
-                waitStarted = 0L;
-                if (reader == null) {
-                    reader = state.openReader();
-                    if (reader == null) {
-                        sleepQuietly(120L);
-                        continue;
-                    }
-                }
-
-                int wanted = (int) Math.min(buffer.length,
-                        Math.min(availableEnd - position, end - position + 1L));
+                int wanted = (int) Math.min(buffer.length, end - position + 1L);
                 int read;
                 try {
                     read = reader.read(position, buffer, wanted);
@@ -257,9 +295,9 @@ final class ProgressiveDownloadServer {
                     read = reader.read(position, buffer, wanted);
                 }
                 if (read <= 0) {
-                    closeQuietly(reader);
-                    reader = null;
-                    sleepQuietly(100L);
+                    // Seharusnya tidak terjadi (byte dijamin ada); hindari loop sibuk lalu berhenti.
+                    sleepQuietly(60L);
+                    if (state.availableEndExclusive(position) <= position) return;
                     continue;
                 }
                 output.write(buffer, 0, read);
@@ -464,6 +502,150 @@ final class ProgressiveDownloadServer {
             return "video/mp4";
         }
 
+        // ===== v0.9.92: origin side-fetch + deteksi moov (perbaikan blank play-while-download) =====
+
+        boolean canOriginFetch() {
+            String url = safe(item.url);
+            return url.startsWith("http://") || url.startsWith("https://");
+        }
+
+        // Ambil [start,end] langsung dari URL sumber dan teruskan ke player. Dipakai saat byte itu
+        // belum diunduh secara lokal (mis. atom moov di akhir file, atau seek ke depan). Hanya
+        // diterima jika server sumber menghormati Range (HTTP 206); jika balas 200 (file penuh),
+        // dibatalkan agar tidak mengunduh ulang seluruh file lewat jalur ini.
+        boolean serveFromOrigin(OutputStream output, long start, long end, long total, String mime) {
+            if (!canOriginFetch()) return false;
+            if (start < 0L || end < start || start >= total) return false;
+            HttpURLConnection connection = null;
+            InputStream input = null;
+            boolean started = false;
+            try {
+                connection = (HttpURLConnection) new URL(item.url).openConnection();
+                connection.setInstanceFollowRedirects(true);
+                connection.setConnectTimeout(ORIGIN_CONNECT_TIMEOUT);
+                connection.setReadTimeout(ORIGIN_READ_TIMEOUT);
+                connection.setUseCaches(false);
+                connection.setRequestProperty("Range", "bytes=" + start + "-" + end);
+                connection.setRequestProperty("Accept", "*/*");
+                String ua = safe(item.userAgent);
+                if (!ua.isEmpty()) connection.setRequestProperty("User-Agent", ua);
+                String referer = safe(item.referer);
+                if (!referer.isEmpty()) connection.setRequestProperty("Referer", referer);
+                String cookie = safe(item.cookieHeader);
+                if (!cookie.isEmpty()) connection.setRequestProperty("Cookie", cookie);
+
+                int code = connection.getResponseCode();
+                if (code != 206) return false; // bukan 206 -> tidak menghormati Range, batalkan
+                long bodyLength = parseContentLength(connection.getHeaderField("Content-Length"));
+                if (bodyLength <= 0L) return false;
+                long serveEnd = Math.min(end, start + bodyLength - 1L);
+
+                input = connection.getInputStream();
+                started = true;
+                writeMediaHeaders(output, true, start, serveEnd, total, mime);
+                byte[] buffer = new byte[STREAM_BUFFER];
+                long remaining = bodyLength;
+                while (remaining > 0L) {
+                    int want = (int) Math.min(buffer.length, remaining);
+                    int read = input.read(buffer, 0, want);
+                    if (read < 0) break;
+                    output.write(buffer, 0, read);
+                    output.flush();
+                    remaining -= read;
+                }
+                return true;
+            } catch (Exception ignored) {
+                return started; // jika sudah menulis ke player, anggap tertangani (jangan ditimpa 416)
+            } finally {
+                closeQuietly(input);
+                if (connection != null) {
+                    try { connection.disconnect(); } catch (Exception ignored) {}
+                }
+            }
+        }
+
+        // 0=belum diketahui, 1=moov di depan & utuh (faststart), 2=moov di akhir, 3=bukan MP4
+        private volatile int moovState = 0;
+
+        private boolean isMp4Like() {
+            String s = (safe(item.fileName) + " " + safe(item.url)).toLowerCase(Locale.US);
+            return s.contains(".mp4") || s.contains(".m4v") || s.contains(".mov")
+                    || s.contains(".3gp") || s.contains("video/mp4");
+        }
+
+        void analyzeContainerIfNeeded() {
+            if (moovState != 0) return;
+            if (!isMp4Like()) { moovState = 3; return; }
+            long total = totalLength();
+            long prefix = availablePrefix();
+            if (prefix < 16L) return; // belum cukup byte untuk membaca header kotak
+            SeekableReader reader = null;
+            try {
+                reader = openReader();
+                if (reader == null) return;
+                long limit = Math.min(prefix, MOOV_SCAN_LIMIT);
+                long pos = 0L;
+                boolean sawMdat = false;
+                byte[] head = new byte[16];
+                while (pos + 8L <= limit) {
+                    if (readAt(reader, pos, head, 8) < 8) break;
+                    long size = u32(head, 0);
+                    String type = ascii(head, 4);
+                    long headerSize = 8L;
+                    if (size == 1L) {
+                        if (pos + 16L > prefix) break;
+                        if (readAt(reader, pos + 8L, head, 8) < 8) break;
+                        size = u64(head, 0);
+                        headerSize = 16L;
+                    } else if (size == 0L) {
+                        size = total - pos; // kotak memanjang sampai akhir file
+                    }
+                    if (size < headerSize) break; // malformed
+                    if ("moov".equals(type)) {
+                        if (pos + size <= prefix) { moovState = 1; return; } // moov utuh di depan
+                        if (sawMdat) { moovState = 2; return; }              // moov setelah mdat
+                        return;                                              // moov di depan, tunggu utuh
+                    }
+                    if ("mdat".equals(type)) sawMdat = true;
+                    pos += size;
+                }
+                if (sawMdat) moovState = 2; // mdat lebih dulu, moov kemungkinan di akhir
+            } catch (Exception ignored) {
+            } finally {
+                closeQuietly(reader);
+            }
+        }
+
+        private int readAt(SeekableReader reader, long position, byte[] dest, int length) {
+            try {
+                byte[] tmp = new byte[length];
+                int filled = 0;
+                while (filled < length) {
+                    int n = reader.read(position + filled, tmp, length - filled);
+                    if (n <= 0) break;
+                    System.arraycopy(tmp, 0, dest, filled, n);
+                    filled += n;
+                }
+                return filled;
+            } catch (Exception e) {
+                return 0;
+            }
+        }
+
+        private boolean computePlayable(long total, long prefix) {
+            if ("completed".equals(item.status)) return true;
+            if (total <= 0L) return false;
+            if (isMp4Like()) {
+                analyzeContainerIfNeeded();
+                if (moovState == 1) return true;                    // faststart: header indeks siap
+                if (canOriginFetch()) return prefix >= 64L * 1024L; // moov bisa diambil dari sumber saat seek
+                if (moovState == 2) return false;                   // moov di akhir & tanpa origin -> belum bisa
+                return prefix >= 1024L * 1024L;                     // belum pasti & tanpa origin: tunggu lebih banyak
+            }
+            if (canOriginFetch()) return prefix >= 64L * 1024L;
+            return prefix >= 512L * 1024L;
+        }
+
         String statusJson() {
             long total = totalLength();
             long downloaded = Math.max(item.downloadedBytes, item.hlsOutputBytes);
@@ -471,7 +653,7 @@ final class ProgressiveDownloadServer {
                     ? (int) Math.min(100L, downloaded * 100L / Math.max(1L, total))
                     : Math.max(0, Math.min(100, item.progress));
             long prefix = availablePrefix();
-            boolean playable = total > 0L && (prefix >= 256L * 1024L || "completed".equals(item.status));
+            boolean playable = computePlayable(total, prefix);
             return "{"
                     + "\"available\":true,"
                     + "\"status\":\"" + jsonEscape(safe(item.status)) + "\","
@@ -578,6 +760,30 @@ final class ProgressiveDownloadServer {
             this.start = start;
             this.end = end;
         }
+    }
+
+    private static long parseContentLength(String value) {
+        if (value == null) return -1L;
+        try {
+            return Long.parseLong(value.trim());
+        } catch (Exception e) {
+            return -1L;
+        }
+    }
+
+    private static long u32(byte[] b, int off) {
+        return ((long) (b[off] & 0xFF) << 24) | ((long) (b[off + 1] & 0xFF) << 16)
+                | ((long) (b[off + 2] & 0xFF) << 8) | (long) (b[off + 3] & 0xFF);
+    }
+
+    private static long u64(byte[] b, int off) {
+        long v = 0L;
+        for (int i = 0; i < 8; i++) v = (v << 8) | (b[off + i] & 0xFF);
+        return v;
+    }
+
+    private static String ascii(byte[] b, int off) {
+        return new String(b, off, 4, StandardCharsets.US_ASCII);
     }
 
     private static String safe(String value) {
