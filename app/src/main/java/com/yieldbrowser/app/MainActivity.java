@@ -224,6 +224,12 @@ public class MainActivity extends Activity {
     private boolean adBlockClickHijackBlocker = true;
     private boolean adBlockRedirectToTempTab = true;
     private boolean adBlockAutoCloseAdTabs = true;
+    // v0.9.92: "Blokir elemen" (gaya uBlock/Brave). Filter kosmetik manual per host yang
+    // disembunyikan dengan display:none dan diterapkan ulang setiap halaman dibuka.
+    private final Map<String, LinkedHashSet<String>> userElementFilters = new LinkedHashMap<>();
+    private boolean userElementFiltersLoaded = false;
+    private boolean elementPickerActive = false;
+    private AlertDialog elementPickerDialog = null;
     private boolean dataSaver = false;
     private boolean desktopMode = false;
     private int browserModeToken = 0;
@@ -393,6 +399,22 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void onAdRedirect(String url) {
             runOnUiThread(() -> captureAdRedirectToTempTab(url));
+        }
+
+        @JavascriptInterface
+        public void onElementPicked(String selector, String preview) {
+            runOnUiThread(() -> onPickerElementSelected(selector, preview));
+        }
+
+        @JavascriptInterface
+        public void onPickerExited() {
+            runOnUiThread(() -> {
+                elementPickerActive = false;
+                if (elementPickerDialog != null) {
+                    try { elementPickerDialog.dismiss(); } catch (Exception ignored) {}
+                    elementPickerDialog = null;
+                }
+            });
         }
     }
 
@@ -2522,6 +2544,14 @@ content.addView(space(dp(36)));
                 reloadCurrentWebsite();
             }));
         }
+
+        menu.addView(menuRow(R.drawable.ic_block_element, "Blokir elemen", v -> {
+            dialog.dismiss();
+            startElementPicker();
+        }));
+        menu.addView(menuRow(R.drawable.ic_safe, "Filter situs ini", v -> {
+            switchDialogSmooth(dialog, () -> showUserFiltersManager());
+        }));
 
         menu.addView(menuDivider());
         menu.addView(menuRow(R.drawable.ic_settings, "Setelan", v -> {
@@ -10428,7 +10458,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 if (commitOwner != null) commitOwner.currentPageUrlForRequest = finalUrl;
                 syncNightModeWebSettingsForUrl(finalUrl);
                 scheduleNightModeSyncForPage(finalUrl);
-                if (adBlock) injectAdBlockCssEarly();
+                if (adBlock) {
+                    injectAdBlockCssEarly();
+                    if (hasUserFiltersForCurrentHost()) applyUserFiltersForCurrentPage();
+                }
             }
 
             @Override
@@ -10493,6 +10526,9 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         injectYouTubeSafeAdBlockV6();
                         mainHandler.postDelayed(() -> { injectPremiumAdBlock(); injectYouTubeSafeAdBlockV6(); }, 1800);
                         mainHandler.postDelayed(() -> { injectPremiumAdBlock(); injectYouTubeSafeAdBlockV6(); }, 5200);
+                        if (hasUserFiltersForCurrentHost()) {
+                            mainHandler.postDelayed(() -> applyUserFiltersForCurrentPage(), 300);
+                        }
                     }
                     scheduleUniversalBlankCompatibilityRecovery(finalUrl);
                     updateVideoControlsVisibility();
@@ -12259,6 +12295,298 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         } catch (Exception ignored) {
         }
     }
+
+    // ===== v0.9.92: "Blokir elemen" (element picker, gaya uBlock/Brave) =====
+    // Escape string agar aman ditempel di dalam literal JS berkutip-ganda.
+    private String escapeForJsDoubleQuotes(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length() + 16);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\': sb.append("\\\\"); break;
+                case '"': sb.append("\\\""); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                case '<': sb.append("\\u003C"); break;
+                default: sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    private void loadUserElementFilters() {
+        if (userElementFiltersLoaded) return;
+        userElementFiltersLoaded = true;
+        try {
+            SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+            Set<String> hosts = p.getStringSet("ef_hosts", null);
+            if (hosts == null) return;
+            for (String host : hosts) {
+                if (host == null || host.length() == 0) continue;
+                Set<String> sels = p.getStringSet("ef_" + host, null);
+                if (sels == null || sels.isEmpty()) continue;
+                userElementFilters.put(host, new LinkedHashSet<>(sels));
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void persistUserElementFiltersForHost(String host) {
+        if (host == null || host.length() == 0) return;
+        try {
+            SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+            SharedPreferences.Editor e = p.edit();
+            LinkedHashSet<String> sels = userElementFilters.get(host);
+            Set<String> hosts = new LinkedHashSet<>(p.getStringSet("ef_hosts", new LinkedHashSet<>()));
+            if (sels == null || sels.isEmpty()) {
+                e.remove("ef_" + host);
+                hosts.remove(host);
+            } else {
+                e.putStringSet("ef_" + host, new LinkedHashSet<>(sels));
+                hosts.add(host);
+            }
+            e.putStringSet("ef_hosts", hosts);
+            e.apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private LinkedHashSet<String> userFiltersForHost(String host) {
+        loadUserElementFilters();
+        if (host == null || host.length() == 0) return null;
+        return userElementFilters.get(host);
+    }
+
+    private boolean hasUserFiltersForCurrentHost() {
+        LinkedHashSet<String> s = userFiltersForHost(hostOfUrl(getEffectiveCurrentUrl()));
+        return s != null && !s.isEmpty();
+    }
+
+    private void addUserElementFilter(String host, String selector) {
+        if (host == null || host.length() == 0 || selector == null) return;
+        selector = selector.trim();
+        if (selector.length() == 0 || selector.length() > 600) return;
+        loadUserElementFilters();
+        LinkedHashSet<String> set = userElementFilters.get(host);
+        if (set == null) {
+            set = new LinkedHashSet<>();
+            userElementFilters.put(host, set);
+        }
+        if (set.add(selector)) persistUserElementFiltersForHost(host);
+    }
+
+    private void removeUserElementFilter(String host, String selector) {
+        if (host == null || selector == null) return;
+        loadUserElementFilters();
+        LinkedHashSet<String> set = userElementFilters.get(host);
+        if (set == null) return;
+        if (set.remove(selector)) {
+            if (set.isEmpty()) userElementFilters.remove(host);
+            persistUserElementFiltersForHost(host);
+        }
+    }
+
+    private String buildUserFilterCss(String host) {
+        LinkedHashSet<String> set = userFiltersForHost(host);
+        if (set == null || set.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (String sel : set) {
+            if (sel == null || sel.trim().length() == 0) continue;
+            if (!first) sb.append(',');
+            sb.append(sel.trim());
+            first = false;
+        }
+        if (sb.length() == 0) return "";
+        sb.append("{display:none!important;visibility:hidden!important;height:0!important;min-height:0!important;max-height:0!important;overflow:hidden!important;pointer-events:none!important;}");
+        return sb.toString();
+    }
+
+    // Terapkan (atau bersihkan) stylesheet filter pengguna untuk halaman aktif. Idempoten:
+    // memakai satu <style id="yield-user-filters"> dan hanya memperbarui isinya bila berubah.
+    private void applyUserFiltersForCurrentPage() {
+        if (webView == null || !adBlock) return;
+        try {
+            String cur = getEffectiveCurrentUrl();
+            if (isSiteCompatibilityModeActiveForUrl(cur)) return;
+            String host = hostOfUrl(cur);
+            String css = buildUserFilterCss(host);
+            String js;
+            if (css == null || css.length() == 0) {
+                js = "javascript:(function(){try{var el=document.getElementById('yield-user-filters');if(el)el.textContent='';}catch(e){}})();";
+            } else {
+                js = "javascript:(function(){try{"
+                        + "var css=\"" + escapeForJsDoubleQuotes(css) + "\";"
+                        + "var id='yield-user-filters';"
+                        + "var el=document.getElementById(id);"
+                        + "if(!el){el=document.createElement('style');el.id=id;el.setAttribute('type','text/css');(document.head||document.documentElement||document.body).appendChild(el);}"
+                        + "if(el.textContent!==css){el.textContent=css;}"
+                        + "}catch(e){}})();";
+            }
+            runPageScript(js);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String buildElementPickerJs() {
+        return "javascript:" + "(function(){\n  if(window.__yieldPickerActive){return;}\n  window.__yieldPickerActive=true;\n  var cur=null;\n  var listeners=[];\n  var overlay=document.createElement('div');\n  overlay.id='__yield_picker_overlay';\n  overlay.style.cssText='position:fixed;z-index:2147483646;pointer-events:none;background:rgba(243,154,34,0.25);border:2px solid #F39A22;box-shadow:0 0 0 100000px rgba(0,0,0,0.10);border-radius:3px;left:0;top:0;width:0;height:0;display:none;';\n  var bar=document.createElement('div');\n  bar.id='__yield_picker_bar';\n  bar.textContent='Mode Blokir Elemen \\u2014 ketuk elemen/iklan';\n  bar.style.cssText='position:fixed;z-index:2147483647;left:0;right:0;top:0;background:#15171C;color:#F39A22;font:600 14px sans-serif;padding:10px 14px;text-align:center;pointer-events:none;border-bottom:1px solid #F39A22;';\n  function attach(){try{var p=document.body||document.documentElement;p.appendChild(overlay);p.appendChild(bar);}catch(e){}}\n  attach();\n  function unique(sel){try{return document.querySelectorAll(sel).length===1;}catch(e){return false;}}\n  function stableClasses(node){\n    var out=[];\n    try{\n      var raw=(node.className&&node.className.baseVal!==undefined)?node.className.baseVal:node.className;\n      if(typeof raw!=='string'){return out;}\n      var arr=raw.trim().split(/\\s+/);\n      for(var i=0;i<arr.length&&out.length<2;i++){\n        var c=arr[i];\n        if(!c){continue;}\n        if(!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(c)){continue;}\n        if(c.length>30){continue;}\n        if(/\\d{4,}/.test(c)){continue;}\n        if(/^(css|sc|jsx|makeStyles|MuiBox|emotion)-/.test(c)){continue;}\n        out.push(c);\n      }\n    }catch(e){}\n    return out;\n  }\n  function nthOfType(node){\n    try{var i=1;var s=node.previousElementSibling;while(s){if(s.tagName===node.tagName){i++;}s=s.previousElementSibling;}return i;}catch(e){return 0;}\n  }\n  function path(el){\n    try{\n      if(!el||el.nodeType!==1){return '';}\n      var tag0=el.tagName.toLowerCase();\n      if(tag0==='html'||tag0==='body'){return tag0;}\n      if(el.id&&/^[A-Za-z][\\w-]*$/.test(el.id)&&unique('#'+el.id)){return '#'+el.id;}\n      var parts=[];\n      var node=el;\n      var depth=0;\n      while(node&&node.nodeType===1&&depth<5){\n        var tag=node.tagName.toLowerCase();\n        if(tag==='html'){break;}\n        if(tag==='body'){parts.unshift('body');break;}\n        if(node.id&&/^[A-Za-z][\\w-]*$/.test(node.id)&&unique('#'+node.id)){parts.unshift('#'+node.id);break;}\n        var sel=tag;\n        var cls=stableClasses(node);\n        if(cls.length){sel+='.'+cls.join('.');}\n        var nth=nthOfType(node);\n        if(nth>0){sel+=':nth-of-type('+nth+')';}\n        parts.unshift(sel);\n        node=node.parentElement;\n        depth++;\n      }\n      return parts.join('>');\n    }catch(e){return '';}\n  }\n  function highlight(el){\n    try{\n      if(!el){overlay.style.display='none';return;}\n      var r=el.getBoundingClientRect();\n      overlay.style.display='block';\n      overlay.style.left=Math.max(0,r.left)+'px';\n      overlay.style.top=Math.max(0,r.top)+'px';\n      overlay.style.width=Math.max(0,r.width)+'px';\n      overlay.style.height=Math.max(0,r.height)+'px';\n    }catch(e){}\n  }\n  function send(el){\n    try{\n      var sel=path(el);\n      var pv='';\n      try{pv=(el.outerHTML||'').replace(/\\s+/g,' ').slice(0,200);}catch(e){}\n      if(window.YieldAdBlockBridge&&YieldAdBlockBridge.onElementPicked){YieldAdBlockBridge.onElementPicked(sel,pv);}\n    }catch(e){}\n  }\n  function select(el){\n    if(!el||el===overlay||el===bar){return;}\n    if(el.id==='__yield_picker_overlay'||el.id==='__yield_picker_bar'){return;}\n    cur=el;\n    highlight(el);\n    send(el);\n  }\n  window.__yieldPickerParent=function(){\n    try{\n      if(cur&&cur.parentElement){\n        var p=cur.parentElement;\n        var t=p.tagName?p.tagName.toLowerCase():'';\n        if(t==='html'){return;}\n        select(p);\n      }\n    }catch(e){}\n  };\n  function cleanup(){\n    try{window.__yieldPickerActive=false;}catch(e){}\n    try{for(var i=0;i<listeners.length;i++){var L=listeners[i];document.removeEventListener(L[0],L[1],true);}}catch(e){}\n    listeners=[];\n    try{if(overlay&&overlay.parentNode){overlay.parentNode.removeChild(overlay);}}catch(e){}\n    try{if(bar&&bar.parentNode){bar.parentNode.removeChild(bar);}}catch(e){}\n    try{window.__yieldPickerParent=null;}catch(e){}\n  }\n  window.__yieldPickerCommit=function(){cleanup();};\n  window.__yieldPickerCancel=function(){\n    cleanup();\n    try{if(window.YieldAdBlockBridge&&YieldAdBlockBridge.onPickerExited){YieldAdBlockBridge.onPickerExited();}}catch(e){}\n  };\n  function pt(e){\n    var x=e.clientX,y=e.clientY;\n    if((x===null||x===undefined)&&e.touches&&e.touches[0]){x=e.touches[0].clientX;y=e.touches[0].clientY;}\n    if((x===null||x===undefined)&&e.changedTouches&&e.changedTouches[0]){x=e.changedTouches[0].clientX;y=e.changedTouches[0].clientY;}\n    return {x:x,y:y};\n  }\n  function onDown(e){\n    try{var p=pt(e);if(p.x!==null&&p.x!==undefined){var el=document.elementFromPoint(p.x,p.y);if(el){select(el);}}}catch(x){}\n    try{e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation){e.stopImmediatePropagation();}}catch(x){}\n    return false;\n  }\n  function swallow(e){\n    try{e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation){e.stopImmediatePropagation();}}catch(x){}\n    return false;\n  }\n  function onMove(e){\n    try{var p=pt(e);if(p.x!==null&&p.x!==undefined){var el=document.elementFromPoint(p.x,p.y);if(el&&el!==overlay&&el!==bar){highlight(el);}}}catch(x){}\n  }\n  function add(t,fn){\n    try{document.addEventListener(t,fn,{capture:true,passive:false});}catch(e){document.addEventListener(t,fn,true);}\n    listeners.push([t,fn]);\n  }\n  add('pointerdown',onDown);add('mousedown',onDown);add('touchstart',onDown);\n  add('click',swallow);add('auxclick',swallow);add('pointerup',swallow);add('mouseup',swallow);add('touchend',swallow);add('contextmenu',swallow);\n  add('mousemove',onMove);add('pointermove',onMove);\n})();\n";
+    }
+
+    private void startElementPicker() {
+        String url = getEffectiveCurrentUrl();
+        boolean httpPage = url != null && (url.startsWith("http://") || url.startsWith("https://"));
+        if (!httpPage || webView == null || webView.getVisibility() != View.VISIBLE) {
+            Toast.makeText(this, "Buka halaman web dulu untuk memblokir elemen", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        elementPickerActive = true;
+        if (elementPickerDialog != null) {
+            try { elementPickerDialog.dismiss(); } catch (Exception ignored) {}
+            elementPickerDialog = null;
+        }
+        runPageScript(buildElementPickerJs());
+        Toast.makeText(this, "Mode Blokir Elemen: ketuk iklan yang ingin disembunyikan", Toast.LENGTH_LONG).show();
+    }
+
+    private void onPickerElementSelected(String selector, String preview) {
+        if (!elementPickerActive) return;
+        if (selector == null || selector.trim().length() == 0) {
+            Toast.makeText(this, "Tidak bisa memilih elemen itu, coba elemen lain", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final String sel = selector.trim();
+        final String host = hostOfUrl(getEffectiveCurrentUrl());
+        if (host == null || host.length() == 0) {
+            Toast.makeText(this, "Tidak bisa menentukan domain halaman ini", Toast.LENGTH_SHORT).show();
+            finishElementPicker(false);
+            return;
+        }
+        if (elementPickerDialog != null) {
+            try { elementPickerDialog.dismiss(); } catch (Exception ignored) {}
+            elementPickerDialog = null;
+        }
+        String previewText = preview == null ? "" : preview.trim();
+        if (previewText.length() > 180) previewText = previewText.substring(0, 180) + "\u2026";
+        StringBuilder msg = new StringBuilder();
+        msg.append("Selektor:\n").append(sel);
+        if (previewText.length() > 0) msg.append("\n\nPratinjau:\n").append(previewText);
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("Blokir elemen ini?");
+        b.setMessage(msg.toString());
+        b.setPositiveButton("Blokir", (d, w) -> {
+            addUserElementFilter(host, sel);
+            applyUserFiltersForCurrentPage();
+            finishElementPicker(true);
+            Toast.makeText(this, "Elemen diblokir di " + host, Toast.LENGTH_SHORT).show();
+        });
+        b.setNeutralButton("Naik 1 induk", (d, w) -> {
+            // Jangan akhiri picker; minta JS memperlebar pilihan ke elemen induk.
+            // JS akan memanggil onElementPicked lagi sehingga dialog tampil ulang dengan selektor baru.
+            runPageScript("javascript:(function(){try{if(window.__yieldPickerParent)window.__yieldPickerParent();}catch(e){}})();");
+        });
+        b.setNegativeButton("Batal", (d, w) -> finishElementPicker(false));
+        b.setOnCancelListener(d -> finishElementPicker(false));
+        elementPickerDialog = b.create();
+        try { elementPickerDialog.show(); } catch (Exception ignored) {}
+    }
+
+    private void finishElementPicker(boolean committed) {
+        elementPickerActive = false;
+        if (elementPickerDialog != null) {
+            try { elementPickerDialog.dismiss(); } catch (Exception ignored) {}
+            elementPickerDialog = null;
+        }
+        String fn = committed ? "__yieldPickerCommit" : "__yieldPickerCancel";
+        runPageScript("javascript:(function(){try{if(window." + fn + ")window." + fn + "();}catch(e){}})();");
+    }
+
+    private void showUserFiltersManager() {
+        final String host = hostOfUrl(getEffectiveCurrentUrl());
+        loadUserElementFilters();
+        LinkedHashSet<String> set = (host == null || host.length() == 0) ? null : userElementFilters.get(host);
+
+        final Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(16), dp(16), dp(16), dp(16));
+        root.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(20), dp(1), Color.parseColor("#2D333D")));
+
+        TextView title = new TextView(this);
+        title.setText("Filter elemen \u2014 " + (host == null || host.length() == 0 ? "(situs ini)" : host));
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(18);
+        title.setPadding(0, 0, 0, dp(10));
+        root.addView(title);
+
+        if (set == null || set.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("Belum ada elemen yang diblokir di situs ini.\nGunakan \"Blokir elemen\" lalu ketuk iklannya.");
+            empty.setTextColor(Color.parseColor("#B7BDC8"));
+            empty.setTextSize(14);
+            root.addView(empty);
+        } else {
+            ScrollView sv = new ScrollView(this);
+            LinearLayout list = new LinearLayout(this);
+            list.setOrientation(LinearLayout.VERTICAL);
+            for (final String sel : new ArrayList<>(set)) {
+                LinearLayout rowL = new LinearLayout(this);
+                rowL.setOrientation(LinearLayout.HORIZONTAL);
+                rowL.setGravity(Gravity.CENTER_VERTICAL);
+                rowL.setPadding(0, dp(8), 0, dp(8));
+
+                TextView t = new TextView(this);
+                t.setText(sel);
+                t.setTextColor(Color.parseColor("#E6E9EF"));
+                t.setTextSize(13);
+                LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1f);
+                rowL.addView(t, tp);
+
+                TextView del = new TextView(this);
+                del.setText("Hapus");
+                del.setTextColor(Color.parseColor("#F87171"));
+                del.setTextSize(14);
+                del.setPadding(dp(12), dp(6), dp(6), dp(6));
+                del.setOnClickListener(v -> {
+                    removeUserElementFilter(host, sel);
+                    applyUserFiltersForCurrentPage();
+                    dialog.dismiss();
+                    showUserFiltersManager();
+                });
+                rowL.addView(del);
+                list.addView(rowL);
+            }
+            sv.addView(list);
+            LinearLayout.LayoutParams svp = new LinearLayout.LayoutParams(-1, dp(320));
+            root.addView(sv, svp);
+
+            root.addView(menuDivider());
+            root.addView(menuRow(R.drawable.ic_clear, "Hapus semua filter situs ini", v -> {
+                if (host != null && host.length() > 0) {
+                    userElementFilters.remove(host);
+                    persistUserElementFiltersForHost(host);
+                    applyUserFiltersForCurrentPage();
+                }
+                dialog.dismiss();
+                Toast.makeText(this, "Filter situs dihapus", Toast.LENGTH_SHORT).show();
+            }));
+        }
+
+        dialog.setContentView(root);
+        if (dialog.getWindow() != null) {
+            Window window = dialog.getWindow();
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.width = dp(330);
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            window.setAttributes(lp);
+        }
+        dialog.show();
+    }
+
 
     private void injectPremiumAdBlock() {
         if (webView == null || !adBlock) return;
