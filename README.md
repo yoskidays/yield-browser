@@ -1,4 +1,4 @@
-# YieldBrowser v0.9.94 — Android 11 Night Mode Fix
+# YieldBrowser v0.9.95 — Android 11 Night Mode Fix
 
 Versi ini memperbaiki Mode Malam yang sebelumnya dapat terlihat **ON** tetapi tidak mengubah halaman pada sebagian perangkat Android 11. Universal Reader Compatibility Repair juga diperluas untuk gambar reader biasa yang rusak atau tersembunyi, bukan hanya gambar dengan atribut lazy-load.
 
@@ -24,7 +24,7 @@ Versi ini memperbaiki Mode Malam yang sebelumnya dapat terlihat **ON** tetapi ti
 
 ## GitHub Web Upload Edition
 
-Gunakan ZIP dengan nama `YieldBrowser_v0.9.94_GitHub_upload_98_files.zip` untuk upload melalui halaman web GitHub. Paket tersebut berisi **98 file**, tetap buildable, dan tidak menyertakan unit test serta dokumen ringkasan historis agar tidak melewati batas 100 file per upload.
+Gunakan ZIP dengan nama `YieldBrowser_v0.9.95_GitHub_upload_99_files.zip` untuk upload melalui halaman web GitHub. Paket tersebut berisi **99 file**, tetap buildable, dan tidak menyertakan unit test serta dokumen ringkasan historis agar tidak melewati batas 100 file per upload.
 
 ## Build
 
@@ -37,5 +37,5 @@ gradle assembleRelease --stacktrace
 
 Version metadata:
 
-- `versionCode 68`
-- `versionName 0.9.94`
+- `versionCode 69`
+- `versionName 0.9.95`

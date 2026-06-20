@@ -13,12 +13,12 @@ final class NightModePageScript {
 
     static String enable(boolean compatibilityMode) {
         String mode = compatibilityMode ? "compat" : "normal";
-        return """
+        String script = """
                 (function(){
                   'use strict';
                   try {
-                    var VERSION='0.9.94';
-                    var MODE='%s';
+                    var VERSION='0.9.95';
+                    var MODE='__YIELD_NIGHT_MODE__';
                     var root=document.documentElement;
                     if(!root)return 'no-root';
 
@@ -230,7 +230,8 @@ final class NightModePageScript {
                     return 'enabled';
                   } catch(e) { return 'error:'+String(e); }
                 })();
-                """.formatted(mode);
+                """;
+        return script.replace("__YIELD_NIGHT_MODE__", mode);
     }
 
     static String disable() {
