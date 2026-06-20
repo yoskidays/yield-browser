@@ -258,6 +258,7 @@ public class MainActivity extends Activity {
     private boolean downloadDynamic4Connections = true;
     private boolean downloadAutoRetry = true;
     private boolean downloadHlsEnabled = true;
+    private boolean downloadPlayWhileDownloadingEnabled = true;
     private int downloadSpeedLimitKBps = 0;
     private boolean downloadQueueEnabled = true;
     private int downloadMaxActive = 2;
@@ -2567,7 +2568,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.31";
+        return "0.9.91";
     }
 
     private void showAboutYieldDialog() {
@@ -3438,6 +3439,12 @@ private void showDownloadSettingsPanel() {
             saveSettings();
         }));
 
+        box.addView(advancedSwitchRow("Putar sambil mengunduh", "Video progresif dapat ditonton dari bagian yang sudah tersedia. Download tetap berjalan di latar belakang.", downloadPlayWhileDownloadingEnabled, v -> {
+            downloadPlayWhileDownloadingEnabled = !downloadPlayWhileDownloadingEnabled;
+            saveSettings();
+        }));
+
+        box.addView(advancedInfoRow("Player internal + HTTP Range lokal"));
         box.addView(advancedInfoRow("Smart resume + hard pause"));
         box.addView(advancedInfoRow("Bandwidth prediction"));
         box.addView(advancedInfoRow("Per-file optimization"));
@@ -6026,10 +6033,15 @@ private void showDownloadSettingsPanel() {
                 if (item == null) return;
                 if (downloadSelectMode) {
                     toggleDownloadSelection(item);
+                } else if (canPlayDownloadInsideYield(item)
+                        && ("running".equals(item.status) || "paused".equals(item.status)
+                        || "failed".equals(item.status) || "completed".equals(item.status)
+                        || "verifying".equals(item.status) || "saving".equals(item.status))) {
+                    playDownloadInsideYield(item);
                 } else if ("completed".equals(item.status)) {
                     openDownloadedFile(item);
                 } else if ("failed".equals(item.status) || "paused".equals(item.status)
-                        || "queued".equals(item.status)) {
+                        || "queued".equals(item.status) || "running".equals(item.status)) {
                     showDownloadItemMenu(anchor, item);
                 }
             }
@@ -6457,6 +6469,7 @@ private void showDownloadSettingsPanel() {
             activityText = readableSpeed(speed);
             String eta = formatEta(item.etaSeconds);
             if (!eta.isEmpty()) activityText += " • " + eta;
+            if (canPlayDownloadInsideYield(item)) detailText = "Ketuk untuk menonton sambil download";
             primaryAction = "Ⅱ";
         } else if ("queued".equals(status)) {
             int position = getDownloadQueuePosition(item);
@@ -6465,7 +6478,9 @@ private void showDownloadSettingsPanel() {
             primaryAction = "▶";
         } else if ("paused".equals(status)) {
             activityText = "Dijeda • " + progressPercent + "%";
-            detailText = "Tekan lanjutkan untuk meneruskan";
+            detailText = canPlayDownloadInsideYield(item)
+                    ? "Ketuk untuk menonton bagian yang sudah tersedia"
+                    : "Tekan lanjutkan untuk meneruskan";
             primaryAction = "▶";
         } else if ("failed".equals(status)) {
             activityText = "Download gagal";
@@ -6473,7 +6488,8 @@ private void showDownloadSettingsPanel() {
             primaryAction = "↻";
         } else {
             activityText = "Selesai";
-            detailText = detailText.isEmpty() ? "Ketuk untuk membuka file" : detailText;
+            if (canPlayDownloadInsideYield(item)) detailText = "Ketuk untuk menonton di Yield";
+            else detailText = detailText.isEmpty() ? "Ketuk untuk membuka file" : detailText;
             showProgress = false;
             showPrimaryAction = false;
             primaryAction = "";
@@ -7096,8 +7112,18 @@ private void showDownloadSettingsPanel() {
             popup.getMenu().add(0, 12, 0, "Premium Fast • reload");
         }
 
+        if (canPlayDownloadInsideYield(item)
+                && ("running".equals(item.status) || "paused".equals(item.status)
+                || "failed".equals(item.status) || "verifying".equals(item.status)
+                || "saving".equals(item.status))) {
+            popup.getMenu().add(0, 20, 0, "Putar sambil mengunduh");
+        }
+
         if ("completed".equals(item.status)) {
-            popup.getMenu().add(0, 1, 1, "Open");
+            if (canPlayDownloadInsideYield(item)) {
+                popup.getMenu().add(0, 20, 0, "Tonton di Yield");
+            }
+            popup.getMenu().add(0, 1, 1, "Buka dengan aplikasi lain");
             popup.getMenu().add(0, 2, 2, "Bagikan");
             popup.getMenu().add(0, 3, 3, "Ganti nama");
         }
@@ -7125,6 +7151,9 @@ private void showDownloadSettingsPanel() {
             } else if (id == 15) {
                 moveQueuedDownload(item, 1);
                 return true;
+            } else if (id == 20) {
+                playDownloadInsideYield(item);
+                return true;
             } else if (id == 1) {
                 openDownloadedFile(item);
                 return true;
@@ -7144,6 +7173,51 @@ private void showDownloadSettingsPanel() {
             return false;
         });
         popup.show();
+    }
+
+    private boolean canPlayDownloadInsideYield(DownloadItem item) {
+        if (!downloadPlayWhileDownloadingEnabled || item == null || item.hlsDownload) return false;
+        if (!"Video".equals(getDownloadCategory(item))) return false;
+        if (!ProgressivePlaybackPolicy.supportsContainer(item.fileName, item.url, item.hlsDownload)) {
+            return false;
+        }
+        if (item.publicUri != null && !item.publicUri.isEmpty()) return true;
+        if (item.path == null || item.path.isEmpty()) return false;
+        try {
+            File file = new File(item.path);
+            return file.exists() || "queued".equals(item.status) || "running".equals(item.status);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void playDownloadInsideYield(DownloadItem item) {
+        if (item == null) return;
+        if (!canPlayDownloadInsideYield(item)) {
+            if (item.hlsDownload || looksLikeHlsDownload(item.url, item.fileName)) {
+                Toast.makeText(this, "Video HLS dapat dibuka setelah proses penggabungan selesai",
+                        Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "Format ini belum mendukung putar sambil mengunduh",
+                        Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        try {
+            ProgressiveDownloadServer.PlaybackSession session =
+                    ProgressiveDownloadServer.open(this, item);
+            Intent intent = new Intent(this, ProgressiveVideoActivity.class);
+            intent.putExtra(ProgressiveVideoActivity.EXTRA_MEDIA_URL, session.mediaUrl);
+            intent.putExtra(ProgressiveVideoActivity.EXTRA_STATUS_URL, session.statusUrl);
+            intent.putExtra(ProgressiveVideoActivity.EXTRA_CLOSE_URL, session.closeUrl);
+            intent.putExtra(ProgressiveVideoActivity.EXTRA_TITLE, item.fileName);
+            intent.putExtra(ProgressiveVideoActivity.EXTRA_PRIVATE_SESSION,
+                    dedicatedPrivateProfile || isCurrentPrivateTab());
+            startActivity(intent);
+        } catch (Exception e) {
+            Toast.makeText(this, "Player belum dapat dibuka: " + safeText(e.getMessage()),
+                    Toast.LENGTH_LONG).show();
+        }
     }
 
     private void shareDownloadedFile(DownloadItem item) {
@@ -10210,7 +10284,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     return super.shouldInterceptRequest(view, request);
                 }
                 if (adBlock && adBlockScriptIframeBlocker && !isMediaResourceUrl(u) && !isYoutubeCoreUrl(u) && (isAdUrl(u) || isKnownPopupHost(u))) {
-                    return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
+                    return buildBlockedResponse(u);
                 }
                 return super.shouldInterceptRequest(view, request);
             }
@@ -10354,6 +10428,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 if (commitOwner != null) commitOwner.currentPageUrlForRequest = finalUrl;
                 syncNightModeWebSettingsForUrl(finalUrl);
                 scheduleNightModeSyncForPage(finalUrl);
+                if (adBlock) injectAdBlockCssEarly();
             }
 
             @Override
@@ -11766,19 +11841,21 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         return host.equals(baseHost) || host.endsWith("." + baseHost);
     }
 
+    // v0.9.92: dipindah ke konstanta static (lihat catatan AD_URL_HOST_PATTERNS).
+    private static final String[] POPUP_HOST_PATTERNS = new String[]{
+            "hotterydiseur", "sewarsremeets", "sewarsremeet", "onclickads", "clickadu", "popads", "popcash",
+            "popunder", "adsterra", "propellerads", "hilltopads", "exoclick", "trafficjunky", "juicyads",
+            "admaven", "pushpush", "pushengage", "pushwoosh", "realsrv", "invest-tracing", "highperformanceformat",
+            "highperformancedisplayformat", "xmladfeed", "rotator", "smartlink", "adnxs", "rubiconproject",
+            "taboola", "outbrain", "mgid", "revcontent", "doubleclick", "googlesyndication", "googleadservices"
+    };
+
     private boolean isKnownPopupHost(String url) {
         String host = normalizeHostForAdBlock(url);
         if (host.length() == 0) return false;
         if (isTrustedDownloadIntentUrl(url)) return false;
 
-        String[] exactOrContains = new String[]{
-                "hotterydiseur", "sewarsremeets", "sewarsremeet", "onclickads", "clickadu", "popads", "popcash",
-                "popunder", "adsterra", "propellerads", "hilltopads", "exoclick", "trafficjunky", "juicyads",
-                "admaven", "pushpush", "pushengage", "pushwoosh", "realsrv", "invest-tracing", "highperformanceformat",
-                "highperformancedisplayformat", "xmladfeed", "rotator", "smartlink", "adnxs", "rubiconproject",
-                "taboola", "outbrain", "mgid", "revcontent", "doubleclick", "googlesyndication", "googleadservices"
-        };
-        for (String s : exactOrContains) {
+        for (String s : POPUP_HOST_PATTERNS) {
             if (host.contains(s)) return true;
         }
 
@@ -12005,6 +12082,93 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         return !isImageResourceUrl(currentUrl);
     }
 
+    // v0.9.92: blocklist host dipindah ke konstanta static agar tidak dialokasikan ulang
+    // pada setiap shouldInterceptRequest (dipanggil ratusan kali per halaman). Semantik
+    // pencocokan tetap sama (substring contains pada URL) sehingga perilaku tidak berubah,
+    // tetapi tekanan GC dan jank saat memuat/menggulir halaman berkurang signifikan.
+    private static final String[] AD_URL_HOST_PATTERNS = new String[]{
+            "doubleclick.net",
+            "googlesyndication.com",
+            "googleadservices.com",
+            "pagead2.googlesyndication.com",
+            "adservice.google.",
+            "googleads.g.doubleclick.net",
+            "securepubads.g.doubleclick.net",
+            "tpc.googlesyndication.com",
+            "adsystem.com",
+            "amazon-adsystem.com",
+            "adnxs.com",
+            "rubiconproject.com",
+            "pubmatic.com",
+            "openx.net",
+            "criteo.com",
+            "taboola.com",
+            "outbrain.com",
+            "adsrvr.org",
+            "yieldmo.com",
+            "mgid.com",
+            "revcontent.com",
+            "moatads.com",
+            "scorecardresearch.com",
+            "quantserve.com",
+            "hotjar.com",
+            "googletagmanager.com/gtm.js",
+            "google-analytics.com",
+            "analytics.google.com",
+            "facebook.com/tr",
+            "connect.facebook.net",
+            "bat.bing.com",
+            "mc.yandex.ru",
+            "static.ads-twitter.com",
+            "analytics.tiktok.com",
+            "unityads.unity3d.com",
+            "applovin.com",
+            "adcolony.com",
+            "onclickads.net",
+            "clickadu.com",
+            "popads.net",
+            "popcash.net",
+            "propellerads.com",
+            "adsterra.com",
+            "hilltopads.net",
+            "exoclick.com",
+            "trafficjunky.net",
+            "juicyads.com",
+            "admaven.com",
+            "realsrv.com"
+    };
+
+    // 1x1 GIF transparan (43 byte). Dikembalikan untuk request gambar iklan yang diblokir agar
+    // tidak muncul ikon "broken image" seperti pada browser profesional (Brave/UC).
+    private static final byte[] TRANSPARENT_GIF_BYTES = new byte[]{
+            (byte) 0x47, (byte) 0x49, (byte) 0x46, (byte) 0x38, (byte) 0x39, (byte) 0x61,
+            (byte) 0x01, (byte) 0x00, (byte) 0x01, (byte) 0x00, (byte) 0x80, (byte) 0x00, (byte) 0x00,
+            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0x00, (byte) 0x00, (byte) 0x00,
+            (byte) 0x21, (byte) 0xF9, (byte) 0x04, (byte) 0x01, (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00,
+            (byte) 0x2C, (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x00, (byte) 0x01, (byte) 0x00, (byte) 0x01, (byte) 0x00, (byte) 0x00,
+            (byte) 0x02, (byte) 0x02, (byte) 0x44, (byte) 0x01, (byte) 0x00, (byte) 0x3B
+    };
+
+    private WebResourceResponse buildBlockedResponse(String url) {
+        try {
+            boolean image = isImageResourceUrl(url);
+            String mime = image ? "image/gif" : "text/plain";
+            byte[] body = image ? TRANSPARENT_GIF_BYTES : new byte[0];
+            WebResourceResponse resp = new WebResourceResponse(mime, "utf-8", new ByteArrayInputStream(body));
+            try {
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Access-Control-Allow-Origin", "*");
+                headers.put("Cache-Control", "no-store");
+                resp.setResponseHeaders(headers);
+                resp.setStatusCodeAndReasonPhrase(200, "OK");
+            } catch (Exception ignored) {
+            }
+            return resp;
+        } catch (Exception e) {
+            return new WebResourceResponse("text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
+        }
+    }
+
     private boolean isAdUrl(String url) {
         if (!adBlock || url == null) return false;
         String u = url.toLowerCase(Locale.US);
@@ -12013,59 +12177,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         if (isMediaResourceUrl(u)) return false;
         if (isYoutubeCoreUrl(u)) return false;
 
-        String[] blocked = new String[]{
-                "doubleclick.net",
-                "googlesyndication.com",
-                "googleadservices.com",
-                "pagead2.googlesyndication.com",
-                "adservice.google.",
-                "googleads.g.doubleclick.net",
-                "securepubads.g.doubleclick.net",
-                "tpc.googlesyndication.com",
-                "adsystem.com",
-                "amazon-adsystem.com",
-                "adnxs.com",
-                "rubiconproject.com",
-                "pubmatic.com",
-                "openx.net",
-                "criteo.com",
-                "taboola.com",
-                "outbrain.com",
-                "adsrvr.org",
-                "yieldmo.com",
-                "mgid.com",
-                "revcontent.com",
-                "moatads.com",
-                "scorecardresearch.com",
-                "quantserve.com",
-                "hotjar.com",
-                "googletagmanager.com/gtm.js",
-                "google-analytics.com",
-                "analytics.google.com",
-                "facebook.com/tr",
-                "connect.facebook.net",
-                "bat.bing.com",
-                "mc.yandex.ru",
-                "static.ads-twitter.com",
-                "analytics.tiktok.com",
-                "unityads.unity3d.com",
-                "applovin.com",
-                "adcolony.com",
-                "onclickads.net",
-                "clickadu.com",
-                "popads.net",
-                "popcash.net",
-                "propellerads.com",
-                "adsterra.com",
-                "hilltopads.net",
-                "exoclick.com",
-                "trafficjunky.net",
-                "juicyads.com",
-                "admaven.com",
-                "realsrv.com"
-        };
-
-        for (String b : blocked) {
+        for (String b : AD_URL_HOST_PATTERNS) {
             if (u.contains(b)) return true;
         }
 
@@ -12085,7 +12197,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 || u.contains("trackingpixel")
                 || u.contains("prebid")
                 || u.contains("clickunder")
-                || u.contains("onclick")
+                || u.contains("onclickads")
                 || u.contains("interstitial")
                 || u.contains("adclick")
                 || u.contains("ad_click")
@@ -12096,12 +12208,58 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 || u.contains("reactpath")
                 || u.contains("click_id")
                 || u.contains("af_click")
-                || u.contains("vast")
+                || u.contains("/vast")
+                || u.contains("vast.xml")
+                || u.contains("=vast")
                 || u.contains("vpaid");
     }
 
 
     // ===== AdBlock / video ad handling =====
+    // v0.9.92: cosmetic filtering profesional (gaya Brave/UC).
+    // Daftar selector ini KURATIF dan aman: tidak lagi memakai pola blanket seperti
+    // [class*=ad-] / [id*=ad-] yang pada versi lama keliru menyembunyikan elemen sah seperti
+    // download-button, upload-zone, read-more, breadcrumb, header, thread, dll.
+    // Memakai token-match [class~='...'] (mencocokkan kata utuh, bukan substring) + selector
+    // kelas iklan spesifik + iframe iklan berdasarkan src.
+    private String buildAdBlockCosmeticCss() {
+        return ".adsbygoogle,ins.adsbygoogle,"
+                + "[class~='advertisement'],[class~='advert'],[class~='sponsored'],"
+                + "[id^='div-gpt-ad'],[id^='google_ads'],"
+                + "iframe[id^='google_ads_'],iframe[id^='aswift_'],"
+                + "iframe[src*='doubleclick.net'],iframe[src*='googlesyndication'],iframe[src*='googleadservices'],iframe[src*='adservice.'],iframe[src*='/ads/'],iframe[src*='/adserver'],iframe[src*='onclickads'],iframe[src*='clickadu'],iframe[src*='popads'],iframe[src*='popcash'],iframe[src*='propellerads'],iframe[src*='adsterra'],iframe[src*='hilltopads'],iframe[src*='exoclick'],iframe[src*='juicyads'],iframe[src*='trafficjunky'],"
+                + ".ad-banner,.ad-container,.ad-wrapper,.ad-slot,.ad-box,.ad-unit,.ad-area,.ad-frame,.ad-label,.ad-placeholder,.ad-leaderboard,.ad-sidebar,.ad-rail,.ad-billboard,.ads-container,.ads-wrapper,"
+                + ".banner-ad,.sidebar-ad,.footer-ad,.header-ad,.in-article-ad,.inline-ad,.native-ad,.sponsored-post,.sponsored-content,.promoted-content,"
+                + ".GoogleActiveViewElement"
+                + "{display:none!important;visibility:hidden!important;opacity:0!important;max-height:0!important;min-height:0!important;height:0!important;overflow:hidden!important;pointer-events:none!important;}";
+    }
+
+    // Injektor stylesheet idempoten: membuat sekali, lalu hanya memperbarui isi jika berubah.
+    // CSS memakai tanda kutip tunggal pada attribute selector sehingga aman ditempel di string JS.
+    private String buildCosmeticCssInjectorJs() {
+        String css = buildAdBlockCosmeticCss();
+        return "javascript:(function(){try{"
+                + "var css=\"" + css + "\";"
+                + "var id='yield-adblock-cosmetic';"
+                + "var el=document.getElementById(id);"
+                + "if(!el){el=document.createElement('style');el.id=id;el.setAttribute('type','text/css');(document.head||document.documentElement||document.body).appendChild(el);}"
+                + "if(el.textContent!==css){el.textContent=css;}"
+                + "}catch(e){}})();";
+    }
+
+    // Dipanggil sangat awal (onPageCommitVisible) supaya iklan tersembunyi sebelum sempat tampil,
+    // sehingga tidak ada kedipan (FOUC) seperti browser profesional. Hanya stylesheet, tanpa logika berat.
+    private void injectAdBlockCssEarly() {
+        if (webView == null || !adBlock || !adBlockScriptIframeBlocker) return;
+        try {
+            String cur = getEffectiveCurrentUrl();
+            if (isYouTubePageUrl(cur)) return;
+            if (isSiteCompatibilityModeActiveForUrl(cur)) return;
+            runPageScript(buildCosmeticCssInjectorJs());
+        } catch (Exception ignored) {
+        }
+    }
+
     private void injectPremiumAdBlock() {
         if (webView == null || !adBlock) return;
         // v0.9.54: YouTube punya engine adblock khusus yang lebih aman.
@@ -12113,12 +12271,16 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
         if (isSiteCompatibilityModeActiveForUrl(getEffectiveCurrentUrl())) return;
 
+        // Pasang stylesheet cosmetic lebih dulu (hide-before-paint, gaya Brave/UC).
+        injectAdBlockCssEarly();
+
         String popupEnabled = adBlockPopupBlocker ? "true" : "false";
         String clickEnabled = adBlockClickHijackBlocker ? "true" : "false";
         String scriptEnabled = adBlockScriptIframeBlocker ? "true" : "false";
 
         String js = "javascript:(function(){"
-                + "window.__yieldAdBlockPremium=true;"
+                + "if(window.__yieldAdBlockPremiumV2){try{if(window.__yieldABRun)window.__yieldABRun();}catch(e){}return;}"
+                + "window.__yieldAdBlockPremiumV2=true;window.__yieldAdBlockPremium=true;"
                 + "var Y_POPUP=" + popupEnabled + ",Y_CLICK=" + clickEnabled + ",Y_SCRIPT=" + scriptEnabled + ";"
                 + "function hostOf(u){try{var a=document.createElement('a');a.href=u;return (a.hostname||'').replace(/^www\\./,'').toLowerCase();}catch(e){return '';}}"
                 + "function media(u){try{var s=(u||'').toLowerCase();return s.indexOf('googlevideo.com/videoplayback')>-1||s.indexOf('/videoplayback')>-1||s.indexOf('.mp4')>-1||s.indexOf('.m3u8')>-1||s.indexOf('.mpd')>-1||s.indexOf('.webm')>-1||s.indexOf('.m4s')>-1||s.indexOf('.ts')>-1||s.indexOf('mime=video')>-1||s.indexOf('mime%3dvideo')>-1;}catch(e){return false;}}"
@@ -12158,11 +12320,17 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 + "]:["
                 + "'.adsbygoogle','iframe[id*=ad]','iframe[src*=ads]','iframe[src*=doubleclick]','iframe[src*=onclickads]','iframe[src*=clickadu]','iframe[src*=popads]','iframe[src*=propellerads]','[id*=ad-]','[id^=ad_]','[class*=ad-]','[class*=ads-]','[class*=advert]','.GoogleActiveViewElement','.ad-banner','.ad-container','.advertisement','.sponsored','.ima-ad-container','.ima-ad','.googleima','.ad-overlay','.video-ads','.preroll','.pre-roll','.midroll','.mid-roll','.vjs-ima3-ad-container','.vjs-ad-container','.plyr__ads'"
                 + "];"
-                + "if(Y_SCRIPT){if(!yt)selectors.forEach(hardHide);}"
+                + "if(Y_SCRIPT&&yt){selectors.forEach(hardHide);}"
                 + "try{if(Y_SCRIPT)document.querySelectorAll('iframe[src],script[src]').forEach(function(el){var u=el.src||'';if(bad(u)){el.remove();}});}catch(e){}"
                 + "try{document.body.style.setProperty('overflow','auto','important');}catch(e){}"
                 + "}"
-                + "clean();setInterval(clean,250);setTimeout(clean,120);setTimeout(clean,500);setTimeout(clean,1200);setTimeout(clean,2600);setTimeout(clean,5200);"
+                + "window.__yieldABRun=clean;"
+                + "var __abP=false;function __abS(){if(__abP)return;__abP=true;(window.requestAnimationFrame||function(f){setTimeout(f,16);})(function(){__abP=false;try{clean();}catch(e){}});}"
+                + "try{if(window.__yieldABObs&&window.__yieldABObs.disconnect)window.__yieldABObs.disconnect();}catch(e){}"
+                + "try{window.__yieldABObs=new MutationObserver(function(){__abS();});window.__yieldABObs.observe(document.documentElement||document.body||document,{childList:true,subtree:true});}catch(e){}"
+                + "try{if(window.__yieldABInt)clearInterval(window.__yieldABInt);}catch(e){}"
+                + "window.__yieldABInt=setInterval(function(){try{if(document.querySelector('video'))clean();}catch(e){}},700);"
+                + "clean();setTimeout(clean,120);setTimeout(clean,500);setTimeout(clean,1500);setTimeout(clean,3500);"
                 + "})();";
         runPageScript(js);
     }
@@ -12943,6 +13111,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         downloadDynamic4Connections = p.getBoolean("downloadDynamic4Connections", true);
         downloadAutoRetry = p.getBoolean("downloadAutoRetry", true);
         downloadHlsEnabled = p.getBoolean("downloadHlsEnabled", true);
+        downloadPlayWhileDownloadingEnabled = p.getBoolean("downloadPlayWhileDownloadingEnabled", true);
         downloadSpeedLimitKBps = p.getInt("downloadSpeedLimitKBps", 0);
         downloadQueueEnabled = p.getBoolean("downloadQueueEnabled", true);
         downloadMaxActive = Math.max(1, Math.min(4, p.getInt("downloadMaxActive", 2)));
@@ -13033,6 +13202,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 .putBoolean("downloadDynamic4Connections", downloadDynamic4Connections)
                 .putBoolean("downloadAutoRetry", downloadAutoRetry)
                 .putBoolean("downloadHlsEnabled", downloadHlsEnabled)
+                .putBoolean("downloadPlayWhileDownloadingEnabled", downloadPlayWhileDownloadingEnabled)
                 .putInt("downloadSpeedLimitKBps", downloadSpeedLimitKBps)
                 .putBoolean("downloadQueueEnabled", downloadQueueEnabled)
                 .putInt("downloadMaxActive", downloadMaxActive)

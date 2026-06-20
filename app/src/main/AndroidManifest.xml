@@ -52,6 +52,16 @@
             android:taskAffinity="${applicationId}.incognito"
             android:supportsPictureInPicture="false" />
 
+        <activity
+            android:name=".ProgressiveVideoActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:resizeableActivity="true"
+            android:screenOrientation="sensor"
+            android:supportsPictureInPicture="true" />
+
         <service
             android:name=".DownloadKeepAliveService"
             android:exported="false"
