@@ -1,48 +1,40 @@
-# Release Notes — YieldBrowser v0.9.85
+# Release Notes — YieldBrowser v0.9.88
 
-## Download integrity
+## Smooth download UI
 
-- Memvalidasi `206 Partial Content`, `Content-Range`, total file, dan panjang respons untuk setiap worker Range.
-- File multipart hanya selesai jika seluruh part dan ukuran fisik file sesuai.
-- Memperbaiki pembagian dua koneksi menjadi rentang tanpa overlap.
-- Memperbaiki resume Balanced 3 dan Turbo 4.
-- Menambahkan `ETag`, `Last-Modified`, dan `If-Range` untuk mencegah file lama dan baru tergabung.
-- Respons Range yang tidak valid otomatis turun ke mode aman tanpa mempertahankan file sparse yang berisiko korup.
+- Mengganti `ScrollView + LinearLayout` dengan `RecyclerView + ListAdapter + DiffUtil`.
+- Menambahkan stable item ID dan immutable UI snapshot.
+- Menghindari `removeAllViews()` pada setiap perubahan progres.
+- Menambahkan tab **Mengunduh** dan **Selesai**.
+- Menambahkan empty state, filter kategori, pencarian, sorting, dan mode multi-select yang tetap ringan.
 
-## Queue, pause, dan concurrency
+## Live progress
 
-- Download baru tidak lagi melewati antrean.
-- Remove langsung menutup stream dan koneksi aktif.
-- Generation token membatalkan worker lama setelah pause, reload, remove, atau retry.
-- State lintas thread dibuat visible dan update kritis dilindungi lock/atomic counter.
-- Retry penalty tidak lagi dihitung dua kali.
-- Urutan antrean dipersistenkan secara deterministik.
+- Progres presisi 0–10.000 dan animasi progress bar.
+- UI ticker 300 ms yang berhenti otomatis ketika Activity berada di background.
+- Exponential moving average untuk kecepatan.
+- Estimasi waktu tersisa berdasarkan throughput stabil.
+- Perbaikan tampilan progres HLS berdasarkan jumlah segmen, bukan mencampur byte dengan jumlah segmen.
 
-## Google Drive
+## Finalization pipeline
 
-- Normalisasi link file Google Drive ke endpoint download.
-- Final redirect URL disimpan dan digunakan ulang oleh semua part.
-- URL bertoken yang expired otomatis di-resolve ulang.
-- File besar Google Drive memakai 3 koneksi adaptif; fallback tetap tersedia bila Range/throttling tidak stabil.
-- Header browser palsu yang tidak relevan dihapus dari request download.
+- Menambahkan status `verifying` dan `saving`.
+- Menampilkan progres penyalinan ke MediaStore/SAF.
+- Buffer ekspor dinaikkan menjadi 256 KB.
+- Partial MediaStore/SAF output dibersihkan jika ekspor gagal atau dibatalkan.
+- Staging file dihapus setelah ekspor berhasil.
+- Rename file mendukung content URI/MediaStore setelah staging file dihapus.
+- Pemulihan finalisasi dapat melanjutkan langsung tanpa mengunduh ulang payload yang sudah lengkap.
 
-## HLS
+## Interaction
 
-- Resume per segmen dan rollback partial segment.
-- Variant master dipilih berdasarkan bandwidth tertinggi.
-- Dukungan init map, byte range, fMP4, serta AES-128 CBC.
-- Key rotation dasar, explicit IV, dan media-sequence IV didukung.
-- Metode enkripsi yang tidak didukung ditolak agar tidak menghasilkan file palsu atau korup.
-
-## Background dan platform
-
-- Foreground data-sync service dan partial wake lock untuk download aktif.
-- Permission notifikasi Android 13+ diminta sekali saat download pertama.
-- targetSdk diperbarui ke 35.
+- Download Manager tidak lagi terbuka otomatis 250 ms setelah unduhan dimulai.
+- Menambahkan banner nonintrusif dengan tombol **Lihat**.
+- Foreground notification menampilkan progres finalisasi yang sebenarnya.
+- Notifikasi antrean lama dibatalkan ketika item mulai menjadi download aktif.
 
 ## Tests
 
-- Codec state download dan migrasi running-to-paused.
-- Parser/validator HTTP Range.
-- Parser master/media HLS, fMP4 map, byte range, dan encryption metadata.
-- AES-128 decrypt menggunakan media sequence IV.
+- Menambahkan `DownloadUiMetricsTest`.
+- Menambahkan pengujian persistensi status finalisasi.
+- Mempertahankan seluruh pengujian protocol, HLS, storage, tab lifecycle, dan private profile.

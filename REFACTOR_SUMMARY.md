@@ -1,30 +1,39 @@
-# YieldBrowser Source Refactor Summary — v0.9.85
+# YieldBrowser Source Refactor Summary — v0.9.88
 
-## Struktur
+## Riwayat refaktor
 
-- Konstanta di `BrowserConstants`.
-- Helper URL browser di `BrowserUrlUtils`.
-- Model tab, bookmark, history, shortcut, dan download dipisahkan dari Activity.
-- Serialisasi download di `DownloadHistoryCodec`.
-- Validasi protokol di `DownloadProtocol`.
-- Limiter bandwidth agregat di `DownloadRateLimiter`.
-- Parser dan crypto HLS di `HlsPlaylistParser` serta `HlsAes128`.
-- Background keep-alive di `DownloadKeepAliveService`.
+- v0.9.84: pemisahan model dan codec dasar.
+- v0.9.85: download integrity, queue, range validation, Google Drive, HLS, dan foreground keep-alive.
+- v0.9.86: tab lifecycle isolation dan destructive Home reset.
+- v0.9.87: dedicated incognito process/profile dan single download notification policy.
+- v0.9.88: incremental Download Manager UI dan explicit finalization pipeline.
 
-## Pembersihan
+## Struktur download UI v0.9.88
 
-- Menghapus overload helper yang tidak pernah dipanggil.
-- Menghapus prefetch download HLS yang hanya membuang bandwidth.
-- Menghapus header request browser palsu dari worker download.
-- Mengganti penyimpanan antrean `StringSet` dengan urutan deterministik.
-- Mengurangi penulisan SharedPreferences pada setiap perubahan kecil progress.
+```text
+Download engine threads
+        ↓ mutable DownloadItem state
+Download UI ticker (300 ms)
+        ↓ immutable DownloadUiItem snapshots
+ListAdapter + DiffUtil
+        ↓ changed-row binding only
+RecyclerView ViewHolder
+```
 
-## Pengujian
+## Finalization structure
 
-- `StorageCodecTest`
-- `DownloadHistoryCodecTest`
-- `DownloadProtocolTest`
-- `HlsPlaylistParserTest`
-- `HlsAes128Test`
+```text
+network complete
+  → verifying staging payload
+  → saving to MediaStore/SAF with progress
+  → delete staging on success
+  → completed content URI
+```
 
-Workflow GitHub menjalankan unit test, debug APK, dan unsigned release APK menggunakan Gradle 8.10.2 dan Java 17.
+## Dampak
+
+- Tidak ada full-list reconstruction pada update progres.
+- Scroll dan tombol download tetap responsif ketika beberapa file aktif.
+- Progres file besar tidak tampak macet pada 99%.
+- Kecepatan dan ETA lebih stabil.
+- Lifecycle UI terpisah dari lifecycle download foreground service.
