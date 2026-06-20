@@ -115,6 +115,10 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class MainActivity extends Activity {
 
+    private static final String EXTRA_OPEN_TAB_SWITCHER = "yield.open_tab_switcher";
+    private static final String EXTRA_CREATE_TAB = "yield.create_tab";
+    private static final String EXTRA_OPEN_URL = "yield.open_url";
+
     // ===== UI references =====
 
     private EditText addressBar;
@@ -476,6 +480,7 @@ public class MainActivity extends Activity {
         restoreActiveTabAfterLaunch();
         updateTopActionStates();
         handleOpenDownloadsIntent(getIntent());
+        handleProfileSpaceIntent(getIntent());
         mainHandler.postDelayed(this::pumpDownloadQueue, 650);
 
     }
@@ -485,6 +490,7 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleOpenDownloadsIntent(intent);
+        handleProfileSpaceIntent(intent);
     }
 
 
@@ -649,6 +655,11 @@ public class MainActivity extends Activity {
         wrap.setPadding(dp(14), dp(12), dp(14), dp(10));
         wrap.setBackgroundColor(COLOR_BG);
 
+        if (dedicatedPrivateProfile) {
+            wrap.addView(createPrivateProfileStrip(), new LinearLayout.LayoutParams(-1, dp(42)));
+            wrap.addView(space(dp(8)));
+        }
+
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER);
@@ -705,6 +716,94 @@ public class MainActivity extends Activity {
         return wrap;
     }
 
+    private View createPrivateProfileStrip() {
+        LinearLayout strip = new LinearLayout(this);
+        strip.setOrientation(LinearLayout.HORIZONTAL);
+        strip.setGravity(Gravity.CENTER_VERTICAL);
+        strip.setPadding(dp(12), dp(5), dp(6), dp(5));
+        strip.setBackground(roundRect(Color.parseColor("#26143D"), dp(16), dp(1),
+                Color.parseColor("#6941A5")));
+
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_private);
+        icon.setColorFilter(Color.parseColor("#D8C5FF"));
+        strip.addView(icon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setPadding(dp(9), 0, dp(8), 0);
+        TextView title = new TextView(this);
+        title.setText("Mode Privat");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(13);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        texts.addView(title);
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Profil terisolasi");
+        subtitle.setTextColor(Color.parseColor("#BFADE2"));
+        subtitle.setTextSize(10);
+        texts.addView(subtitle);
+        strip.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+
+        TextView normal = new TextView(this);
+        normal.setText("Umum");
+        normal.setContentDescription("Beralih ke tab umum");
+        normal.setTextColor(Color.parseColor("#17121F"));
+        normal.setTextSize(12);
+        normal.setTypeface(Typeface.DEFAULT_BOLD);
+        normal.setGravity(Gravity.CENTER);
+        normal.setBackground(roundRect(Color.parseColor("#D8C5FF"), dp(14), 0, Color.TRANSPARENT));
+        normal.setOnClickListener(v -> openNormalBrowserSpace());
+        strip.addView(normal, new LinearLayout.LayoutParams(dp(72), dp(30)));
+        return strip;
+    }
+
+    private View createPrivateHomeActions() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(13), dp(14), dp(13));
+        card.setBackground(roundRect(Color.parseColor("#21162F"), dp(20), dp(1),
+                Color.parseColor("#5B3A82")));
+
+        TextView info = new TextView(this);
+        info.setText("Tab pada ruang ini tetap privat. Gunakan ruang Umum untuk sesi browsing biasa.");
+        info.setTextColor(Color.parseColor("#D8CDE8"));
+        info.setTextSize(13);
+        card.addView(info);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, dp(42));
+        actionsParams.setMargins(0, dp(12), 0, 0);
+
+        TextView normal = new TextView(this);
+        normal.setText("Buka tab umum");
+        normal.setTextColor(Color.WHITE);
+        normal.setTextSize(13);
+        normal.setTypeface(Typeface.DEFAULT_BOLD);
+        normal.setGravity(Gravity.CENTER);
+        normal.setBackground(roundRect(Color.parseColor("#37303F"), dp(16), dp(1),
+                Color.parseColor("#665B70")));
+        normal.setOnClickListener(v -> openNormalBrowserSpace());
+        actions.addView(normal, new LinearLayout.LayoutParams(0, -1, 1));
+
+        TextView addPrivate = new TextView(this);
+        addPrivate.setText("+ Tab privat");
+        addPrivate.setTextColor(Color.WHITE);
+        addPrivate.setTextSize(13);
+        addPrivate.setTypeface(Typeface.DEFAULT_BOLD);
+        addPrivate.setGravity(Gravity.CENTER);
+        addPrivate.setBackground(roundRect(Color.parseColor("#6D28D9"), dp(16), 0,
+                Color.TRANSPARENT));
+        addPrivate.setOnClickListener(v -> newTabInCurrentProfile());
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(0, -1, 1);
+        addParams.setMargins(dp(8), 0, 0, 0);
+        actions.addView(addPrivate, addParams);
+        card.addView(actions, actionsParams);
+        return card;
+    }
+
     private ScrollView createHomeContent() {
         ScrollView scrollView = new ScrollView(this);
         scrollView.setFillViewport(true);
@@ -732,8 +831,9 @@ public class MainActivity extends Activity {
         titleRow.addView(titleYield);
 
         TextView titleBrowser = new TextView(this);
-        titleBrowser.setText(" Browser");
-        titleBrowser.setTextColor(Color.parseColor("#DDA13A"));
+        titleBrowser.setText(dedicatedPrivateProfile ? " Privat" : " Browser");
+        titleBrowser.setTextColor(dedicatedPrivateProfile
+                ? Color.parseColor("#C4A7FF") : Color.parseColor("#DDA13A"));
         titleBrowser.setTextSize(31);
         titleBrowser.setLetterSpacing(-0.01f);
         titleBrowser.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
@@ -742,12 +842,19 @@ public class MainActivity extends Activity {
         content.addView(titleRow);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Cepat, ringan, dan siap dipakai.");
+        subtitle.setText(dedicatedPrivateProfile
+                ? "Sesi terisolasi. Riwayat dan data situs tidak disimpan."
+                : "Cepat, ringan, dan siap dipakai.");
         subtitle.setTextColor(COLOR_SUBTEXT);
         subtitle.setTextSize(17);
         LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(-2, -2);
         subParams.setMargins(0, dp(8), 0, dp(24));
         content.addView(subtitle, subParams);
+
+        if (dedicatedPrivateProfile) {
+            content.addView(createPrivateHomeActions());
+            content.addView(space(dp(18)));
+        }
 
         LinearLayout searchCard = new LinearLayout(this);
         searchCard.setOrientation(LinearLayout.HORIZONTAL);
@@ -1756,7 +1863,7 @@ content.addView(space(dp(36)));
         }
     }
 
-    private void newNormalTab() {
+    private void newTabInCurrentProfile() {
         saveCurrentTabState();
         invalidateTabScopedAsyncWork();
         tabs.add(createProfileTab("Tab baru", "Tab privat", "", false));
@@ -1773,14 +1880,115 @@ content.addView(space(dp(36)));
     }
 
     private void launchDedicatedPrivateProfile() {
+        launchDedicatedPrivateProfile(false, null);
+    }
+
+    private void launchDedicatedPrivateProfile(boolean openTabSwitcher) {
+        launchDedicatedPrivateProfile(openTabSwitcher, null);
+    }
+
+    private void launchDedicatedPrivateProfile(boolean openTabSwitcher, String openUrl) {
         try {
             Intent intent = new Intent(this, PrivateBrowserActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            if (openTabSwitcher) intent.putExtra(EXTRA_OPEN_TAB_SWITCHER, true);
+            if (openUrl != null && !openUrl.trim().isEmpty()) {
+                intent.putExtra(EXTRA_OPEN_URL, openUrl.trim());
+            }
             startActivity(intent);
+            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
         } catch (Exception e) {
             Toast.makeText(this, "Profil privat tidak dapat dibuka", Toast.LENGTH_SHORT).show();
         }
     }
+
+    private void launchNormalProfile(boolean openTabSwitcher, boolean createTab) {
+        try {
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            if (openTabSwitcher) intent.putExtra(EXTRA_OPEN_TAB_SWITCHER, true);
+            if (createTab) intent.putExtra(EXTRA_CREATE_TAB, true);
+            startActivity(intent);
+            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
+        } catch (Exception e) {
+            Toast.makeText(this, "Tab umum tidak dapat dibuka", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void handleProfileSpaceIntent(Intent intent) {
+        if (intent == null) return;
+        boolean createTab = intent.getBooleanExtra(EXTRA_CREATE_TAB, false);
+        boolean openSwitcher = intent.getBooleanExtra(EXTRA_OPEN_TAB_SWITCHER, false);
+        String openUrl = intent.getStringExtra(EXTRA_OPEN_URL);
+        boolean hasUrl = openUrl != null && !openUrl.trim().isEmpty();
+        if (!createTab && !openSwitcher && !hasUrl) return;
+
+        intent.removeExtra(EXTRA_CREATE_TAB);
+        intent.removeExtra(EXTRA_OPEN_TAB_SWITCHER);
+        intent.removeExtra(EXTRA_OPEN_URL);
+        final String requestedUrl = hasUrl ? openUrl.trim() : null;
+        mainHandler.post(() -> {
+            if (requestedUrl != null) openUrlInCurrentProfileTab(requestedUrl);
+            else if (createTab) createOrReuseBlankProfileTab();
+            if (openSwitcher) showTabsPanel();
+        });
+    }
+
+    private void createOrReuseBlankProfileTab() {
+        TabInfo current = getCurrentTab();
+        boolean reusable = current != null
+                && (current.url == null || current.url.isEmpty())
+                && !hasLivePage(current.webView);
+        if (reusable) {
+            addressBar.setText("");
+            if (homeSearchInput != null) homeSearchInput.setText("");
+            skipNextShowHomeTabSave = true;
+            showHome();
+            return;
+        }
+        newTabInCurrentProfile();
+    }
+
+    private void openUrlInCurrentProfileTab(String url) {
+        String normalized = normalizeInputToUrl(url);
+        if (normalized == null || normalized.isEmpty()) return;
+        TabInfo current = getCurrentTab();
+        boolean canReuseEmpty = current != null
+                && (current.url == null || current.url.isEmpty())
+                && !hasLivePage(current.webView);
+        if (!canReuseEmpty) newTabInCurrentProfile();
+        if (addressBar != null) addressBar.setText(normalized);
+        openAddressBarUrl();
+    }
+
+    private void openUrlInPrivateSpace(String url) {
+        if (url == null || url.trim().isEmpty()) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && !dedicatedPrivateProfile) {
+            launchDedicatedPrivateProfile(false, url);
+            return;
+        }
+        if (!dedicatedPrivateProfile) newPrivateTab();
+        openUrlInCurrentProfileTab(url);
+    }
+
+    private void openNormalBrowserSpace() {
+        if (!dedicatedPrivateProfile) return;
+        launchNormalProfile(false, false);
+    }
+
+    private void openPrivateBrowserSpace() {
+        if (dedicatedPrivateProfile) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            launchDedicatedPrivateProfile(false);
+        } else {
+            newPrivateTab();
+        }
+    }
+
 
     private void newPrivateTab() {
         // Android 9+ supports a dedicated WebView data directory per process. This is the only
@@ -1890,7 +2098,8 @@ content.addView(space(dp(36)));
         }
 
         saveTabsSession();
-        Toast.makeText(this, tab.privateTab ? "Tab privat" : "Tab aktif", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, tab.privateTab ? "Tab privat aktif" : "Tab umum aktif",
+                Toast.LENGTH_SHORT).show();
     }
 
     private void switchToTab(TabInfo tab) {
@@ -1911,17 +2120,18 @@ content.addView(space(dp(36)));
             replacement = index < tabs.size() - 1 ? tabs.get(index + 1) : tabs.get(index - 1);
         }
 
-        // Invalidate ownership and delayed page work before destruction so the outgoing tab
-        // cannot mutate the replacement tab after close.
         if (closingCurrent) invalidateTabScopedAsyncWork();
         removed.closed = true;
         destroyTabWebView(removed);
         tabs.remove(index);
 
         if (tabs.isEmpty()) {
-            if (PrivateProfilePolicy.shouldCloseWindowAfterLastTab(
+            if (BrowserSpacePolicy.shouldReturnToNormalAfterLastPrivateTab(
                     dedicatedPrivateProfile, tabs.size())) {
                 updateTabsCountUi();
+                // Professional profile behavior: closing the final private tab returns the user
+                // to the existing normal browser space instead of leaving them at the launcher.
+                launchNormalProfile(false, false);
                 finish();
                 return;
             }
@@ -1938,7 +2148,6 @@ content.addView(space(dp(36)));
             currentTabIndex = replacementIndex >= 0
                     ? replacementIndex : Math.max(0, Math.min(index, tabs.size() - 1));
             if (closingCurrent) {
-                // The outgoing tab is already invalidated; never save its stale URL into the replacement.
                 skipNextSwitchTabStateSave = true;
                 switchToTab(currentTabIndex);
             } else {
@@ -1952,10 +2161,28 @@ content.addView(space(dp(36)));
 
         updateTabsCountUi();
         saveTabsSession();
-        Toast.makeText(this, removed.privateTab ? "Tab privat ditutup" : "Tab ditutup", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, removed.privateTab ? "Tab privat ditutup" : "Tab ditutup",
+                Toast.LENGTH_SHORT).show();
     }
 
+
     private void showTabsPanel() {
+        TabInfo current = getCurrentTab();
+        boolean defaultPrivate = BrowserSpacePolicy.isPrivateSpace(
+                dedicatedPrivateProfile, current != null && current.privateTab, Build.VERSION.SDK_INT);
+        showTabsPanelForSpace(defaultPrivate);
+    }
+
+    private void showTabsPanelForSpace(boolean privateSpace) {
+        // On modern Android each profile lives in its own process and task. Selecting the other
+        // segment brings that space forward; it never converts a live tab between profiles.
+        if (BrowserSpacePolicy.mustOpenOtherProcess(
+                privateSpace, dedicatedPrivateProfile, Build.VERSION.SDK_INT)) {
+            if (privateSpace) launchDedicatedPrivateProfile(true);
+            else launchNormalProfile(true, false);
+            return;
+        }
+
         saveCurrentTabState();
 
         Dialog dialog = new Dialog(this);
@@ -1970,38 +2197,40 @@ content.addView(space(dp(36)));
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
 
+        LinearLayout heading = new LinearLayout(this);
+        heading.setOrientation(LinearLayout.VERTICAL);
         TextView title = new TextView(this);
-        title.setText("Tab");
+        title.setText(privateSpace ? "Tab Privat" : "Tab Umum");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(28);
+        title.setTextSize(26);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
-
-        TextView privateButton = new TextView(this);
-        privateButton.setText("Privat");
-        privateButton.setTextColor(Color.WHITE);
-        privateButton.setTextSize(14);
-        privateButton.setTypeface(Typeface.DEFAULT_BOLD);
-        privateButton.setGravity(Gravity.CENTER);
-        privateButton.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
-        privateButton.setOnClickListener(v -> {
-            dialog.dismiss();
-            newPrivateTab();
-        });
-        LinearLayout.LayoutParams privateParams = new LinearLayout.LayoutParams(dp(78), dp(42));
-        privateParams.setMargins(0, 0, dp(8), 0);
-        header.addView(privateButton, privateParams);
+        heading.addView(title);
+        TextView count = new TextView(this);
+        int visibleCount = countTabsForSpace(privateSpace);
+        count.setText(visibleCount + " tab terbuka");
+        count.setTextColor(COLOR_SUBTEXT);
+        count.setTextSize(12);
+        heading.addView(count);
+        header.addView(heading, new LinearLayout.LayoutParams(0, dp(58), 1));
 
         TextView plus = new TextView(this);
         plus.setText("+");
-        plus.setTextColor(Color.parseColor("#111111"));
+        plus.setContentDescription(privateSpace ? "Buka tab privat baru" : "Buka tab umum baru");
+        plus.setTextColor(privateSpace ? Color.WHITE : Color.parseColor("#111111"));
         plus.setTextSize(28);
         plus.setTypeface(Typeface.DEFAULT_BOLD);
         plus.setGravity(Gravity.CENTER);
-        plus.setBackground(roundRect(COLOR_ACCENT, dp(18), 0, Color.TRANSPARENT));
+        plus.setBackground(roundRect(privateSpace ? Color.parseColor("#6D28D9") : COLOR_ACCENT,
+                dp(18), 0, Color.TRANSPARENT));
         plus.setOnClickListener(v -> {
             dialog.dismiss();
-            newNormalTab();
+            if (privateSpace) {
+                if (dedicatedPrivateProfile) newTabInCurrentProfile();
+                else newPrivateTab();
+            } else {
+                if (dedicatedPrivateProfile) launchNormalProfile(false, true);
+                else newTabInCurrentProfile();
+            }
         });
         header.addView(plus, new LinearLayout.LayoutParams(dp(48), dp(42)));
 
@@ -2014,14 +2243,39 @@ content.addView(space(dp(36)));
         LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(44), dp(44));
         closeParams.setMargins(dp(8), 0, 0, 0);
         header.addView(close, closeParams);
-
         root.addView(header);
 
+        LinearLayout selector = new LinearLayout(this);
+        selector.setOrientation(LinearLayout.HORIZONTAL);
+        selector.setPadding(dp(4), dp(4), dp(4), dp(4));
+        selector.setBackground(roundRect(Color.parseColor("#17191F"), dp(20), dp(1), COLOR_BORDER));
+        TextView normalChip = profileSpaceChip("Umum", !privateSpace, false);
+        TextView privateChip = profileSpaceChip("Privat", privateSpace, true);
+        normalChip.setOnClickListener(v -> {
+            if (!privateSpace) return;
+            dialog.dismiss();
+            showTabsPanelForSpace(false);
+        });
+        privateChip.setOnClickListener(v -> {
+            if (privateSpace) return;
+            dialog.dismiss();
+            showTabsPanelForSpace(true);
+        });
+        selector.addView(normalChip, new LinearLayout.LayoutParams(0, dp(42), 1));
+        LinearLayout.LayoutParams privateChipParams = new LinearLayout.LayoutParams(0, dp(42), 1);
+        privateChipParams.setMargins(dp(6), 0, 0, 0);
+        selector.addView(privateChip, privateChipParams);
+        LinearLayout.LayoutParams selectorParams = new LinearLayout.LayoutParams(-1, dp(50));
+        selectorParams.setMargins(0, dp(8), 0, dp(12));
+        root.addView(selector, selectorParams);
+
         TextView hint = new TextView(this);
-        hint.setText("Ketuk tab untuk pindah. Tekan × untuk menutup tab.");
+        hint.setText(privateSpace
+                ? "Tab privat memakai profil terisolasi dan tidak disimpan ke sesi umum."
+                : "Tab umum menyimpan sesi agar dapat dipulihkan saat aplikasi dibuka kembali.");
         hint.setTextColor(COLOR_SUBTEXT);
         hint.setTextSize(13);
-        hint.setPadding(0, 0, 0, dp(12));
+        hint.setPadding(dp(2), 0, dp(2), dp(12));
         root.addView(hint);
 
         ScrollView scroll = new ScrollView(this);
@@ -2029,9 +2283,38 @@ content.addView(space(dp(36)));
         list.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(list);
 
-        for (int i = 0; i < tabs.size(); i++) {
-            final int index = i;
-            list.addView(tabRow(tabs.get(i), index, dialog));
+        int displayNumber = 0;
+        for (TabInfo tab : tabs) {
+            if (tab == null || tab.closed || tab.privateTab != privateSpace) continue;
+            displayNumber++;
+            list.addView(tabRow(tab, displayNumber, dialog, privateSpace));
+        }
+
+        if (displayNumber == 0) {
+            LinearLayout empty = new LinearLayout(this);
+            empty.setOrientation(LinearLayout.VERTICAL);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(dp(20), dp(48), dp(20), dp(48));
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(privateSpace ? R.drawable.ic_private : R.drawable.ic_tabs);
+            icon.setColorFilter(privateSpace ? Color.parseColor("#C4A7FF") : COLOR_ACCENT);
+            empty.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+            TextView emptyTitle = new TextView(this);
+            emptyTitle.setText(privateSpace ? "Belum ada tab privat" : "Belum ada tab umum");
+            emptyTitle.setTextColor(COLOR_TEXT);
+            emptyTitle.setTextSize(17);
+            emptyTitle.setTypeface(Typeface.DEFAULT_BOLD);
+            emptyTitle.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams et = new LinearLayout.LayoutParams(-1, -2);
+            et.setMargins(0, dp(14), 0, dp(6));
+            empty.addView(emptyTitle, et);
+            TextView emptyHint = new TextView(this);
+            emptyHint.setText("Tekan + untuk membuka tab baru di ruang ini.");
+            emptyHint.setTextColor(COLOR_SUBTEXT);
+            emptyHint.setTextSize(13);
+            emptyHint.setGravity(Gravity.CENTER);
+            empty.addView(emptyHint);
+            list.addView(empty);
         }
 
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -2049,20 +2332,49 @@ content.addView(space(dp(36)));
         dialog.show();
     }
 
-    private View tabRow(TabInfo tab, int index, Dialog dialog) {
+    private int countTabsForSpace(boolean privateSpace) {
+        int count = 0;
+        for (TabInfo tab : tabs) {
+            if (tab != null && !tab.closed && tab.privateTab == privateSpace) count++;
+        }
+        return count;
+    }
+
+    private TextView profileSpaceChip(String label, boolean selected, boolean privateSpace) {
+        TextView chip = new TextView(this);
+        chip.setText(label);
+        chip.setTextSize(14);
+        chip.setTypeface(Typeface.DEFAULT_BOLD);
+        chip.setGravity(Gravity.CENTER);
+        chip.setTextColor(selected
+                ? (privateSpace ? Color.WHITE : Color.parseColor("#111111"))
+                : Color.parseColor("#B6BBC5"));
+        int fill = selected
+                ? (privateSpace ? Color.parseColor("#6D28D9") : COLOR_ACCENT)
+                : Color.TRANSPARENT;
+        chip.setBackground(roundRect(fill, dp(16), 0, Color.TRANSPARENT));
+        return chip;
+    }
+
+
+    private View tabRow(TabInfo tab, int displayNumber, Dialog dialog, boolean privateSpace) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(12), dp(12), dp(10), dp(12));
-        row.setBackground(roundRect(index == currentTabIndex ? Color.parseColor("#20232A") : Color.parseColor("#15171D"), dp(18), dp(1), index == currentTabIndex ? COLOR_ACCENT : COLOR_BORDER));
+        boolean active = tab == getCurrentTab();
+        int activeColor = privateSpace ? Color.parseColor("#8B5CF6") : COLOR_ACCENT;
+        row.setBackground(roundRect(active ? Color.parseColor("#20232A") : Color.parseColor("#15171D"),
+                dp(18), dp(1), active ? activeColor : COLOR_BORDER));
 
         TextView badge = new TextView(this);
-        badge.setText(tab.adTab ? "Ad" : (tab.privateTab ? "P" : String.valueOf(index + 1)));
-        badge.setTextColor(tab.privateTab ? Color.WHITE : Color.parseColor("#111111"));
+        badge.setText(tab.adTab ? "Ad" : (privateSpace ? "P" : String.valueOf(displayNumber)));
+        badge.setTextColor(privateSpace ? Color.WHITE : Color.parseColor("#111111"));
         badge.setTextSize(13);
         badge.setTypeface(Typeface.DEFAULT_BOLD);
         badge.setGravity(Gravity.CENTER);
-        badge.setBackground(roundRect(tab.privateTab ? Color.parseColor("#6D28D9") : COLOR_ACCENT, dp(14), 0, Color.TRANSPARENT));
+        badge.setBackground(roundRect(privateSpace ? Color.parseColor("#6D28D9") : COLOR_ACCENT,
+                dp(14), 0, Color.TRANSPARENT));
         LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(36), dp(36));
         badgeParams.setMargins(0, 0, dp(12), 0);
         row.addView(badge, badgeParams);
@@ -2071,7 +2383,8 @@ content.addView(space(dp(36)));
         texts.setOrientation(LinearLayout.VERTICAL);
 
         TextView title = new TextView(this);
-        String tabTitle = tab.title == null || tab.title.length() == 0 ? (tab.privateTab ? "Tab privat" : "Tab baru") : tab.title;
+        String tabTitle = tab.title == null || tab.title.length() == 0
+                ? (privateSpace ? "Tab privat" : "Tab baru") : tab.title;
         title.setText(tabTitle);
         title.setTextColor(Color.WHITE);
         title.setTextSize(15);
@@ -2082,7 +2395,7 @@ content.addView(space(dp(36)));
 
         TextView url = new TextView(this);
         String urlText = tab.url == null || tab.url.length() == 0 ? "Halaman awal" : tab.url;
-        url.setText(tab.privateTab ? "Privat • " + urlText : urlText);
+        url.setText(privateSpace ? "Privat • " + urlText : urlText);
         url.setTextColor(COLOR_SUBTEXT);
         url.setTextSize(12);
         url.setSingleLine(true);
@@ -2093,12 +2406,13 @@ content.addView(space(dp(36)));
 
         TextView close = new TextView(this);
         close.setText("×");
+        close.setContentDescription("Tutup tab");
         close.setTextColor(Color.WHITE);
         close.setTextSize(26);
         close.setGravity(Gravity.CENTER);
         close.setOnClickListener(v -> {
             closeTab(tab);
-            switchDialogSmooth(dialog, this::showTabsPanel);
+            if (!isFinishing()) switchDialogSmooth(dialog, () -> showTabsPanelForSpace(privateSpace));
         });
         row.addView(close, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
@@ -2110,9 +2424,9 @@ content.addView(space(dp(36)));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.setMargins(0, 0, 0, dp(10));
         row.setLayoutParams(params);
-
         return row;
     }
+
 
     private void showQuickMenu() {
         Dialog dialog = new Dialog(this);
@@ -2134,9 +2448,11 @@ content.addView(space(dp(36)));
             }));
         }
         if (shortcutPrivate) {
-            menu.addView(menuRow(R.drawable.ic_private, "Privat", v -> {
+            String profileAction = dedicatedPrivateProfile ? "Beralih ke tab umum" : "Buka ruang privat";
+            menu.addView(menuRow(R.drawable.ic_private, profileAction, v -> {
                 dialog.dismiss();
-                newPrivateTab();
+                if (dedicatedPrivateProfile) openNormalBrowserSpace();
+                else openPrivateBrowserSpace();
             }));
         }
         if (shortcutAdBlock) {
@@ -2223,6 +2539,7 @@ content.addView(space(dp(36)));
             } catch (Exception ignored) {}
             discardPrivateTabsForExplicitExit();
             dialog.dismiss();
+            if (dedicatedPrivateProfile) launchNormalProfile(false, false);
             finish();
         }));
 
@@ -2379,9 +2696,14 @@ content.addView(space(dp(36)));
         panel.addView(actionRow(R.drawable.ic_bookmark, "Bookmark", "Buka daftar bookmark yang tersimpan.", v -> {
             switchDialogSmooth(dialog, () -> showBookmarkList());
         }));
-        panel.addView(actionRow(R.drawable.ic_private, "Privat", "Buka tab privat tanpa menyimpan riwayat.", v -> {
+        panel.addView(actionRow(R.drawable.ic_private,
+                dedicatedPrivateProfile ? "Tab umum" : "Ruang privat",
+                dedicatedPrivateProfile
+                        ? "Kembali ke profil umum tanpa mencampur data sesi privat."
+                        : "Buka profil terisolasi tanpa menyimpan riwayat ke sesi umum.", v -> {
             dialog.dismiss();
-            newPrivateTab();
+            if (dedicatedPrivateProfile) openNormalBrowserSpace();
+            else openPrivateBrowserSpace();
         }));
         panel.addView(actionRow(R.drawable.ic_customize, "Sesuaikan menu", "Atur shortcut yang muncul di menu utama.", v -> {
             switchDialogSmooth(dialog, () -> showCustomizeMenuPanel());
@@ -4556,14 +4878,12 @@ private void showDownloadSettingsPanel() {
                 refreshDialogSmooth(dialog, refresh);
             } else if ("Buka di tab baru".equals(t)) {
                 dialog.dismiss();
-                newNormalTab();
+                newTabInCurrentProfile();
                 addressBar.setText(item.url);
                 openAddressBarUrl();
             } else if ("Buka di tab Privat".equals(t)) {
                 dialog.dismiss();
-                newPrivateTab();
-                addressBar.setText(item.url);
-                openAddressBarUrl();
+                openUrlInPrivateSpace(item.url);
             }
             return true;
         });
