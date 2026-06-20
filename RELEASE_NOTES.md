@@ -1,4 +1,4 @@
-# Release Notes — YieldBrowser v0.9.88
+# Release Notes — YieldBrowser v0.9.89
 
 ## Smooth download UI
 
@@ -38,3 +38,10 @@
 - Menambahkan `DownloadUiMetricsTest`.
 - Menambahkan pengujian persistensi status finalisasi.
 - Mempertahankan seluruh pengujian protocol, HLS, storage, tab lifecycle, dan private profile.
+
+## AndroidX build configuration
+
+- Menambahkan root `gradle.properties` dengan `android.useAndroidX=true`.
+- Menonaktifkan Jetifier karena project tidak memakai `android.support.*`.
+- Menambahkan konfigurasi JVM, parallel build, dan Gradle build cache.
+- Memperbaiki kegagalan `:app:checkDebugAarMetadata` pada GitHub Actions.

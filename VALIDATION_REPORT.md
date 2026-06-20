@@ -1,4 +1,4 @@
-# Validation Report — YieldBrowser v0.9.88
+# Validation Report — YieldBrowser v0.9.89
 
 ## Pemeriksaan yang lulus
 
@@ -15,7 +15,7 @@
   - serialisasi finalization state;
   - immutable UI snapshot comparison.
 - Resource reference dan manifest class checks lulus setelah Android framework resources dikecualikan.
-- Version metadata dan GitHub artifact names selaras pada v0.9.88.
+- Version metadata dan GitHub artifact names selaras pada v0.9.89.
 
 ## Skenario yang dicakup
 
@@ -35,3 +35,10 @@
 ## Batas lingkungan
 
 APK Android penuh belum dikompilasi secara lokal karena runtime ini tidak menyediakan Android SDK dan Gradle. Workflow GitHub yang disertakan tetap menjalankan unit test serta build debug/release APK.
+
+## Build configuration correction
+
+- Root `gradle.properties` tersedia dan mengaktifkan AndroidX.
+- Source/dependency scan tidak menemukan penggunaan `android.support.*`, sehingga Jetifier aman dinonaktifkan.
+- Metadata versi aplikasi dan artifact workflow konsisten pada v0.9.89.
+- Kegagalan yang dilaporkan pada `:app:checkDebugAarMetadata` telah ditangani di tingkat konfigurasi project.

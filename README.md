@@ -1,6 +1,6 @@
-# YieldBrowser v0.9.88 — Smooth Download Manager
+# YieldBrowser v0.9.89 — Smooth Download Manager
 
-YieldBrowser v0.9.88 memperbarui pengalaman unduhan file besar agar lebih responsif, informatif, dan stabil tanpa mengubah fondasi download engine v0.9.85–v0.9.87.
+YieldBrowser v0.9.89 memperbarui pengalaman unduhan file besar agar lebih responsif, informatif, dan stabil tanpa mengubah fondasi download engine v0.9.85–v0.9.87.
 
 ## Download Manager baru
 
@@ -50,8 +50,8 @@ Download Manager tidak lagi dibuka paksa ketika unduhan dimulai. Sebagai gantiny
 - Java 17
 - compileSdk 35
 - targetSdk 35
-- versionCode 62
-- versionName 0.9.88
+- versionCode 63
+- versionName 0.9.89
 
 ```bash
 gradle testDebugUnitTest
