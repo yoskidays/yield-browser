@@ -81,7 +81,9 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.webkit.ScriptHandler;
 import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 import java.io.BufferedReader;
@@ -113,6 +115,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
@@ -253,6 +256,9 @@ public class MainActivity extends Activity {
     private boolean adBlockClickHijackBlocker = true;
     private boolean adBlockRedirectToTempTab = true;
     private boolean adBlockAutoCloseAdTabs = true;
+    // v0.9.99: document-start protection is installed once per WebView and kept silent.
+    private final Map<WebView, ScriptHandler> shieldDocumentStartHandlers =
+            Collections.synchronizedMap(new WeakHashMap<>());
     // v0.9.92: "Blokir elemen" (gaya uBlock/Brave). Filter kosmetik manual per host yang
     // disembunyikan dengan display:none dan diterapkan ulang setiap halaman dibuka.
     private final Map<String, LinkedHashSet<String>> userElementFilters = new LinkedHashMap<>();
@@ -1490,6 +1496,7 @@ content.addView(space(dp(36)));
             try { doomed.clearSslPreferences(); } catch (Exception ignored) {}
             try { doomed.clearCache(true); } catch (Exception ignored) {}
         }
+        removeShieldDocumentStartScript(doomed);
         try { doomed.setTag(null); } catch (Exception ignored) {}
         try { doomed.setDownloadListener(null); } catch (Exception ignored) {}
         try { doomed.removeJavascriptInterface("YieldVideoBridge"); } catch (Exception ignored) {}
@@ -1682,6 +1689,13 @@ content.addView(space(dp(36)));
         if (tab != null && tab.adTab) return true;
         if (!isRestorableTabSessionUrl(clean)) return false;
         if (tab == null || tab.closed) return false;
+
+        String safeReference = getTabReferenceUrl(tab);
+        if (adBlock && safeReference != null && safeReference.length() > 0
+                && ShieldEngineV2.isHighConfidenceSameOriginRelay(clean, safeReference,
+                isShieldReaderOrCompatibilityContext(safeReference))) {
+            return false;
+        }
 
         // v0.9.84-smart-isolation: URL hanya boleh masuk ke tab pemiliknya sendiri.
         // Jika domain berbeda tanpa navigasi user/trusted, anggap itu stale state dari tab lain,
@@ -2526,12 +2540,11 @@ content.addView(space(dp(36)));
             }));
         }
         if (shortcutAdBlock) {
-            menu.addView(menuRow(R.drawable.ic_shield, "AdBlock Premium " + (adBlock ? "ON" : "OFF"), v -> {
+            menu.addView(menuRow(R.drawable.ic_shield, "AdBlock " + (adBlock ? "ON" : "OFF"), v -> {
                 adBlock = !adBlock;
                 if (!adBlock) stopYouTubeAutoAssistantNow();
-                saveSettings();
+                onShieldSettingsChanged();
                 dialog.dismiss();
-                QuietToast.makeText(this, adBlock ? "Ad Block aktif" : "Ad Block nonaktif", QuietToast.LENGTH_SHORT).show();
             }));
         }
         if (shortcutReader) {
@@ -2645,7 +2658,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.98";
+        return "0.9.99";
     }
 
     private void showAboutYieldDialog() {
@@ -2838,7 +2851,7 @@ content.addView(space(dp(36)));
             showNightModeSettingsDialog();
         }));
         panel.addView(settingRow(R.drawable.ic_reader, "Reader / novel mode", "Mode baca ringan untuk artikel.", readerMode, v -> { readerMode = !readerMode; saveSettings(); }));
-        panel.addView(actionRow(R.drawable.ic_shield, "AdBlock Premium: " + (adBlock ? "ON" : "OFF"), getAdBlockSummary(), v -> {
+        panel.addView(actionRow(R.drawable.ic_shield, "AdBlock: " + (adBlock ? "ON" : "OFF"), getAdBlockSummary(), v -> {
             showAdBlockSettingsDialog();
         }));
         panel.addView(settingRow(R.drawable.ic_data_saver, "Hemat data", "Matikan gambar otomatis saat browsing.", dataSaver, v -> { dataSaver = !dataSaver; applyBrowserSettings(); saveSettings(); }));
@@ -2869,16 +2882,9 @@ content.addView(space(dp(36)));
     }
 
     private String getAdBlockSummary() {
-        if (!adBlock) return "AdBlock mati. Buka untuk pilih proteksi.";
-        ArrayList<String> active = new ArrayList<>();
-        if (adBlockPopupBlocker) active.add("popup");
-        if (adBlockRedirectBlocker) active.add("redirect");
-        if (adBlockScriptIframeBlocker) active.add("script/iframe");
-        if (adBlockClickHijackBlocker) active.add("click hijack");
-        if (adBlockRedirectToTempTab) active.add("tab iklan");
-        if (adBlockAutoCloseAdTabs) active.add("auto close");
-        if (active.isEmpty()) return "AdBlock aktif, belum ada proteksi detail ON.";
-        return "Aktif: " + TextUtils.join(", ", active);
+        return adBlock
+                ? "Perlindungan otomatis tanpa notifikasi yang mengganggu."
+                : "Perlindungan situs sedang nonaktif.";
     }
 
     private void showAdBlockSettingsDialog() {
@@ -2896,7 +2902,7 @@ content.addView(space(dp(36)));
         scroll.addView(box, new ScrollView.LayoutParams(-1, -2));
 
         TextView title = new TextView(this);
-        title.setText("AdBlock Premium");
+        title.setText("AdBlock");
         title.setTextColor(Color.WHITE);
         title.setTextSize(22);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -2904,7 +2910,7 @@ content.addView(space(dp(36)));
         box.addView(title);
 
         TextView info = new TextView(this);
-        info.setText("Atur proteksi iklan satu per satu. Video playback tetap otomatis di-allow agar tidak ikut keblok.");
+        info.setText("Semua perlindungan iklan tetap berada di dalam AdBlock: popup, redirect, click hijack, script, iframe, dan tracker. Media utama tetap diprioritaskan.");
         info.setTextColor(COLOR_SUBTEXT);
         info.setTextSize(13);
         info.setLineSpacing(0, 1.05f);
@@ -2915,41 +2921,37 @@ content.addView(space(dp(36)));
         box.addView(adBlockSwitchRow("AdBlock aktif", "Master ON/OFF semua proteksi iklan.", adBlock, v -> {
             adBlock = !adBlock;
             if (!adBlock) stopYouTubeAutoAssistantNow();
-            applyBrowserSettings();
-            if (adBlock && webView != null && webView.getVisibility() == View.VISIBLE) injectPremiumAdBlock();
-            saveSettings();
+            onShieldSettingsChanged();
         }));
 
         box.addView(adBlockSwitchRow("Blokir popup iklan", "Matikan window.open dan pop-up otomatis.", adBlockPopupBlocker, v -> {
             adBlockPopupBlocker = !adBlockPopupBlocker;
-            applyBrowserSettings();
-            saveSettings();
+            onShieldSettingsChanged();
         }));
 
         box.addView(adBlockSwitchRow("Blokir redirect iklan", "Cegah halaman pindah ke domain iklan random.", adBlockRedirectBlocker, v -> {
             adBlockRedirectBlocker = !adBlockRedirectBlocker;
-            saveSettings();
+            onShieldSettingsChanged();
         }));
 
         box.addView(adBlockSwitchRow("Blokir script/iframe iklan", "Blokir resource iklan, script, iframe, dan tracker.", adBlockScriptIframeBlocker, v -> {
             adBlockScriptIframeBlocker = !adBlockScriptIframeBlocker;
-            saveSettings();
+            onShieldSettingsChanged();
         }));
 
         box.addView(adBlockSwitchRow("Proteksi click hijack", "Cegah klik area web membuka link iklan tersembunyi.", adBlockClickHijackBlocker, v -> {
             adBlockClickHijackBlocker = !adBlockClickHijackBlocker;
-            if (adBlock && webView != null && webView.getVisibility() == View.VISIBLE) injectPremiumAdBlock();
-            saveSettings();
+            onShieldSettingsChanged();
         }));
 
         box.addView(adBlockSwitchRow("Alihkan iklan ke tab sementara", "Jika web memaksa redirect iklan, buka sebagai tab iklan sementara agar tab utama tetap aman.", adBlockRedirectToTempTab, v -> {
             adBlockRedirectToTempTab = !adBlockRedirectToTempTab;
-            saveSettings();
+            onShieldSettingsChanged();
         }));
 
         box.addView(adBlockSwitchRow("Auto close tab iklan", "Tab hasil redirect/popup iklan otomatis ditutup agar tab tidak menumpuk.", adBlockAutoCloseAdTabs, v -> {
             adBlockAutoCloseAdTabs = !adBlockAutoCloseAdTabs;
-            saveSettings();
+            onShieldSettingsChanged();
         }));
 
         TextView note = new TextView(this);
@@ -3217,7 +3219,7 @@ content.addView(space(dp(36)));
         panel.addView(customizeToggleRow(R.drawable.ic_download_modern, "Unduhan Yield", shortcutDownload, v -> { shortcutDownload = !shortcutDownload; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_bookmark, "Bookmark", shortcutBookmark, v -> { shortcutBookmark = !shortcutBookmark; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_private, "Privat", shortcutPrivate, v -> { shortcutPrivate = !shortcutPrivate; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_shield, "AdBlock Premium", shortcutAdBlock, v -> { shortcutAdBlock = !shortcutAdBlock; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_shield, "AdBlock", shortcutAdBlock, v -> { shortcutAdBlock = !shortcutAdBlock; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_reader, "Reader / Novel Mode", shortcutReader, v -> { shortcutReader = !shortcutReader; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_night, "Night Mode", shortcutNightMode, v -> { shortcutNightMode = !shortcutNightMode; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_qr_scan, "Pindai QR Code", shortcutQrScan, v -> { shortcutQrScan = !shortcutQrScan; saveSettings(); }));
@@ -10132,12 +10134,96 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
     }
 
+    private void removeShieldDocumentStartScript(WebView target) {
+        if (target == null) return;
+        try {
+            ScriptHandler handler = shieldDocumentStartHandlers.remove(target);
+            if (handler != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                handler.remove();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void installShieldDocumentStartScript(WebView target) {
+        if (target == null) return;
+        removeShieldDocumentStartScript(target);
+        try {
+            if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
+            ScriptHandler handler = WebViewCompat.addDocumentStartJavaScript(
+                    target,
+                    ShieldPageScript.documentStart(adBlock, adBlockPopupBlocker,
+                            adBlockRedirectBlocker, adBlockScriptIframeBlocker,
+                            adBlockClickHijackBlocker),
+                    Collections.singleton("*"));
+            shieldDocumentStartHandlers.put(target, handler);
+        } catch (Exception ignored) {
+            // The installed Android System WebView may not expose document-start injection.
+            // Page-commit/page-finished fallback remains active below.
+        }
+    }
+
+    private void injectShieldEngineV2Fallback() {
+        if (webView == null) return;
+        try {
+            runPageScript(ShieldPageScript.documentStart(adBlock, adBlockPopupBlocker,
+                    adBlockRedirectBlocker, adBlockScriptIframeBlocker,
+                    adBlockClickHijackBlocker));
+            runPageScript(ShieldPageScript.runtimeConfig(adBlock, adBlockPopupBlocker,
+                    adBlockRedirectBlocker, adBlockScriptIframeBlocker,
+                    adBlockClickHijackBlocker));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void syncShieldRuntimeState() {
+        if (webView == null) return;
+        try {
+            runPageScript(ShieldPageScript.runtimeConfig(adBlock, adBlockPopupBlocker,
+                    adBlockRedirectBlocker, adBlockScriptIframeBlocker,
+                    adBlockClickHijackBlocker));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void onShieldSettingsChanged() {
+        applyBrowserSettings();
+        installShieldDocumentStartScript(webView);
+        syncShieldRuntimeState();
+        if (adBlock && webView != null && webView.getVisibility() == View.VISIBLE) {
+            injectShieldEngineV2Fallback();
+            if (!isSiteCompatibilityModeActiveForUrl(getEffectiveCurrentUrl())) {
+                injectPremiumAdBlock();
+            }
+        }
+        saveSettings();
+    }
+
+    private boolean isShieldReaderOrCompatibilityContext(String url) {
+        return isStrictSiteCompatibilityUrl(url)
+                || isSiteCompatibilityModeActiveForUrl(url)
+                || isReloadLoopGuardActiveForUrl(url)
+                || ReaderCompatibilityPolicy.hasReaderPathHint(url)
+                || ShieldEngineV2.isReaderOrContentPage(url);
+    }
+
+    private boolean shouldShieldBlockMainFrame(String targetUrl, String sourceUrl,
+                                               boolean hasGesture, boolean legacySuspicious) {
+        if (!adBlock || !(adBlockRedirectBlocker || adBlockClickHijackBlocker)) return false;
+        boolean context = isShieldReaderOrCompatibilityContext(sourceUrl);
+        boolean explicitlyTrusted = isTrustedDownloadIntentUrl(targetUrl)
+                || isSearchEngineResultNavigation(targetUrl, sourceUrl);
+        return ShieldEngineV2.shouldBlockMainFrameNavigation(targetUrl, sourceUrl,
+                hasGesture, context, explicitlyTrusted, legacySuspicious);
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
         applyBrowserSettings();
         webView.addJavascriptInterface(new VideoBridge(), "YieldVideoBridge");
         webView.addJavascriptInterface(new AdBlockBridge(), "YieldAdBlockBridge");
         webView.addJavascriptInterface(new TranslateBridge(), "YieldTranslateBridge");
+        installShieldDocumentStartScript(webView);
         applyProfileCookiePolicy(webView);
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             beginDownloadFromWeb(url, contentDisposition, mimeType, userAgent);
@@ -10175,6 +10261,20 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 if (mainFrame && !isTrustedMainFrameNavigation(u) && isDirectImageMainFrameNavigation(u, referenceUrlForDirectImage)) {
                     restoreAfterBlockedNavigation(view, u);
                     return true;
+                }
+
+                // v0.9.99 Shield Engine V2: block both cross-site click hijacks and
+                // same-origin relay URLs (for example /r/<token>) before the main tab leaves
+                // the reader. Clean same-site chapter/navigation URLs remain allowed.
+                if (mainFrame) {
+                    boolean legacySuspicious = isKnownPopupHost(u)
+                            || isLikelyAdClickUrl(u)
+                            || isAdUrl(u)
+                            || isSuspiciousPopupNavigation(u, currentUrl);
+                    if (shouldShieldBlockMainFrame(u, currentUrl, hasGesture, legacySuspicious)) {
+                        restoreAfterBlockedNavigation(view, u);
+                        return true;
+                    }
                 }
 
                 // v0.9.50: Smart Redirect Context.
@@ -10282,9 +10382,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     // Preserve first-party scripts, reader images and media. Only block a
                     // high-confidence third-party ad/popup resource so compatibility mode does
                     // not degrade into "ad blocker off".
-                    if (adBlock && adBlockScriptIframeBlocker
-                            && isCompatibilityThirdPartyAdResource(u, pageUrl)) {
-                        return buildBlockedResponse(u);
+                    if (adBlock && adBlockScriptIframeBlocker) {
+                        boolean legacyHardAd = isCompatibilityThirdPartyAdResource(u, pageUrl)
+                                || isAdUrl(u) || isKnownPopupHost(u);
+                        if (ShieldEngineV2.shouldBlockSubresource(u, pageUrl, legacyHardAd)) {
+                            return buildBlockedResponse(u);
+                        }
                     }
                     return super.shouldInterceptRequest(view, request);
                 }
@@ -10297,8 +10400,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 if (isTrustedMainFrameNavigation(pageUrl) && isFirstPartyResourceForCurrentPage(u, pageUrl)) {
                     return super.shouldInterceptRequest(view, request);
                 }
-                if (adBlock && adBlockScriptIframeBlocker && !isMediaResourceUrl(u) && !isYoutubeCoreUrl(u) && (isAdUrl(u) || isKnownPopupHost(u))) {
-                    return buildBlockedResponse(u);
+                if (adBlock && adBlockScriptIframeBlocker && !isMediaResourceUrl(u) && !isYoutubeCoreUrl(u)) {
+                    boolean legacyHardAd = isAdUrl(u) || isKnownPopupHost(u);
+                    if (ShieldEngineV2.shouldBlockSubresource(u, pageUrl, legacyHardAd)) {
+                        return buildBlockedResponse(u);
+                    }
                 }
                 return super.shouldInterceptRequest(view, request);
             }
@@ -10357,7 +10463,16 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 if (activeOwner == null) activeOwner = getCurrentTab();
                 String safeBeforePageStarted = getTabReferenceUrl(activeOwner);
                 if ((safeBeforePageStarted == null || safeBeforePageStarted.length() == 0) && lastSafeHttpUrl != null) safeBeforePageStarted = lastSafeHttpUrl;
-                currentPageUrlForRequest = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
+                String startedUrl = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
+                boolean startedLegacySuspicious = isKnownPopupHost(startedUrl)
+                        || isLikelyAdClickUrl(startedUrl)
+                        || isAdUrl(startedUrl)
+                        || isSuspiciousPopupNavigation(startedUrl, safeBeforePageStarted);
+                if (shouldShieldBlockMainFrame(startedUrl, safeBeforePageStarted, false, startedLegacySuspicious)) {
+                    restoreAfterBlockedNavigation(view, startedUrl);
+                    return;
+                }
+                currentPageUrlForRequest = startedUrl;
                 if (activeOwner != null) activeOwner.currentPageUrlForRequest = currentPageUrlForRequest;
                 webHorizontalGestureGuard = false;
                 webHorizontalGestureGuardHost = hostOfUrl(currentPageUrlForRequest);
@@ -10452,6 +10567,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 scheduleNightModeSyncForPage(finalUrl);
                 boolean compatibilityPage = isStrictSiteCompatibilityUrl(finalUrl)
                         || isSiteCompatibilityModeActiveForUrl(finalUrl);
+                syncShieldRuntimeState();
+                if (adBlock) injectShieldEngineV2Fallback();
                 if (adBlock && !compatibilityPage) {
                     injectAdBlockCssEarly();
                     if (hasUserFiltersForCurrentHost()) applyUserFiltersForCurrentPage();
@@ -10528,6 +10645,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     }
                     if (readerMode) injectReaderMode();
                     if (adBlock) {
+                        injectShieldEngineV2Fallback();
                         injectPremiumAdBlock();
                         injectYouTubeSafeAdBlockV6();
                         mainHandler.postDelayed(() -> { injectPremiumAdBlock(); injectYouTubeSafeAdBlockV6(); }, 1800);
@@ -12299,7 +12417,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (isTrustedMainFrameNavigation(blockedUrl) || isTrustedMainFrameNavigationForTab(targetTab, blockedUrl)) {
                 return;
             }
-            boolean blockedIsAdLike = isExternalSchemeUrl(blockedUrl) || isKnownPopupHost(blockedUrl)
+            boolean shieldRelay = blockedUrl != null && tabSafeUrl != null
+                    && ShieldEngineV2.isHighConfidenceSameOriginRelay(blockedUrl, tabSafeUrl,
+                    isShieldReaderOrCompatibilityContext(tabSafeUrl));
+            boolean blockedIsAdLike = shieldRelay || isExternalSchemeUrl(blockedUrl) || isKnownPopupHost(blockedUrl)
                     || isLikelyAdClickUrl(blockedUrl) || isSuspiciousPopupNavigation(blockedUrl, tabSafeUrl);
             if (!blockedIsAdLike && (isSiteCompatibilityModeActiveForUrl(blockedUrl) || isSiteCompatibilityModeActiveForUrl(tabSafeUrl)
                     || isReloadLoopGuardActiveForUrl(blockedUrl) || isReloadLoopGuardActiveForUrl(tabSafeUrl))) {
@@ -12343,6 +12464,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                             || isExternalSchemeUrl(current)
                             || isLikelyAdClickUrl(current)
                             || isDirectImageMainFrameNavigation(current, fallbackUrl)
+                            || ShieldEngineV2.isHighConfidenceSameOriginRelay(current, fallbackUrl,
+                            isShieldReaderOrCompatibilityContext(fallbackUrl))
                             || (blockedUrl != null && blockedUrl.equals(current));
 
                     // Recover hanya pada WebView pemilik tab tersebut. Jangan pakai webView global,
@@ -13007,25 +13130,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private void injectCompatibilityAdShield() {
-        if (webView == null || !adBlock) return;
+        if (webView == null) return;
         String pageUrl = getEffectiveCurrentUrl();
         if (!(isStrictSiteCompatibilityUrl(pageUrl)
                 || isSiteCompatibilityModeActiveForUrl(pageUrl)
-                || isReloadLoopGuardActiveForUrl(pageUrl))) return;
-
-        String js = "javascript:(function(){try{"
-                + "if(window.__yieldCompatShieldV2){try{window.__yieldCompatShieldV2();}catch(e){}return;}"
-                + "function host(u){try{return(new URL(u,location.href).hostname||'').replace(/^www\\./,'').toLowerCase();}catch(e){return'';}}"
-                + "function same(a,b){return !!a&&!!b&&(a===b||a.endsWith('.'+b)||b.endsWith('.'+a));}"
-                + "function bad(u){try{if(!u)return false;var s=String(u).toLowerCase();if(s.indexOf('http://')!==0&&s.indexOf('https://')!==0)return /^(intent|market|shopeeid|lazada|tokopedia):/.test(s);var h=host(u),c=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||same(h,c))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|trafficjunky|juicyads|admaven|realsrv|invest-tracing|doubleclick|googlesyndication|googleadservices|taboola|outbrain|mgid|revcontent)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;return /(popunder|popupads|clickunder|onclickads|interstitial|adclick|ad_click|adurl=|utm_medium=affiliates|deep_and_deferred|navigate_url=|reactpath|click_id|af_click)/.test(s);}catch(e){return false;}}"
-                + "function report(u){try{if(window.YieldAdBlockBridge&&YieldAdBlockBridge.onAdRedirect)YieldAdBlockBridge.onAdRedirect(String(u));}catch(e){}}"
-                + "if(!window.__yieldCompatOpenPatched){window.__yieldCompatOpenPatched=true;var o=window.open;window.open=function(u,n,f){if(bad(u)){report(u);return{closed:true,focus:function(){},close:function(){}};}try{return o.call(window,u,n,f);}catch(e){return{closed:true,focus:function(){},close:function(){}};}};}"
-                + "if(!window.__yieldCompatClickPatched){window.__yieldCompatClickPatched=true;var stop=function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){report(a.href);e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();return false;}}catch(x){}};document.addEventListener('click',stop,true);document.addEventListener('auxclick',stop,true);}"
-                + "function clean(){try{document.querySelectorAll('iframe[src],script[src]').forEach(function(el){var u=el.src||'';if(bad(u)){el.remove();}});}catch(e){}}"
-                + "window.__yieldCompatShieldV2=clean;clean();"
-                + "try{if(window.__yieldCompatObs)window.__yieldCompatObs.disconnect();window.__yieldCompatObs=new MutationObserver(function(){clean();});window.__yieldCompatObs.observe(document.documentElement||document,{childList:true,subtree:true});}catch(e){}"
-                + "}catch(e){}})();";
-        runPageScript(js);
+                || isReloadLoopGuardActiveForUrl(pageUrl)
+                || ReaderCompatibilityPolicy.hasReaderPathHint(pageUrl))) return;
+        injectShieldEngineV2Fallback();
     }
 
     private boolean isYouTubePageUrl(String url) {
