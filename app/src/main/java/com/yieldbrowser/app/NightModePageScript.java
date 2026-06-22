@@ -17,7 +17,7 @@ final class NightModePageScript {
                 (function(){
                   'use strict';
                   try {
-                    var VERSION='0.9.95';
+                    var VERSION='0.9.97';
                     var MODE='__YIELD_NIGHT_MODE__';
                     var root=document.documentElement;
                     if(!root)return 'no-root';

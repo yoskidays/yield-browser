@@ -39,8 +39,11 @@ import android.os.Looper;
 import android.os.StrictMode;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
+import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
+import android.text.TextWatcher;
+import android.util.LruCache;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -76,6 +79,7 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.webkit.WebSettingsCompat;
@@ -110,6 +114,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -138,6 +144,28 @@ public class MainActivity extends Activity {
     private View bottomNavView;
     private TextView tabsCountText;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    // ===== History Engine V2 =====
+    private static final int HISTORY_PAGE_SIZE = 50;
+    private static final String KEY_HISTORY_ENGINE_V2_INITIALIZED = "history_engine_v2_initialized";
+    private HistoryRepository historyRepository;
+    private Dialog activeHistoryDialog;
+    private HistoryListAdapter activeHistoryAdapter;
+    private RecyclerView activeHistoryRecyclerView;
+    private TextView activeHistoryEmptyView;
+    private ProgressBar activeHistoryProgress;
+    private String activeHistoryQuery = "";
+    private long activeHistoryBeforeTime = Long.MAX_VALUE;
+    private long activeHistoryBeforeId = Long.MAX_VALUE;
+    private boolean activeHistoryLoading = false;
+    private boolean activeHistoryEndReached = false;
+    private int activeHistoryGeneration = 0;
+    private Runnable pendingHistorySearch;
+    private boolean historyV2InitializationStarted = false;
+
+    // A bounded favicon pipeline prevents one thread/request per history row.
+    private final ExecutorService faviconExecutor = Executors.newFixedThreadPool(3);
+    private final LruCache<String, Bitmap> faviconMemoryCache = new LruCache<>(96);
 
     // ===== Video and fullscreen state =====
     private LinearLayout videoControlsBar;
@@ -454,7 +482,7 @@ public class MainActivity extends Activity {
         loadSettings();
         loadDownloadHistory();
         loadShortcuts();
-        if (!dedicatedPrivateProfile) loadBrowserHistory();
+        if (!dedicatedPrivateProfile) initializeHistoryEngineV2();
         else historyData.clear();
         loadBookmarkData();
         restoreTabsSession();
@@ -560,8 +588,6 @@ public class MainActivity extends Activity {
             if (!dedicatedPrivateProfile) {
                 saveTabsSession();
                 recordCurrentPageToHistory();
-                recordWebViewBackForwardHistory();
-                saveBrowserHistory();
             }
         } catch (Exception ignored) {}
         if (videoBackgroundPlay && webView != null && !isYouTubePlaybackUrl(getEffectiveCurrentUrl())) {
@@ -580,8 +606,6 @@ public class MainActivity extends Activity {
             if (!dedicatedPrivateProfile) {
                 saveTabsSession();
                 recordCurrentPageToHistory();
-                recordWebViewBackForwardHistory();
-                saveBrowserHistory();
             }
         } catch (Exception ignored) {}
         super.onStop();
@@ -590,7 +614,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (!dedicatedPrivateProfile) loadBrowserHistory();
         handleOpenDownloadsIntent(getIntent());
         if (activeDownloadDialog != null && activeDownloadDialog.isShowing()) {
             downloadUiTickerRunning = true;
@@ -613,8 +636,6 @@ public class MainActivity extends Activity {
             if (!dedicatedPrivateProfile) {
                 saveTabsSession();
                 recordCurrentPageToHistory();
-                recordWebViewBackForwardHistory();
-                saveBrowserHistory();
             }
             for (int i = tabs.size() - 1; i >= 0; i--) {
                 TabInfo tab = tabs.get(i);
@@ -625,6 +646,7 @@ public class MainActivity extends Activity {
             }
             tabs.clear();
         } catch (Exception ignored) {}
+        try { faviconExecutor.shutdownNow(); } catch (Exception ignored) {}
         super.onDestroy();
     }
 
@@ -1161,26 +1183,48 @@ content.addView(space(dp(36)));
     }
 
     private void loadFavicon(String url, ImageView target, TextView fallback) {
-        new Thread(() -> {
+        if (target == null || fallback == null) return;
+        final String requestKey = shortHost(url == null ? "" : url).toLowerCase(Locale.US);
+        target.setTag(requestKey);
+        target.setVisibility(View.GONE);
+        fallback.setVisibility(View.VISIBLE);
+        if (requestKey.length() == 0) return;
+
+        Bitmap cached = faviconMemoryCache.get(requestKey);
+        if (cached != null) {
+            target.setImageBitmap(cached);
+            target.setVisibility(View.VISIBLE);
+            fallback.setVisibility(View.GONE);
+            return;
+        }
+
+        faviconExecutor.execute(() -> {
+            HttpURLConnection conn = null;
+            InputStream input = null;
             try {
-                String faviconUrl = "https://www.google.com/s2/favicons?sz=96&domain_url=" + URLEncoder.encode(url, "UTF-8");
-                HttpURLConnection conn = (HttpURLConnection) new URL(faviconUrl).openConnection();
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
-                InputStream input = conn.getInputStream();
+                String faviconUrl = "https://www.google.com/s2/favicons?sz=96&domain_url="
+                        + URLEncoder.encode(url, "UTF-8");
+                conn = (HttpURLConnection) new URL(faviconUrl).openConnection();
+                conn.setConnectTimeout(3500);
+                conn.setReadTimeout(3500);
+                conn.setUseCaches(true);
+                input = conn.getInputStream();
                 Bitmap bitmap = BitmapFactory.decodeStream(input);
-                input.close();
-                conn.disconnect();
-                if (bitmap != null) {
-                    runOnUiThread(() -> {
-                        target.setImageBitmap(bitmap);
-                        target.setVisibility(View.VISIBLE);
-                        fallback.setVisibility(View.GONE);
-                    });
-                }
+                if (bitmap == null) return;
+                faviconMemoryCache.put(requestKey, bitmap);
+                runOnUiThread(() -> {
+                    Object tag = target.getTag();
+                    if (tag == null || !requestKey.equals(String.valueOf(tag))) return;
+                    target.setImageBitmap(bitmap);
+                    target.setVisibility(View.VISIBLE);
+                    fallback.setVisibility(View.GONE);
+                });
             } catch (Exception ignored) {
+            } finally {
+                try { if (input != null) input.close(); } catch (Exception ignored) {}
+                try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
             }
-        }).start();
+        });
     }
 
     private View createBottomNav() {
@@ -2600,7 +2644,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.95";
+        return "0.9.97";
     }
 
     private void showAboutYieldDialog() {
@@ -4429,14 +4473,14 @@ private void showDownloadSettingsPanel() {
     }
 
     private void showHistoryPanel() {
-        if (dedicatedPrivateProfile) {
-            Toast.makeText(this, "Histori tidak disimpan dalam profil privat",
+        if (dedicatedPrivateProfile || isCurrentPrivateTab()) {
+            Toast.makeText(this, "Riwayat tidak disimpan dalam mode Privat",
                     Toast.LENGTH_SHORT).show();
             return;
         }
+        initializeHistoryEngineV2();
         recordCurrentPageToHistory();
-        recordWebViewBackForwardHistory();
-        loadBrowserHistory();
+
         Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -4448,179 +4492,222 @@ private void showDownloadSettingsPanel() {
         top.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Histori");
+        title.setText("Riwayat");
         title.setTextColor(Color.WHITE);
         title.setTextSize(24);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
 
-        ImageButton search = plainIconButton(R.drawable.ic_search, v -> Toast.makeText(this, "Cari di histori akan menyaring daftar otomatis saat teks diketik", Toast.LENGTH_SHORT).show());
-        top.addView(search, new LinearLayout.LayoutParams(dp(40), dp(40)));
         ImageButton close = plainIconButton(R.drawable.ic_exit, v -> dialog.dismiss());
         top.addView(close, new LinearLayout.LayoutParams(dp(40), dp(40)));
         root.addView(top);
 
+        EditText searchInput = darkSearchInput("Cari judul, situs, atau alamat");
+        LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, dp(50));
+        searchParams.setMargins(0, dp(14), 0, dp(10));
+        root.addView(searchInput, searchParams);
+
         TextView clearText = new TextView(this);
-        clearText.setText("Kelola / hapus riwayat...");
+        clearText.setText("Hapus semua riwayat");
         clearText.setTextColor(Color.parseColor("#F97352"));
-        clearText.setTextSize(15);
+        clearText.setTextSize(14);
         clearText.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(-1, -2);
-        clearParams.setMargins(0, dp(16), 0, dp(12));
-        root.addView(clearText, clearParams);
-        clearText.setOnClickListener(v -> {
-            new AlertDialog.Builder(this)
-                    .setTitle("Kelola riwayat")
-                    .setMessage("Riwayat tidak dihapus otomatis. Hapus semua riwayat browsing?")
-                    .setPositiveButton("Hapus", (d, w) -> {
-                        clearBrowserHistoryManually();
-                        switchDialogSmooth(dialog, () -> showHistoryPanel());
-                    })
-                    .setNegativeButton("Batal", null)
-                    .show();
+        clearText.setGravity(Gravity.CENTER_VERTICAL);
+        clearText.setPadding(0, dp(4), 0, dp(10));
+        root.addView(clearText, new LinearLayout.LayoutParams(-1, -2));
+
+        FrameLayout listFrame = new FrameLayout(this);
+        RecyclerView recycler = new RecyclerView(this);
+        LinearLayoutManager layoutManager = new LinearLayoutManager(this);
+        recycler.setLayoutManager(layoutManager);
+        recycler.setItemAnimator(null);
+        recycler.setHasFixedSize(false);
+        recycler.setClipToPadding(false);
+        recycler.setPadding(0, 0, 0, dp(18));
+
+        TextView empty = new TextView(this);
+        empty.setText("Riwayat masih kosong.");
+        empty.setTextColor(COLOR_SUBTEXT);
+        empty.setTextSize(16);
+        empty.setGravity(Gravity.CENTER);
+        empty.setVisibility(View.GONE);
+
+        ProgressBar loading = new ProgressBar(this);
+        loading.setIndeterminate(true);
+        loading.setVisibility(View.GONE);
+
+        listFrame.addView(recycler, new FrameLayout.LayoutParams(-1, -1));
+        FrameLayout.LayoutParams emptyParams = new FrameLayout.LayoutParams(-1, -1);
+        emptyParams.gravity = Gravity.CENTER;
+        listFrame.addView(empty, emptyParams);
+        FrameLayout.LayoutParams loadingParams = new FrameLayout.LayoutParams(dp(44), dp(44));
+        loadingParams.gravity = Gravity.CENTER;
+        listFrame.addView(loading, loadingParams);
+        root.addView(listFrame, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        HistoryListAdapter adapter = new HistoryListAdapter(this, new HistoryListAdapter.Listener() {
+            @Override
+            public void onOpen(HistoryItemData item) {
+                if (item == null || item.url == null || item.url.trim().isEmpty()) return;
+                dialog.dismiss();
+                addressBar.setText(item.url);
+                openAddressBarUrl();
+            }
+
+            @Override
+            public void onDelete(HistoryItemData item) {
+                if (item == null || historyRepository == null) return;
+                if (activeHistoryAdapter != null) activeHistoryAdapter.removeById(item.id);
+                updateActiveHistoryEmptyState();
+                historyRepository.deleteById(item.id, success -> {
+                    if (!success) {
+                        Toast.makeText(MainActivity.this,
+                                "Riwayat gagal dihapus. Daftar dimuat ulang.", Toast.LENGTH_SHORT).show();
+                        resetActiveHistoryQuery(activeHistoryQuery);
+                    }
+                });
+            }
+
+            @Override
+            public void onBindFavicon(String url, ImageView target, TextView fallback) {
+                loadFavicon(url, target, fallback);
+            }
+        });
+        recycler.setAdapter(adapter);
+
+        activeHistoryDialog = dialog;
+        activeHistoryAdapter = adapter;
+        activeHistoryRecyclerView = recycler;
+        activeHistoryEmptyView = empty;
+        activeHistoryProgress = loading;
+
+        recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                super.onScrolled(rv, dx, dy);
+                if (dy <= 0 || activeHistoryLoading || activeHistoryEndReached) return;
+                int last = layoutManager.findLastVisibleItemPosition();
+                if (last >= Math.max(0, adapter.getItemCount() - 8)) {
+                    loadNextHistoryPage();
+                }
+            }
         });
 
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(list);
+        searchInput.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
 
-        renderHistoryList(list, dialog);
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (pendingHistorySearch != null) mainHandler.removeCallbacks(pendingHistorySearch);
+                String query = s == null ? "" : s.toString().trim();
+                pendingHistorySearch = () -> resetActiveHistoryQuery(query);
+                mainHandler.postDelayed(pendingHistorySearch, 220L);
+            }
 
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+            @Override
+            public void afterTextChanged(Editable s) {
+            }
+        });
+
+        clearText.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Hapus semua riwayat?")
+                .setMessage("Riwayat browsing akan dihapus permanen. Tab yang sedang terbuka tidak ditutup.")
+                .setPositiveButton("Hapus", (d, which) -> clearBrowserHistoryManually(() -> {
+                    if (activeHistoryAdapter != null) activeHistoryAdapter.clear();
+                    activeHistoryEndReached = true;
+                    updateActiveHistoryEmptyState();
+                }))
+                .setNegativeButton("Batal", null)
+                .show());
+
         dialog.setContentView(root);
         dialog.setOnKeyListener((d, keyCode, event) -> {
-            if (keyCode == KeyEvent.KEYCODE_BACK && event != null && event.getAction() == KeyEvent.ACTION_UP) {
+            if (keyCode == KeyEvent.KEYCODE_BACK && event != null
+                    && event.getAction() == KeyEvent.ACTION_UP) {
                 d.dismiss();
                 return true;
             }
             return false;
         });
+        dialog.setOnDismissListener(d -> {
+            activeHistoryGeneration++;
+            if (pendingHistorySearch != null) mainHandler.removeCallbacks(pendingHistorySearch);
+            if (activeHistoryDialog == dialog) {
+                activeHistoryDialog = null;
+                activeHistoryAdapter = null;
+                activeHistoryRecyclerView = null;
+                activeHistoryEmptyView = null;
+                activeHistoryProgress = null;
+                activeHistoryLoading = false;
+            }
+        });
         dialog.show();
         applyDarkFullscreenDialog(dialog);
+        resetActiveHistoryQuery("");
     }
 
-    private void renderHistoryList(LinearLayout list, Dialog dialog) {
-        if (list == null) return;
-        try {
-            list.removeAllViews();
-            if (historyData.isEmpty()) {
-                TextView empty = new TextView(this);
-                empty.setText("Riwayat masih kosong.");
-                empty.setTextColor(COLOR_SUBTEXT);
-                empty.setTextSize(16);
-                empty.setPadding(0, dp(20), 0, 0);
-                list.addView(empty);
-                return;
-            }
+    private void resetActiveHistoryQuery(String query) {
+        if (activeHistoryDialog == null || !activeHistoryDialog.isShowing()) return;
+        activeHistoryGeneration++;
+        activeHistoryQuery = query == null ? "" : query.trim();
+        activeHistoryBeforeTime = Long.MAX_VALUE;
+        activeHistoryBeforeId = Long.MAX_VALUE;
+        activeHistoryEndReached = false;
+        activeHistoryLoading = false;
+        if (activeHistoryAdapter != null) activeHistoryAdapter.clear();
+        if (activeHistoryRecyclerView != null) activeHistoryRecyclerView.scrollToPosition(0);
+        updateActiveHistoryEmptyState();
+        loadNextHistoryPage();
+    }
 
-            String lastHeader = "";
-            ArrayList<HistoryItemData> snapshot = new ArrayList<>(historyData);
-            for (HistoryItemData item : snapshot) {
-                if (item == null) continue;
-                String header = historyDayLabel(item.time);
-                if (!header.equals(lastHeader)) {
-                    TextView section = new TextView(this);
-                    section.setText(header);
-                    section.setTextColor(COLOR_SUBTEXT);
-                    section.setTextSize(14);
-                    LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2);
-                    sp.setMargins(0, dp(10), 0, dp(8));
-                    list.addView(section, sp);
-                    lastHeader = header;
+    private void loadNextHistoryPage() {
+        if (historyRepository == null || activeHistoryAdapter == null
+                || activeHistoryDialog == null || !activeHistoryDialog.isShowing()
+                || activeHistoryLoading || activeHistoryEndReached) return;
+
+        activeHistoryLoading = true;
+        int generation = activeHistoryGeneration;
+        setActiveHistoryLoading(true);
+        historyRepository.queryPage(
+                activeHistoryQuery,
+                activeHistoryBeforeTime,
+                activeHistoryBeforeId,
+                HISTORY_PAGE_SIZE,
+                page -> {
+                    if (generation != activeHistoryGeneration || activeHistoryDialog == null
+                            || !activeHistoryDialog.isShowing() || activeHistoryAdapter == null) return;
+                    activeHistoryLoading = false;
+                    setActiveHistoryLoading(false);
+                    if (page == null || page.isEmpty()) {
+                        activeHistoryEndReached = true;
+                        updateActiveHistoryEmptyState();
+                        return;
+                    }
+                    activeHistoryAdapter.appendPage(page);
+                    HistoryItemData last = page.get(page.size() - 1);
+                    activeHistoryBeforeTime = last.time;
+                    activeHistoryBeforeId = last.id;
+                    activeHistoryEndReached = page.size() < HISTORY_PAGE_SIZE;
+                    updateActiveHistoryEmptyState();
                 }
-                list.addView(historyRow(item, dialog, list));
-            }
-        } catch (Exception ignored) {
-        }
+        );
     }
 
-    private void removeHistoryItemExact(HistoryItemData item) {
-        if (item == null) return;
-        try {
-            String targetUrl = item.url == null ? "" : item.url;
-            long targetTime = item.time;
-            for (int i = historyData.size() - 1; i >= 0; i--) {
-                HistoryItemData old = historyData.get(i);
-                if (old == null) continue;
-                String oldUrl = old.url == null ? "" : old.url;
-                if (old == item || (oldUrl.equals(targetUrl) && old.time == targetTime)) {
-                    historyData.remove(i);
-                }
-            }
-        } catch (Exception ignored) {
-            try { historyData.remove(item); } catch (Exception ignored2) {}
-        }
+    private void setActiveHistoryLoading(boolean loading) {
+        if (activeHistoryProgress == null) return;
+        boolean initial = activeHistoryAdapter == null || activeHistoryAdapter.isEmpty();
+        activeHistoryProgress.setVisibility(loading && initial ? View.VISIBLE : View.GONE);
     }
 
-
-    private View historyRow(HistoryItemData item, Dialog dialog, LinearLayout parentList) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(10), 0, dp(10));
-        row.setOnClickListener(v -> {
-            dialog.dismiss();
-            addressBar.setText(item.url);
-            openAddressBarUrl();
-        });
-
-        FrameLayout iconWrap = new FrameLayout(this);
-        LinearLayout.LayoutParams iw = new LinearLayout.LayoutParams(dp(42), dp(42));
-        TextView fallback = circleLetter(historyInitial(item), Color.parseColor("#2C3038"), Color.parseColor("#DCE2EC"));
-        iconWrap.addView(fallback, new FrameLayout.LayoutParams(-1, -1));
-        ImageView favicon = new ImageView(this);
-        favicon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        favicon.setPadding(dp(9), dp(9), dp(9), dp(9));
-        favicon.setBackground(roundRect(Color.parseColor("#2A2D33"), dp(21), 0, Color.TRANSPARENT));
-        favicon.setVisibility(View.GONE);
-        iconWrap.addView(favicon, new FrameLayout.LayoutParams(-1, -1));
-        loadFavicon(item.url, favicon, fallback);
-        row.addView(iconWrap, iw);
-
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1);
-        tp.setMargins(dp(14), 0, dp(10), 0);
-
-        TextView title = new TextView(this);
-        title.setText(item.title == null || item.title.length() == 0 ? item.url : item.title);
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(16);
-        title.setSingleLine(true);
-        texts.addView(title);
-
-        TextView url = new TextView(this);
-        url.setText(shortHost(item.url));
-        url.setTextColor(COLOR_SUBTEXT);
-        url.setTextSize(13);
-        url.setSingleLine(true);
-        texts.addView(url);
-        row.addView(texts, tp);
-
-        TextView delete = new TextView(this);
-        delete.setText("×");
-        delete.setTextColor(Color.parseColor("#C9CED8"));
-        delete.setTextSize(24);
-        delete.setGravity(Gravity.CENTER);
-        delete.setClickable(true);
-        delete.setFocusable(true);
-        delete.setOnTouchListener((v, event) -> {
-            if (event != null && event.getAction() == MotionEvent.ACTION_UP) v.performClick();
-            return true;
-        });
-        delete.setOnClickListener(v -> {
-            removeHistoryItemExact(item);
-            saveBrowserHistory();
-            if (parentList != null) {
-                renderHistoryList(parentList, dialog);
-            } else {
-                try { if (dialog != null && dialog.isShowing()) dialog.dismiss(); } catch (Exception ignored) {}
-                showHistoryPanel();
-            }
-        });
-        row.addView(delete, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        return row;
+    private void updateActiveHistoryEmptyState() {
+        if (activeHistoryEmptyView == null || activeHistoryAdapter == null) return;
+        boolean show = !activeHistoryLoading && activeHistoryAdapter.isEmpty();
+        activeHistoryEmptyView.setText(activeHistoryQuery == null || activeHistoryQuery.isEmpty()
+                ? "Riwayat masih kosong."
+                : "Tidak ada riwayat yang cocok.");
+        activeHistoryEmptyView.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
 
@@ -5241,291 +5328,144 @@ private void showDownloadSettingsPanel() {
                 && !cleanUrl.startsWith("javascript:");
     }
 
-    private SharedPreferences historyStore() {
-        return getSharedPreferences(PREFS_HISTORY_V2, MODE_PRIVATE);
-    }
-
-    private File historyV3File() {
-        File dir = new File(getFilesDir(), HISTORY_V3_FOLDER);
-        try { if (!dir.exists()) dir.mkdirs(); } catch (Exception ignored) {}
-        return new File(dir, HISTORY_V3_PUBLIC_FILE);
-    }
-
-    private File historyV3LegacyFile() {
-        return new File(getFilesDir(), HISTORY_V3_FILE);
-    }
-
-    private File historyV3ExternalFile() {
-        try {
-            File base = getExternalFilesDir(null);
-            if (base == null) return null;
-            File dir = new File(base, HISTORY_V3_FOLDER);
-            try { if (!dir.exists()) dir.mkdirs(); } catch (Exception ignored) {}
-            return new File(dir, HISTORY_V3_PUBLIC_FILE);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private String readTextFileSafe(File file) {
-        if (file == null || !file.exists()) return "";
-        FileInputStream fis = null;
-        try {
-            fis = new FileInputStream(file);
-            long length = Math.max(0, Math.min(file.length(), 1024L * 1024L));
-            byte[] data = new byte[(int) length];
-            int len = fis.read(data);
-            if (len <= 0) return "";
-            return new String(data, 0, len, "UTF-8");
-        } catch (Exception ignored) {
-            return "";
-        } finally {
-            try { if (fis != null) fis.close(); } catch (Exception ignored) {}
-        }
-    }
-
-    private void writeTextFileSafe(File file, String value) {
-        if (file == null || value == null) return;
-        FileOutputStream fos = null;
-        try {
-            File parent = file.getParentFile();
-            if (parent != null && !parent.exists()) parent.mkdirs();
-            fos = new FileOutputStream(file, false);
-            fos.write(value.getBytes("UTF-8"));
-            fos.flush();
-            try { fos.getFD().sync(); } catch (Exception ignored) {}
-        } catch (Exception ignored) {
-        } finally {
-            try { if (fos != null) fos.close(); } catch (Exception ignored) {}
-        }
-    }
-
-    private String normalizeHistoryRowsText(String saved) {
-        if (saved == null || saved.length() == 0) return "";
-        // Perbaikan penting: versi lama menyimpan pemisah sebagai teks "\\n".
-        // Normalisasi dulu agar bisa dibaca sebagai baris sungguhan.
-        return saved.replace("\\r\\n", "\n")
-                .replace("\\n", "\n")
-                .replace("\r\n", "\n")
-                .replace("\r", "\n");
-    }
-
-    private String serializeHistoryList(ArrayList<HistoryItemData> list) {
-        StringBuilder sb = new StringBuilder();
-        if (list == null) return "";
-        for (HistoryItemData item : list) {
-            if (item == null || !shouldRecordHistoryUrl(item.url)) continue;
-            sb.append(encode(item.title)).append("|")
-                    .append(encode(item.url)).append("|")
-                    .append(item.time).append('\n');
-        }
-        return sb.toString();
-    }
-
-    private void persistHistoryEverywhere() {
+    private void initializeHistoryEngineV2() {
         if (dedicatedPrivateProfile) return;
-        String value = serializeHistoryList(historyData);
+        if (historyRepository == null) {
+            historyRepository = HistoryRepository.getInstance(getApplicationContext());
+        }
 
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString(KEY_BROWSER_HISTORY, value)
-                .putString(KEY_BROWSER_HISTORY_BACKUP, value)
-                .putString(KEY_BROWSER_HISTORY_V2, value)
-                .putString(KEY_BROWSER_HISTORY_V3, value)
-                .commit();
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (prefs.getBoolean(KEY_HISTORY_ENGINE_V2_INITIALIZED, false)) return;
+        if (historyV2InitializationStarted) return;
 
-        historyStore().edit()
-                .putString(KEY_BROWSER_HISTORY_V2, value)
-                .putString(KEY_BROWSER_HISTORY_V3, value)
-                .commit();
-
-        writeTextFileSafe(historyV3File(), value);
-        writeTextFileSafe(historyV3LegacyFile(), value);
-        writeTextFileSafe(historyV3ExternalFile(), value);
-    }
-
-    private void mergeHistoryRows(String saved, ArrayList<HistoryItemData> out) {
-        if (saved == null || saved.length() == 0 || out == null) return;
-        saved = normalizeHistoryRowsText(saved);
-        if (saved.length() == 0) return;
-
-        String[] rows = saved.split("\n");
-        for (String row : rows) {
-            if (row == null) continue;
-            row = row.trim();
-            if (row.length() == 0) continue;
-
-            String[] parts = row.split("\\|", 3);
-            if (parts.length == 3) {
-                try {
-                    String title = decode(parts[0]);
-                    String url = decode(parts[1]);
-                    long time = Long.parseLong(parts[2].trim());
-                    if (!shouldRecordHistoryUrl(url)) continue;
-
-                    boolean duplicate = false;
-                    for (HistoryItemData old : out) {
-                        if (old != null && url.equals(old.url)) {
-                            if (time > old.time) {
-                                old.title = title;
-                                old.time = time;
-                            }
-                            duplicate = true;
-                            break;
-                        }
-                    }
-                    if (!duplicate) out.add(new HistoryItemData(title, url, time));
-                } catch (Exception ignored) {
+        // The user requested a clean V2 start: legacy history is removed once and is never
+        // migrated or dual-written. The completion marker is written only after SQLite confirms
+        // the reset, so a process kill cannot leave a half-initialized engine marked as complete.
+        historyV2InitializationStarted = true;
+        historyClearLock = true;
+        clearLegacyHistoryStorageNow();
+        historyRepository.clearAll(success -> {
+            historyV2InitializationStarted = false;
+            historyClearLock = false;
+            if (success) {
+                prefs.edit().putBoolean(KEY_HISTORY_ENGINE_V2_INITIALIZED, true).apply();
+                recordCurrentPageToHistory();
+                if (activeHistoryDialog != null && activeHistoryDialog.isShowing()) {
+                    mainHandler.postDelayed(() -> resetActiveHistoryQuery(activeHistoryQuery), 120L);
                 }
             }
-        }
+        });
     }
 
-    private void recordWebViewBackForwardHistory() {
+    private void clearLegacyHistoryStorageNow() {
         try {
-            if (historyClearLock) return;
-            if (isCurrentPrivateTab()) return;
-            if (webView == null) return;
-            WebBackForwardList list = webView.copyBackForwardList();
-            if (list == null) return;
-            for (int i = 0; i < list.getSize(); i++) {
-                WebHistoryItem item = list.getItemAtIndex(i);
-                if (item == null) continue;
-                String url = item.getUrl();
-                String title = item.getTitle();
-                if (shouldRecordHistoryUrl(url)) {
-                    addBrowserHistory(title, url);
-                }
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .remove(KEY_BROWSER_HISTORY)
+                    .remove(KEY_BROWSER_HISTORY_BACKUP)
+                    .remove(KEY_BROWSER_HISTORY_V2)
+                    .remove(KEY_BROWSER_HISTORY_V3)
+                    .apply();
+        } catch (Exception ignored) {
+        }
+        try {
+            getSharedPreferences(PREFS_HISTORY_V2, MODE_PRIVATE).edit().clear().apply();
+        } catch (Exception ignored) {
+        }
+        try {
+            File file = new File(new File(getFilesDir(), HISTORY_V3_FOLDER), HISTORY_V3_PUBLIC_FILE);
+            if (file.exists()) file.delete();
+        } catch (Exception ignored) {
+        }
+        try {
+            File file = new File(getFilesDir(), HISTORY_V3_FILE);
+            if (file.exists()) file.delete();
+        } catch (Exception ignored) {
+        }
+        try {
+            File external = getExternalFilesDir(null);
+            if (external != null) {
+                File file = new File(new File(external, HISTORY_V3_FOLDER), HISTORY_V3_PUBLIC_FILE);
+                if (file.exists()) file.delete();
             }
         } catch (Exception ignored) {
         }
+        historyData.clear();
+    }
+
+    /**
+     * History V2 records committed navigations directly. Re-scanning the complete WebView
+     * back/forward stack is intentionally disabled because it created duplicate writes and UI
+     * stalls in the legacy engine.
+     */
+    private void recordWebViewBackForwardHistory() {
+        // Intentionally empty.
     }
 
     private void recordCurrentPageToHistory() {
         try {
-            if (historyClearLock) return;
-            if (isCurrentPrivateTab()) return;
+            if (historyClearLock || dedicatedPrivateProfile || isCurrentPrivateTab()) return;
             if (webView == null) return;
             String url = webView.getUrl();
-            if (shouldRecordHistoryUrl(url)) {
-                addBrowserHistory(webView.getTitle(), url);
-            }
+            if (shouldRecordHistoryUrl(url)) addBrowserHistory(webView.getTitle(), url);
         } catch (Exception ignored) {
         }
     }
 
     private void addBrowserHistory(String title, String url) {
-        if (isCurrentPrivateTab()) return;
+        if (historyClearLock || dedicatedPrivateProfile || isCurrentPrivateTab()) return;
         if (!shouldRecordHistoryUrl(url)) return;
+        initializeHistoryEngineV2();
+        if (historyRepository == null) return;
+
         String cleanUrl = extractOriginalUrl(url);
-        if (cleanUrl == null || cleanUrl.length() == 0) return;
-
-        for (int i = historyData.size() - 1; i >= 0; i--) {
-            HistoryItemData old = historyData.get(i);
-            if (old == null || cleanUrl.equals(old.url)) {
-                historyData.remove(i);
-            }
-        }
-
-        String safeTitle = title == null || title.trim().length() == 0 ? cleanUrl : title.trim();
-        historyData.add(0, new HistoryItemData(safeTitle, cleanUrl, System.currentTimeMillis()));
-        while (historyData.size() > 500) historyData.remove(historyData.size() - 1);
-        persistHistoryEverywhere();
+        if (cleanUrl == null || cleanUrl.trim().isEmpty()) return;
+        String safeTitle = title == null || title.trim().isEmpty() ? cleanUrl : title.trim();
+        historyRepository.recordVisit(safeTitle, cleanUrl, System.currentTimeMillis());
     }
 
+    /** Retained for old call sites; V2 never performs a blocking load on the UI thread. */
     private void loadBrowserHistory() {
-        if (dedicatedPrivateProfile) {
-            historyData.clear();
-            return;
-        }
-        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        SharedPreferences h = historyStore();
-
-        ArrayList<HistoryItemData> loaded = new ArrayList<>();
-        mergeHistoryRows(readTextFileSafe(historyV3File()), loaded);
-        mergeHistoryRows(readTextFileSafe(historyV3LegacyFile()), loaded);
-        mergeHistoryRows(readTextFileSafe(historyV3ExternalFile()), loaded);
-        mergeHistoryRows(h.getString(KEY_BROWSER_HISTORY_V3, ""), loaded);
-        mergeHistoryRows(h.getString(KEY_BROWSER_HISTORY_V2, ""), loaded);
-        mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY_V3, ""), loaded);
-        mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY_V2, ""), loaded);
-        mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY, ""), loaded);
-        mergeHistoryRows(p.getString(KEY_BROWSER_HISTORY_BACKUP, ""), loaded);
-
-        historyData.clear();
-        if (!loaded.isEmpty()) {
-            Collections.sort(loaded, (a, b) -> Long.compare(b.time, a.time));
-            while (loaded.size() > 500) loaded.remove(loaded.size() - 1);
-            historyData.addAll(loaded);
-            persistHistoryEverywhere();
-        }
+        initializeHistoryEngineV2();
     }
 
+    /** Retained for old call sites; every V2 write is persisted transactionally by SQLite. */
     private void saveBrowserHistory() {
-        if (dedicatedPrivateProfile) return;
-        persistHistoryEverywhere();
+        // No-op. HistoryRepository is the only source of truth.
     }
 
-    private void clearBrowserHistoryManually() {
-        if (dedicatedPrivateProfile) return;
+    private void clearBrowserHistoryManually(Runnable afterClear) {
+        if (dedicatedPrivateProfile || isCurrentPrivateTab()) return;
+        initializeHistoryEngineV2();
+        if (historyRepository == null) return;
+
         historyClearLock = true;
-        historyData.clear();
-        lastSafeHttpUrl = "";
-
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString(KEY_BROWSER_HISTORY, "")
-                .putString(KEY_BROWSER_HISTORY_BACKUP, "")
-                .putString(KEY_BROWSER_HISTORY_V2, "")
-                .putString(KEY_BROWSER_HISTORY_V3, "")
-                .commit();
-        historyStore().edit()
-                .putString(KEY_BROWSER_HISTORY_V2, "")
-                .putString(KEY_BROWSER_HISTORY_V3, "")
-                .commit();
-        try {
-            File f = historyV3File();
-            if (f.exists()) f.delete();
-        } catch (Exception ignored) {
-        }
-        try {
-            File f = historyV3LegacyFile();
-            if (f.exists()) f.delete();
-        } catch (Exception ignored) {
-        }
-        try {
-            File f = historyV3ExternalFile();
-            if (f != null && f.exists()) f.delete();
-        } catch (Exception ignored) {
-        }
-
-        try {
-            if (webView != null) {
-                webView.stopLoading();
-                webView.clearHistory();
-                webView.clearFormData();
-                webView.loadUrl("about:blank");
-                mainHandler.postDelayed(() -> {
-                    try { if (webView != null) webView.clearHistory(); } catch (Exception ignored) {}
-                }, 350);
+        clearLegacyHistoryStorageNow();
+        historyRepository.clearAll(success -> {
+            historyClearLock = false;
+            if (success) {
+                lastSafeHttpUrl = "";
+                try {
+                    for (TabInfo tab : tabs) {
+                        if (tab != null && tab.webView != null) {
+                            tab.webView.clearHistory();
+                            tab.webView.clearFormData();
+                        }
+                    }
+                    if (webView != null) {
+                        webView.clearHistory();
+                        webView.clearFormData();
+                    }
+                } catch (Exception ignored) {
+                }
+                Toast.makeText(this, "Semua riwayat telah dihapus", Toast.LENGTH_SHORT).show();
+                if (afterClear != null) afterClear.run();
+            } else {
+                Toast.makeText(this, "Riwayat gagal dihapus", Toast.LENGTH_SHORT).show();
+                resetActiveHistoryQuery(activeHistoryQuery);
             }
-        } catch (Exception ignored) {
-        }
-
-        try {
-            TabInfo currentTab = getCurrentTab();
-            if (currentTab != null) {
-                currentTab.resetToHome();
-                currentTab.title = "Tab utama";
-                activateNavigationContextForTab(currentTab);
-            }
-        } catch (Exception ignored) {
-        }
-
-        try {
-            if (addressBar != null) addressBar.setText("");
-            showHome();
-        } catch (Exception ignored) {
-        }
+        });
     }
+
 
     private void showTextZoomDialog(Dialog parentDialog) {
         Dialog dialog = new Dialog(this);
@@ -9997,6 +9937,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             return true;
         }
 
+        // v0.9.97: professional silent quarantine. If automatic closing is enabled,
+        // suppress the ad navigation without ever adding a visible tab that flashes and
+        // disappears. Users who disable auto-close can still inspect the temporary ad tab.
+        if (adBlockAutoCloseAdTabs) {
+            return true;
+        }
+
         synchronized (tabs) {
             for (TabInfo tab : tabs) {
                 if (tab != null && tab.adTab && safeUrl.equals(tab.url)) {
@@ -10246,7 +10193,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         restoreAfterBlockedNavigation(view, u);
                         return true;
                     }
-                    if (!sameSite && !fromSearch && (isKnownPopupHost(u) || isLikelyAdClickUrl(u) || isSuspiciousPopupNavigation(u, currentUrl))) {
+                    if (!sameSite && !fromSearch && isCompatibilityAdNavigation(u, currentUrl, hasGesture)) {
                         restoreAfterBlockedNavigation(view, u);
                         return true;
                     }
@@ -10256,10 +10203,17 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     return false;
                 }
 
-                // v0.9.44: kalau domain sedang dalam compatibility mode, jangan blokir navigasi
-                // main-frame. Situs anti-adblock sering memakai redirect internal/menu yang kalau
-                // ditahan akan membuat halaman blank atau balik ke home.
-                if (mainFrame && (isSiteCompatibilityModeActiveForUrl(u) || isSiteCompatibilityModeActiveForUrl(currentUrl))) {
+                // v0.9.97: Compatibility Ad Shield. First-party reader navigation remains
+                // untouched, while suspicious cross-site popup/click-hijack destinations are
+                // blocked before they can replace the chapter in the main tab.
+                if (mainFrame && (isSiteCompatibilityModeActiveForUrl(u)
+                        || isSiteCompatibilityModeActiveForUrl(currentUrl)
+                        || isReloadLoopGuardActiveForUrl(currentUrl))) {
+                    boolean suspiciousCrossSite = isCompatibilityAdNavigation(u, currentUrl, hasGesture);
+                    if (suspiciousCrossSite) {
+                        restoreAfterBlockedNavigation(view, u);
+                        return true;
+                    }
                     markTrustedMainFrameNavigation(u);
                     prepareTabForMainFrameNavigation(requestTab, u);
                     return false;
@@ -10314,7 +10268,17 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 if (isYouTubePageUrl(pageUrl) || isYouTubePageUrl(u)) {
                     return super.shouldInterceptRequest(view, request);
                 }
-                if (isStrictSiteCompatibilityUrl(pageUrl) || isStrictSiteCompatibilityUrl(u) || isSiteCompatibilityModeActiveForUrl(pageUrl)) {
+                boolean compatibilityPageRequest = isStrictSiteCompatibilityUrl(pageUrl)
+                        || isSiteCompatibilityModeActiveForUrl(pageUrl)
+                        || isReloadLoopGuardActiveForUrl(pageUrl);
+                if (compatibilityPageRequest) {
+                    // Preserve first-party scripts, reader images and media. Only block a
+                    // high-confidence third-party ad/popup resource so compatibility mode does
+                    // not degrade into "ad blocker off".
+                    if (adBlock && adBlockScriptIframeBlocker
+                            && isCompatibilityThirdPartyAdResource(u, pageUrl)) {
+                        return buildBlockedResponse(u);
+                    }
                     return super.shouldInterceptRequest(view, request);
                 }
                 // v0.9.42: kalau suatu host masuk compatibility/reload-loop guard, jangan blokir
@@ -10480,6 +10444,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     injectAdBlockCssEarly();
                     if (hasUserFiltersForCurrentHost()) applyUserFiltersForCurrentPage();
                 } else if (compatibilityPage) {
+                    if (adBlock) injectCompatibilityAdShield();
                     scheduleUniversalReaderCompatibilityRepair(finalUrl);
                 }
             }
@@ -10525,6 +10490,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     // browser profile, viewport, safe night mode, and targeted content repair.
                     applyPlainCompatibilitySettings();
                     scheduleNightModeSyncForPage(finalUrl);
+                    if (adBlock) {
+                        injectCompatibilityAdShield();
+                        mainHandler.postDelayed(MainActivity.this::injectCompatibilityAdShield, 900);
+                        mainHandler.postDelayed(MainActivity.this::injectCompatibilityAdShield, 2600);
+                    }
                     scheduleUniversalReaderCompatibilityRepair(finalUrl);
                     if (desktopMode) {
                         mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 350);
@@ -11385,7 +11355,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             settings.setLoadsImagesAutomatically(true);
             try { settings.setBlockNetworkImage(false); } catch (Exception ignored) {}
             settings.setCacheMode(isPrivateWebView(webView) ? WebSettings.LOAD_NO_CACHE : WebSettings.LOAD_DEFAULT);
-            settings.setJavaScriptCanOpenWindowsAutomatically(true);
+            // v0.9.97: compatibility mode must not silently disable the popup blocker.
+            settings.setJavaScriptCanOpenWindowsAutomatically(!(adBlock && adBlockPopupBlocker));
             settings.setSupportMultipleWindows(false);
             settings.setBuiltInZoomControls(true);
             settings.setDisplayZoomControls(false);
@@ -11735,6 +11706,48 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         return true;
     }
 
+    private boolean isCompatibilityAdNavigation(String targetUrl, String currentUrl, boolean hasGesture) {
+        try {
+            if (!adBlock || !isHttpOrHttpsUrl(targetUrl)) return isExternalSchemeUrl(targetUrl);
+            if (isTrustedDownloadIntentUrl(targetUrl) || isSearchEngineResultNavigation(targetUrl, currentUrl)) return false;
+
+            String targetHost = normalizeHostForAdBlock(targetUrl);
+            String currentHost = normalizeHostForAdBlock(currentUrl);
+            if (targetHost.length() == 0) return false;
+            if (currentHost.length() > 0 && sameOrSubDomain(targetHost, currentHost)) return false;
+
+            boolean suspicious = isKnownPopupHost(targetUrl)
+                    || isLikelyAdClickUrl(targetUrl)
+                    || isAdUrl(targetUrl)
+                    || isSuspiciousPopupNavigation(targetUrl, currentUrl);
+            boolean explicitlyTrusted = isTrustedMainFrameNavigation(targetUrl);
+            return ReaderCompatibilityPolicy.shouldBlockCrossSiteNavigation(
+                    targetUrl, currentUrl, hasGesture, suspicious, explicitlyTrusted);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean isCompatibilityContentAssetUrl(String url) {
+        if (url == null) return false;
+        String u = url.toLowerCase(Locale.US);
+        return isImageResourceUrl(u)
+                || isMediaResourceUrl(u)
+                || u.matches(".*\\.(?:woff2?|ttf|otf)(?:$|[?#]).*");
+    }
+
+    private boolean isCompatibilityThirdPartyAdResource(String resourceUrl, String pageUrl) {
+        try {
+            if (!adBlock || !isHttpOrHttpsUrl(resourceUrl) || !isHttpOrHttpsUrl(pageUrl)) return false;
+            if (isTrustedDownloadIntentUrl(resourceUrl) || isYoutubeCoreUrl(resourceUrl)) return false;
+            boolean hardAd = isKnownPopupHost(resourceUrl) || isAdUrl(resourceUrl);
+            return ReaderCompatibilityPolicy.shouldBlockThirdPartyResource(
+                    resourceUrl, pageUrl, hardAd, isCompatibilityContentAssetUrl(resourceUrl));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private boolean isContextAllowedSuspiciousMainFrameNavigation(String targetUrl, String currentUrl, boolean hasGesture) {
         try {
             if (!isHttpOrHttpsUrl(targetUrl)) return false;
@@ -11753,6 +11766,15 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (!suspicious) return false;
             if (sameSite) return true;
             if (fromSearch) return true;
+
+            // v0.9.97: on compatibility/reader pages, a touch event can be stolen by an
+            // advertising click-hijacker. Do not treat that inherited user gesture as consent
+            // to leave the reader for a suspicious cross-site destination.
+            boolean compatibilitySource = isStrictSiteCompatibilityUrl(currentUrl)
+                    || isSiteCompatibilityModeActiveForUrl(currentUrl)
+                    || isReloadLoopGuardActiveForUrl(currentUrl);
+            if (compatibilitySource) return false;
+
             return hasGesture && currentHost.length() > 0;
         } catch (Exception e) {
             return false;
@@ -12061,7 +12083,16 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     // Recover hanya pada WebView pemilik tab tersebut. Jangan pakai webView global,
                     // karena global bisa sudah menunjuk tab lain setelah close/switch tab.
                     if (currentBad) {
-                        if (restoreView.canGoBack()) {
+                        boolean compatibilityFallback = fallbackUrl != null && fallbackUrl.length() > 0
+                                && (isStrictSiteCompatibilityUrl(fallbackUrl)
+                                || isSiteCompatibilityModeActiveForUrl(fallbackUrl)
+                                || isReloadLoopGuardActiveForUrl(fallbackUrl));
+                        // goBack can return to an intermediate about:blank/ad history entry.
+                        // Reader compatibility pages recover deterministically to their last safe URL.
+                        if (compatibilityFallback) {
+                            if (targetTab != null) prepareTabForMainFrameNavigation(targetTab, fallbackUrl);
+                            restoreView.loadUrl(fallbackUrl);
+                        } else if (restoreView.canGoBack()) {
                             restoreView.goBack();
                         } else if (fallbackUrl != null && fallbackUrl.length() > 0) {
                             if (targetTab != null) prepareTabForMainFrameNavigation(targetTab, fallbackUrl);
@@ -12707,6 +12738,28 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 + "window.__yieldABInt=setInterval(function(){try{if(document.querySelector('video'))clean();}catch(e){}},700);"
                 + "clean();setTimeout(clean,120);setTimeout(clean,500);setTimeout(clean,1500);setTimeout(clean,3500);"
                 + "})();";
+        runPageScript(js);
+    }
+
+    private void injectCompatibilityAdShield() {
+        if (webView == null || !adBlock) return;
+        String pageUrl = getEffectiveCurrentUrl();
+        if (!(isStrictSiteCompatibilityUrl(pageUrl)
+                || isSiteCompatibilityModeActiveForUrl(pageUrl)
+                || isReloadLoopGuardActiveForUrl(pageUrl))) return;
+
+        String js = "javascript:(function(){try{"
+                + "if(window.__yieldCompatShieldV2){try{window.__yieldCompatShieldV2();}catch(e){}return;}"
+                + "function host(u){try{return(new URL(u,location.href).hostname||'').replace(/^www\\./,'').toLowerCase();}catch(e){return'';}}"
+                + "function same(a,b){return !!a&&!!b&&(a===b||a.endsWith('.'+b)||b.endsWith('.'+a));}"
+                + "function bad(u){try{if(!u)return false;var s=String(u).toLowerCase();if(s.indexOf('http://')!==0&&s.indexOf('https://')!==0)return /^(intent|market|shopeeid|lazada|tokopedia):/.test(s);var h=host(u),c=(location.hostname||'').replace(/^www\\./,'').toLowerCase();if(!h||same(h,c))return false;if(/(hotterydiseur|sewarsremeets|onclickads|clickadu|popads|popcash|propellerads|adsterra|hilltopads|exoclick|trafficjunky|juicyads|admaven|realsrv|invest-tracing|doubleclick|googlesyndication|googleadservices|taboola|outbrain|mgid|revcontent)/.test(h))return true;if(/\\.(cfd|click|cam|monster|quest|buzz|icu|cyou)$/.test(h))return true;return /(popunder|popupads|clickunder|onclickads|interstitial|adclick|ad_click|adurl=|utm_medium=affiliates|deep_and_deferred|navigate_url=|reactpath|click_id|af_click)/.test(s);}catch(e){return false;}}"
+                + "function report(u){try{if(window.YieldAdBlockBridge&&YieldAdBlockBridge.onAdRedirect)YieldAdBlockBridge.onAdRedirect(String(u));}catch(e){}}"
+                + "if(!window.__yieldCompatOpenPatched){window.__yieldCompatOpenPatched=true;var o=window.open;window.open=function(u,n,f){if(bad(u)){report(u);return{closed:true,focus:function(){},close:function(){}};}try{return o.call(window,u,n,f);}catch(e){return{closed:true,focus:function(){},close:function(){}};}};}"
+                + "if(!window.__yieldCompatClickPatched){window.__yieldCompatClickPatched=true;var stop=function(e){try{var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;if(a&&bad(a.href)){report(a.href);e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();return false;}}catch(x){}};document.addEventListener('click',stop,true);document.addEventListener('auxclick',stop,true);}"
+                + "function clean(){try{document.querySelectorAll('iframe[src],script[src]').forEach(function(el){var u=el.src||'';if(bad(u)){el.remove();}});}catch(e){}}"
+                + "window.__yieldCompatShieldV2=clean;clean();"
+                + "try{if(window.__yieldCompatObs)window.__yieldCompatObs.disconnect();window.__yieldCompatObs=new MutationObserver(function(){clean();});window.__yieldCompatObs.observe(document.documentElement||document,{childList:true,subtree:true});}catch(e){}"
+                + "}catch(e){}})();";
         runPageScript(js);
     }
 

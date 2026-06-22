@@ -10,7 +10,7 @@ final class UniversalReaderRepairScript {
                 (function(){
                   'use strict';
                   try {
-                    var VERSION='0.9.95';
+                    var VERSION='0.9.97';
                     var READER_WORDS=/(^|[\\s_\\-])(chapter|chapitre|capitulo|episode|reader|reading|read-content|manga|manhwa|manhua|webtoon|comic|komik|baca|viewer|pages?)([\\s_\\-]|$)/i;
                     var PATH_RE=/(?:^|\\/)(?:chapter|chapitre|capitulo|episode|reader|read-online|reading|baca|ch)(?:[-_\\/]|$)|-chapter-|\\/chapter\\/|\\/episode\\//i;
                     var AD_WORDS=/(^|[\\s_\\-])(ad|ads|advert|advertisement|banner|sponsor|sponsored|promo|promotion|affiliate|popunder|popup|monetize|adsbygoogle|doubleclick|taboola|outbrain)([\\s_\\-]|$)/i;

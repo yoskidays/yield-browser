@@ -47,6 +47,50 @@ final class ReaderCompatibilityPolicy {
         }
     }
 
+
+    static boolean shouldBlockCrossSiteNavigation(String targetUrl,
+                                                  String sourceUrl,
+                                                  boolean hasGesture,
+                                                  boolean suspicious,
+                                                  boolean explicitlyTrusted) {
+        if (explicitlyTrusted) return false;
+        String targetHost = hostOf(targetUrl);
+        String sourceHost = hostOf(sourceUrl);
+        if (targetHost.isEmpty()) return suspicious;
+        if (!sourceHost.isEmpty() && sameSite(targetHost, sourceHost)) return false;
+        // A stolen click still carries a user gesture. Suspicion wins over that gesture.
+        // Unknown clean redirects are left alone to preserve login/CDN/front-door flows.
+        return suspicious;
+    }
+
+    static boolean shouldBlockThirdPartyResource(String resourceUrl,
+                                                 String pageUrl,
+                                                 boolean hardAd,
+                                                 boolean contentAsset) {
+        if (!hardAd || contentAsset) return false;
+        String resourceHost = hostOf(resourceUrl);
+        String pageHost = hostOf(pageUrl);
+        if (resourceHost.isEmpty() || pageHost.isEmpty()) return false;
+        return !sameSite(resourceHost, pageHost);
+    }
+
+    private static String hostOf(String url) {
+        if (url == null) return "";
+        try {
+            URI parsed = URI.create(url.trim());
+            String host = parsed.getHost();
+            if (host == null) return "";
+            host = host.toLowerCase(Locale.US);
+            return host.startsWith("www.") ? host.substring(4) : host;
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static boolean sameSite(String first, String second) {
+        return first.equals(second) || first.endsWith("." + second) || second.endsWith("." + first);
+    }
+
     static long[] retrySchedule(boolean compatibilityMode, boolean readerPathHint) {
         if (compatibilityMode) {
             return new long[]{0L, 300L, 1100L, 2800L, 6000L};
