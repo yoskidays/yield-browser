@@ -31,6 +31,14 @@ final class TabInfo {
     long trustedNavigationUntilMs;
     long domainSwitchAllowedUntilMs;
 
+    /** Runtime-only HTTPS-First state. Never persisted into the tab session. */
+    String pendingHttpsOriginalUrl = "";
+    String pendingHttpsUpgradeUrl = "";
+    long pendingHttpsStartedAtMs;
+    String httpsFallbackHost = "";
+    long httpsFallbackAllowedUntilMs;
+    boolean httpsFallbackInProgress;
+
     TabInfo(String title, String url, boolean privateTab) {
         this(null, title, url, privateTab, false);
     }
@@ -66,6 +74,12 @@ final class TabInfo {
         trustedNavigationHost = "";
         trustedNavigationUntilMs = 0L;
         domainSwitchAllowedUntilMs = 0L;
+        pendingHttpsOriginalUrl = "";
+        pendingHttpsUpgradeUrl = "";
+        pendingHttpsStartedAtMs = 0L;
+        httpsFallbackHost = "";
+        httpsFallbackAllowedUntilMs = 0L;
+        httpsFallbackInProgress = false;
         webViewGeneration++;
     }
 }

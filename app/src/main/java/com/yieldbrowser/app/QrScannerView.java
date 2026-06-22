@@ -4,7 +4,6 @@ import android.content.Context;
 import android.hardware.Camera;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
-import android.widget.Toast;
 
 import com.google.zxing.BinaryBitmap;
 import com.google.zxing.MultiFormatReader;
@@ -64,10 +63,10 @@ final class QrScannerView extends SurfaceView
             camera.startPreview();
         } catch (Exception error) {
             stopCamera();
-            Toast.makeText(
+            QuietToast.makeText(
                     getContext(),
                     "Kamera tidak bisa dibuka: " + error.getMessage(),
-                    Toast.LENGTH_SHORT
+                    QuietToast.LENGTH_SHORT
             ).show();
         }
     }

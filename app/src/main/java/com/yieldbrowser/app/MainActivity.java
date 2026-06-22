@@ -77,7 +77,6 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -261,6 +260,8 @@ public class MainActivity extends Activity {
     private boolean elementPickerActive = false;
     private AlertDialog elementPickerDialog = null;
     private boolean dataSaver = false;
+    // v0.9.98: HTTPS-First tries the secure origin before plain HTTP for public sites.
+    private boolean httpsFirstEnabled = true;
     private boolean desktopMode = false;
     private int browserModeToken = 0;
     private int textZoom = 100;
@@ -384,7 +385,7 @@ public class MainActivity extends Activity {
             final int token = translateSessionToken;
             runOnUiThread(() -> {
                 if (isCompatibleTranslateAllowed(token)) {
-                    Toast.makeText(MainActivity.this, "Translate kompatibel berjalan: " + count + " teks", Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(MainActivity.this, "Translate kompatibel berjalan: " + count + " teks", QuietToast.LENGTH_SHORT).show();
                 }
             });
         }
@@ -474,8 +475,8 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         dedicatedPrivateProfile = useDedicatedPrivateProfile();
         if (dedicatedPrivateProfile && !YieldBrowserApplication.isIncognitoProfileReady()) {
-            Toast.makeText(this, "Profil privat terisolasi tidak tersedia pada perangkat ini",
-                    Toast.LENGTH_LONG).show();
+            QuietToast.makeText(this, "Profil privat terisolasi tidak tersedia pada perangkat ini",
+                    QuietToast.LENGTH_LONG).show();
             finish();
             return;
         }
@@ -559,7 +560,7 @@ public class MainActivity extends Activity {
             }
             selectedDownloadTreeUri = treeUri.toString();
             saveSettings();
-            Toast.makeText(this, "Folder HP dipilih untuk hasil download", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Folder HP dipilih untuk hasil download", QuietToast.LENGTH_SHORT).show();
             showDownloadSettingsPanel();
         }
     }
@@ -1054,14 +1055,14 @@ content.addView(space(dp(36)));
         });
         item.setOnLongClickListener(v -> {
             delete.setVisibility(View.VISIBLE);
-            Toast.makeText(this, "Ketuk X untuk hapus pintasan", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Ketuk X untuk hapus pintasan", QuietToast.LENGTH_SHORT).show();
             return true;
         });
         delete.setOnClickListener(v -> {
             shortcutsData.remove(shortcut);
             saveShortcuts();
             renderShortcuts();
-            Toast.makeText(this, "Pintasan dihapus", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Pintasan dihapus", QuietToast.LENGTH_SHORT).show();
         });
 
         return item;
@@ -1121,7 +1122,7 @@ content.addView(space(dp(36)));
                 .setPositiveButton("Tambah", (dialog, which) -> {
                     String url = normalizeShortcutUrl(urlInput.getText().toString().trim());
                     if (url == null) {
-                        Toast.makeText(this, "URL tidak valid", Toast.LENGTH_SHORT).show();
+                        QuietToast.makeText(this, "URL tidak valid", QuietToast.LENGTH_SHORT).show();
                         return;
                     }
                     String label = nameInput.getText().toString().trim();
@@ -1135,7 +1136,7 @@ content.addView(space(dp(36)));
                     shortcutsData.add(new ShortcutItemData(label, url));
                     saveShortcuts();
                     renderShortcuts();
-                    Toast.makeText(this, "Pintasan ditambahkan", Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, "Pintasan ditambahkan", QuietToast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Batal", null)
                 .show();
@@ -1944,8 +1945,8 @@ content.addView(space(dp(36)));
         skipNextShowHomeTabSave = true;
         showHome();
         saveTabsSession();
-        Toast.makeText(this, dedicatedPrivateProfile ? "Tab privat baru" : "Tab baru dibuat",
-                Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, dedicatedPrivateProfile ? "Tab privat baru" : "Tab baru dibuat",
+                QuietToast.LENGTH_SHORT).show();
     }
 
     private void launchDedicatedPrivateProfile() {
@@ -1969,7 +1970,7 @@ content.addView(space(dp(36)));
             startActivity(intent);
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
         } catch (Exception e) {
-            Toast.makeText(this, "Profil privat tidak dapat dibuka", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Profil privat tidak dapat dibuka", QuietToast.LENGTH_SHORT).show();
         }
     }
 
@@ -1984,7 +1985,7 @@ content.addView(space(dp(36)));
             startActivity(intent);
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
         } catch (Exception e) {
-            Toast.makeText(this, "Tab umum tidak dapat dibuka", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Tab umum tidak dapat dibuka", QuietToast.LENGTH_SHORT).show();
         }
     }
 
@@ -2083,7 +2084,7 @@ content.addView(space(dp(36)));
         skipNextShowHomeTabSave = true;
         showHome();
         saveTabsSession();
-        Toast.makeText(this, "Tab privat aktif", Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, "Tab privat aktif", QuietToast.LENGTH_SHORT).show();
     }
 
     private void switchToTab(int index) {
@@ -2167,8 +2168,8 @@ content.addView(space(dp(36)));
         }
 
         saveTabsSession();
-        Toast.makeText(this, tab.privateTab ? "Tab privat aktif" : "Tab umum aktif",
-                Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, tab.privateTab ? "Tab privat aktif" : "Tab umum aktif",
+                QuietToast.LENGTH_SHORT).show();
     }
 
     private void switchToTab(TabInfo tab) {
@@ -2230,8 +2231,8 @@ content.addView(space(dp(36)));
 
         updateTabsCountUi();
         saveTabsSession();
-        Toast.makeText(this, removed.privateTab ? "Tab privat ditutup" : "Tab ditutup",
-                Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, removed.privateTab ? "Tab privat ditutup" : "Tab ditutup",
+                QuietToast.LENGTH_SHORT).show();
     }
 
 
@@ -2530,7 +2531,7 @@ content.addView(space(dp(36)));
                 if (!adBlock) stopYouTubeAutoAssistantNow();
                 saveSettings();
                 dialog.dismiss();
-                Toast.makeText(this, adBlock ? "Ad Block aktif" : "Ad Block nonaktif", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, adBlock ? "Ad Block aktif" : "Ad Block nonaktif", QuietToast.LENGTH_SHORT).show();
             }));
         }
         if (shortcutReader) {
@@ -2538,7 +2539,7 @@ content.addView(space(dp(36)));
                 readerMode = !readerMode;
                 saveSettings();
                 dialog.dismiss();
-                Toast.makeText(this, readerMode ? "Reader mode aktif" : "Reader mode nonaktif", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, readerMode ? "Reader mode aktif" : "Reader mode nonaktif", QuietToast.LENGTH_SHORT).show();
             }));
         }
         if (shortcutNightMode) {
@@ -2580,7 +2581,7 @@ content.addView(space(dp(36)));
                 saveSettings();
                 updateVideoControlsVisibility();
                 dialog.dismiss();
-                Toast.makeText(this, videoControlsEnabled ? "Kontrol video aktif" : "Kontrol video nonaktif", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, videoControlsEnabled ? "Kontrol video aktif" : "Kontrol video nonaktif", QuietToast.LENGTH_SHORT).show();
             }));
         }
 
@@ -2644,7 +2645,7 @@ content.addView(space(dp(36)));
             }
         } catch (Exception ignored) {
         }
-        return "0.9.97";
+        return "0.9.98";
     }
 
     private void showAboutYieldDialog() {
@@ -2828,6 +2829,11 @@ content.addView(space(dp(36)));
         panel.addView(sectionTitle("Fitur browsing"));
         panel.addView(settingRow(R.drawable.ic_speed, "Mode cepat", "Optimasi cache, gambar, dan resource.", speedMode, v -> { speedMode = !speedMode; applyBrowserSettings(); saveSettings(); }));
         panel.addView(settingRow(R.drawable.ic_safe, "Safe browsing", "Blokir URL berisiko sederhana.", safeMode, v -> { safeMode = !safeMode; saveSettings(); }));
+        panel.addView(settingRow(R.drawable.ic_safe, "HTTPS-First", "Coba koneksi HTTPS lebih dulu. Jika HTTPS benar-benar tidak tersedia, kembali ke HTTP dengan perlindungan loop. Alamat lokal dan port khusus dikecualikan.", httpsFirstEnabled, v -> {
+            httpsFirstEnabled = !httpsFirstEnabled;
+            if (!httpsFirstEnabled) clearAllHttpsFirstRuntimeState();
+            saveSettings();
+        }));
         panel.addView(actionRow(R.drawable.ic_night, "Mode Malam: " + nightModeLabel(), "OFF, ON, Auto ikut sistem, dan pengecualian situs. Tidak menutup menu setelan.", v -> {
             showNightModeSettingsDialog();
         }));
@@ -2842,7 +2848,7 @@ content.addView(space(dp(36)));
         panel.addView(actionRow(R.drawable.ic_text_size, "Ukuran teks: " + textZoom + "%", "Atur ukuran teks dengan slider persentase.", v -> {
             showTextZoomDialog(dialog);
         }));
-        panel.addView(actionRow(R.drawable.ic_clear, "Bersihkan cache", "Hapus cache WebView.", v -> { if (webView != null) webView.clearCache(true); Toast.makeText(this, "Cache dibersihkan", Toast.LENGTH_SHORT).show(); }));
+        panel.addView(actionRow(R.drawable.ic_clear, "Bersihkan cache", "Hapus cache WebView.", v -> { if (webView != null) webView.clearCache(true); QuietToast.makeText(this, "Cache dibersihkan", QuietToast.LENGTH_SHORT).show(); }));
 
 
         panel.addView(sectionTitle("Informasi"));
@@ -3044,7 +3050,7 @@ content.addView(space(dp(36)));
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 showQrScannerDialog();
             } else {
-                Toast.makeText(this, "Izin kamera diperlukan untuk pindai QR", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Izin kamera diperlukan untuk pindai QR", QuietToast.LENGTH_SHORT).show();
             }
         }
     }
@@ -3105,11 +3111,11 @@ content.addView(space(dp(36)));
 
     private void handleQrResult(String result) {
         if (result == null || result.trim().length() == 0) {
-            Toast.makeText(this, "QR kosong", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "QR kosong", QuietToast.LENGTH_SHORT).show();
             return;
         }
         String value = result.trim();
-        Toast.makeText(this, "QR terbaca", Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, "QR terbaca", QuietToast.LENGTH_SHORT).show();
         addressBar.setText(value);
         openAddressBarUrl();
     }
@@ -3128,7 +3134,7 @@ content.addView(space(dp(36)));
                     // v0.9.68: jangan tutup/recreate panel Settings setelah memilih search engine.
                     // Recreate dialog lama membuat efek kedip/flicker balik ke home.
                     // Nilai search engine langsung tersimpan dan dipakai oleh pencarian berikutnya.
-                    Toast.makeText(this, "Search engine: " + searchEngine, Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, "Search engine: " + searchEngine, QuietToast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Batal", null)
                 .show();
@@ -3272,7 +3278,7 @@ private void showDownloadSettingsPanel() {
                 }
             }
             saveDownloadHistory();
-            Toast.makeText(this, "Riwayat unduhan selesai dibersihkan", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Riwayat unduhan selesai dibersihkan", QuietToast.LENGTH_SHORT).show();
             switchDialogSmooth(dialog, () -> showDownloadSettingsPanel());
         }));
 
@@ -3409,7 +3415,7 @@ private void showDownloadSettingsPanel() {
         sort.setOnClickListener(v -> {
             activeDownloadSort = "Antrian";
             renderDownloadList();
-            Toast.makeText(this, "Tampilan diurutkan berdasarkan antrian", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Tampilan diurutkan berdasarkan antrian", QuietToast.LENGTH_SHORT).show();
         });
         box.addView(sort, new LinearLayout.LayoutParams(-1, dp(42)));
 
@@ -3457,7 +3463,7 @@ private void showDownloadSettingsPanel() {
             pumpDownloadQueue();
             refreshDownloadPanel();
             if (refresh != null) refresh.run();
-            Toast.makeText(this, "Maksimal download aktif: " + value, Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Maksimal download aktif: " + value, QuietToast.LENGTH_SHORT).show();
         });
         updateQueueChoiceChip(chip, value);
         return chip;
@@ -3655,7 +3661,7 @@ private void showDownloadSettingsPanel() {
                 .setSingleChoiceItems(labels, checked, (d, which) -> {
                     downloadSpeedLimitKBps = values[which];
                     saveSettings();
-                    Toast.makeText(this, "Speed limiter: " + labels[which], Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, "Speed limiter: " + labels[which], QuietToast.LENGTH_SHORT).show();
                     d.dismiss();
                     if (advancedDialog != null) advancedDialog.dismiss();
                     showAdvancedDownloadFeaturesDialog(parentDialog);
@@ -3732,7 +3738,7 @@ private void showDownloadSettingsPanel() {
         close.setOnClickListener(v -> {
             videoControlsManualHidden = true;
             if (videoControlsBar != null) videoControlsBar.setVisibility(View.GONE);
-            Toast.makeText(this, "Kontrol video disembunyikan. Ketuk video untuk munculkan lagi.", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Kontrol video disembunyikan. Ketuk video untuk munculkan lagi.", QuietToast.LENGTH_SHORT).show();
             mainHandler.postDelayed(() -> {
                 videoControlsManualHidden = false;
                 checkAndShowVideoControls();
@@ -3851,7 +3857,7 @@ private void showDownloadSettingsPanel() {
 
     private void seekVideoBySeconds(int seconds) {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka video dulu", QuietToast.LENGTH_SHORT).show();
             return;
         }
         String js = "javascript:(function(){var v=document.querySelector('video');if(v){try{v.currentTime=Math.max(0,Math.min((v.duration||999999),v.currentTime+" + seconds + "));}catch(e){} }})()";
@@ -3934,7 +3940,7 @@ private void showDownloadSettingsPanel() {
             updateVideoModeToggleButton();
             videoControlsManualHidden = false;
             mainHandler.postDelayed(() -> { updateVideoModeToggleButton(); checkAndShowVideoControls(); }, 180);
-            Toast.makeText(this, "Keluar dari fullscreen video", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Keluar dari fullscreen video", QuietToast.LENGTH_SHORT).show();
         } catch (Exception e) {
             try {
                 restoreAfterVideoFullscreen();
@@ -3944,7 +3950,7 @@ private void showDownloadSettingsPanel() {
     }
     private void enterVideoFullscreen() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka video dulu", QuietToast.LENGTH_SHORT).show();
             return;
         }
 
@@ -4015,7 +4021,7 @@ private void showDownloadSettingsPanel() {
             videoControlsManualHidden = false;
             checkAndShowVideoControls();
         } catch (Exception e) {
-            Toast.makeText(this, "Mode fullscreen tidak didukung di halaman ini", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Mode fullscreen tidak didukung di halaman ini", QuietToast.LENGTH_SHORT).show();
         }
     }
     private void restoreAfterVideoFullscreen() {
@@ -4152,7 +4158,7 @@ private void showDownloadSettingsPanel() {
         box.addView(videoOptSwitchRow("Minimize normal / tanpa floating", "Saat tombol Home/Recent Android ditekan, Yield tidak jadi jendela melayang dan akan balik ke tampilan terakhir.", !videoFloatingPlayer, v -> {
             videoFloatingPlayer = false;
             saveSettings();
-            Toast.makeText(this, "Minimize normal aktif", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Minimize normal aktif", QuietToast.LENGTH_SHORT).show();
         }));
 
         box.addView(videoOptSwitchRow("Background play ringan", "Video tidak dipaksa pause saat aplikasi masuk background jika WebView mendukung.", videoBackgroundPlay, v -> {
@@ -4271,7 +4277,7 @@ private void showDownloadSettingsPanel() {
             webView.evaluateJavascript("(function(){try{return (window.__yieldVideoQualities||[]).join(', ');}catch(e){return '';}})()", value -> {
                 String result = value == null ? "" : value.replace("\"", "");
                 if (result.length() > 0) {
-                    Toast.makeText(this, "Kualitas terdeteksi: " + result + "p", Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, "Kualitas terdeteksi: " + result + "p", QuietToast.LENGTH_SHORT).show();
                 }
             });
         } catch (Exception ignored) {
@@ -4280,7 +4286,7 @@ private void showDownloadSettingsPanel() {
 
     private void showVideoQualityDialog() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka video dulu", QuietToast.LENGTH_SHORT).show();
             return;
         }
 
@@ -4316,7 +4322,7 @@ private void showDownloadSettingsPanel() {
             try {
                 webView.evaluateJavascript("(function(){try{if(window.videojs){var ps=window.videojs.getPlayers?window.videojs.getPlayers():{};for(var k in ps){var p=ps[k];if(p&&p.qualityLevels){var ql=p.qualityLevels();for(var i=0;i<ql.length;i++)ql[i].enabled=true;}}}return 'auto';}catch(e){return 'auto_err';}})()", null);
             } catch (Exception ignored) {}
-            Toast.makeText(this, "Kualitas video: Auto", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Kualitas video: Auto", QuietToast.LENGTH_SHORT).show();
             return;
         }
 
@@ -4350,21 +4356,21 @@ private void showDownloadSettingsPanel() {
             webView.evaluateJavascript(js, value -> {
                 String result = value == null ? "" : value.replace("\"", "");
                 if (result.contains("changed") || result.contains("clicked") || result.contains("already")) {
-                    Toast.makeText(this, "Kualitas video: " + selectedVideoQuality, Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, "Kualitas video: " + selectedVideoQuality, QuietToast.LENGTH_SHORT).show();
                 } else if (result.contains("no_video")) {
-                    Toast.makeText(this, "Video belum ditemukan", Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, "Video belum ditemukan", QuietToast.LENGTH_SHORT).show();
                 } else {
-                    Toast.makeText(this, "Kualitas " + selectedVideoQuality + " tidak tersedia di player ini", Toast.LENGTH_LONG).show();
+                    QuietToast.makeText(this, "Kualitas " + selectedVideoQuality + " tidak tersedia di player ini", QuietToast.LENGTH_LONG).show();
                 }
             });
         } catch (Exception e) {
-            Toast.makeText(this, "Gagal mengubah kualitas video", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Gagal mengubah kualitas video", QuietToast.LENGTH_SHORT).show();
         }
     }
 
     private void showVideoSpeedDialog() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka video dulu", QuietToast.LENGTH_SHORT).show();
             return;
         }
 
@@ -4393,7 +4399,7 @@ private void showDownloadSettingsPanel() {
         String speedText = String.valueOf(videoSpeed);
         webView.loadUrl("javascript:(function(){var v=document.querySelector('video');if(v){v.playbackRate=" + speedText + ";}})()");
         saveSettings();
-        Toast.makeText(this, "Speed video: " + formatVideoSpeed(videoSpeed), Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, "Speed video: " + formatVideoSpeed(videoSpeed), QuietToast.LENGTH_SHORT).show();
     }
 
     private void injectVideoPlaybackWatcher() {
@@ -4442,7 +4448,7 @@ private void showDownloadSettingsPanel() {
     private void controlVideo(String action) {
         injectVideoPlaybackWatcher();
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, "Buka video dulu", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka video dulu", QuietToast.LENGTH_SHORT).show();
             return;
         }
 
@@ -4474,8 +4480,8 @@ private void showDownloadSettingsPanel() {
 
     private void showHistoryPanel() {
         if (dedicatedPrivateProfile || isCurrentPrivateTab()) {
-            Toast.makeText(this, "Riwayat tidak disimpan dalam mode Privat",
-                    Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Riwayat tidak disimpan dalam mode Privat",
+                    QuietToast.LENGTH_SHORT).show();
             return;
         }
         initializeHistoryEngineV2();
@@ -4561,8 +4567,8 @@ private void showDownloadSettingsPanel() {
                 updateActiveHistoryEmptyState();
                 historyRepository.deleteById(item.id, success -> {
                     if (!success) {
-                        Toast.makeText(MainActivity.this,
-                                "Riwayat gagal dihapus. Daftar dimuat ulang.", Toast.LENGTH_SHORT).show();
+                        QuietToast.makeText(MainActivity.this,
+                                "Riwayat gagal dihapus. Daftar dimuat ulang.", QuietToast.LENGTH_SHORT).show();
                         resetActiveHistoryQuery(activeHistoryQuery);
                     }
                 });
@@ -4984,13 +4990,13 @@ private void showDownloadSettingsPanel() {
         menu.setOnMenuItemClickListener(mi -> {
             String t = String.valueOf(mi.getTitle());
             if ("Pilih".equals(t)) {
-                Toast.makeText(this, "Mode pilih bookmark aktif", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Mode pilih bookmark aktif", QuietToast.LENGTH_SHORT).show();
             } else if ("Edit".equals(t)) {
                 showEditBookmarkDialog(item, dialog, refresh);
             } else if ("Salin link".equals(t)) {
                 ClipboardManager cb = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 if (cb != null) cb.setPrimaryClip(ClipData.newPlainText("bookmark", item.url));
-                Toast.makeText(this, "Link bookmark disalin", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Link bookmark disalin", QuietToast.LENGTH_SHORT).show();
             } else if ("Pindahkan ke...".equals(t)) {
                 showMoveBookmarkDialog(item, dialog, refresh);
             } else if ("Hapus".equals(t)) {
@@ -5067,7 +5073,7 @@ private void showDownloadSettingsPanel() {
                     java.util.Set<String> folders = new java.util.LinkedHashSet<>(getBookmarkFolders());
                     folders.add(name);
                     getSharedPreferences(PREFS, MODE_PRIVATE).edit().putStringSet(KEY_BOOKMARK_FOLDERS, new java.util.LinkedHashSet<>(folders)).apply();
-                    Toast.makeText(this, "Folder ditambahkan", Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, "Folder ditambahkan", QuietToast.LENGTH_SHORT).show();
                     if (onDone != null) onDone.run();
                 })
                 .setNegativeButton("Batal", null)
@@ -5086,7 +5092,7 @@ private void showDownloadSettingsPanel() {
                 java.util.Collections.sort(bookmarkData, (a,b) -> Long.compare(b.time, a.time));
             }
             saveBookmarkData();
-            Toast.makeText(this, "Urutan bookmark diperbarui", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Urutan bookmark diperbarui", QuietToast.LENGTH_SHORT).show();
             return true;
         });
         menu.show();
@@ -5098,7 +5104,7 @@ private void showDownloadSettingsPanel() {
         menu.getMenu().add("Tutup");
         menu.setOnMenuItemClickListener(mi -> {
             if ("Tutup".equals(String.valueOf(mi.getTitle()))) dialog.dismiss();
-            else Toast.makeText(this, "Mode pilih bookmark aktif", Toast.LENGTH_SHORT).show();
+            else QuietToast.makeText(this, "Mode pilih bookmark aktif", QuietToast.LENGTH_SHORT).show();
             return true;
         });
         menu.show();
@@ -5108,7 +5114,7 @@ private void showDownloadSettingsPanel() {
         try {
             if (openNext != null) openNext.run();
         } catch (Exception e) {
-            Toast.makeText(this, "Gagal membuka menu: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Gagal membuka menu: " + e.getMessage(), QuietToast.LENGTH_SHORT).show();
         }
 
         if (currentDialog != null) {
@@ -5207,7 +5213,7 @@ private void showDownloadSettingsPanel() {
 
     private void showFindInPageDialog() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, "Buka halaman dulu untuk mencari teks", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka halaman dulu untuk mencari teks", QuietToast.LENGTH_SHORT).show();
             return;
         }
 
@@ -5228,7 +5234,7 @@ private void showDownloadSettingsPanel() {
                     if (q.length() == 0) return;
                     webView.setFindListener((activeMatchOrdinal, numberOfMatches, isDoneCounting) -> {
                         if (isDoneCounting) {
-                            Toast.makeText(this, numberOfMatches + " hasil ditemukan", Toast.LENGTH_SHORT).show();
+                            QuietToast.makeText(this, numberOfMatches + " hasil ditemukan", QuietToast.LENGTH_SHORT).show();
                         }
                     });
                     webView.findAllAsync(q);
@@ -5241,7 +5247,7 @@ private void showDownloadSettingsPanel() {
     private void shareCurrentPage() {
         String url = getEffectiveCurrentUrl();
         if (url == null || url.length() == 0) {
-            Toast.makeText(this, "Belum ada halaman untuk dibagikan", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Belum ada halaman untuk dibagikan", QuietToast.LENGTH_SHORT).show();
             return;
         }
         Intent send = new Intent(Intent.ACTION_SEND);
@@ -5253,13 +5259,13 @@ private void showDownloadSettingsPanel() {
     private void copyCurrentLink() {
         String url = getEffectiveCurrentUrl();
         if (url == null || url.length() == 0) {
-            Toast.makeText(this, "Belum ada link untuk disalin", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Belum ada link untuk disalin", QuietToast.LENGTH_SHORT).show();
             return;
         }
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
         if (clipboard != null) {
             clipboard.setPrimaryClip(ClipData.newPlainText("Yield Browser URL", url));
-            Toast.makeText(this, "Link disalin", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Link disalin", QuietToast.LENGTH_SHORT).show();
         }
     }
 
@@ -5288,7 +5294,7 @@ private void showDownloadSettingsPanel() {
                             View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
                             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             );
-            Toast.makeText(this, "Mode layar penuh aktif. Tekan Back untuk keluar.", Toast.LENGTH_LONG).show();
+            QuietToast.makeText(this, "Mode layar penuh aktif. Tekan Back untuk keluar.", QuietToast.LENGTH_LONG).show();
         } else {
             exitFullscreenMode();
         }
@@ -5302,7 +5308,7 @@ private void showDownloadSettingsPanel() {
 
     private void saveCurrentPageOffline() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, "Buka halaman dulu untuk disimpan", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka halaman dulu untuk disimpan", QuietToast.LENGTH_SHORT).show();
             return;
         }
         try {
@@ -5311,9 +5317,9 @@ private void showDownloadSettingsPanel() {
             String safeName = "page_" + System.currentTimeMillis() + ".mht";
             File out = new File(dir, safeName);
             webView.saveWebArchive(out.getAbsolutePath());
-            Toast.makeText(this, "Halaman disimpan: " + out.getName(), Toast.LENGTH_LONG).show();
+            QuietToast.makeText(this, "Halaman disimpan: " + out.getName(), QuietToast.LENGTH_LONG).show();
         } catch (Exception e) {
-            Toast.makeText(this, "Gagal menyimpan halaman: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Gagal menyimpan halaman: " + e.getMessage(), QuietToast.LENGTH_SHORT).show();
         }
     }
 
@@ -5457,10 +5463,10 @@ private void showDownloadSettingsPanel() {
                     }
                 } catch (Exception ignored) {
                 }
-                Toast.makeText(this, "Semua riwayat telah dihapus", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Semua riwayat telah dihapus", QuietToast.LENGTH_SHORT).show();
                 if (afterClear != null) afterClear.run();
             } else {
-                Toast.makeText(this, "Riwayat gagal dihapus", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Riwayat gagal dihapus", QuietToast.LENGTH_SHORT).show();
                 resetActiveHistoryQuery(activeHistoryQuery);
             }
         });
@@ -5588,7 +5594,7 @@ private void showDownloadSettingsPanel() {
             textZoom = selectedZoom[0];
             applyBrowserSettings();
             saveSettings();
-            Toast.makeText(this, "Ukuran teks: " + textZoom + "%", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Ukuran teks: " + textZoom + "%", QuietToast.LENGTH_SHORT).show();
             dialog.dismiss();
             parentDialog.dismiss();
             showSettingsPanel();
@@ -5686,7 +5692,7 @@ private void showDownloadSettingsPanel() {
             downloadSubfolder = value;
             selectedDownloadTreeUri = "";
             saveSettings();
-            Toast.makeText(this, "Default: Download/Yield Browser", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Default: Download/Yield Browser", QuietToast.LENGTH_SHORT).show();
             dialog.dismiss();
             if (parentDialog != null) {
                 parentDialog.dismiss();
@@ -5710,7 +5716,7 @@ private void showDownloadSettingsPanel() {
             value = value.replace("/", "-").replace("\\", "-");
             downloadSubfolder = value;
             saveSettings();
-            Toast.makeText(this, "Subfolder staging disimpan", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Subfolder staging disimpan", QuietToast.LENGTH_SHORT).show();
             dialog.dismiss();
             if (parentDialog != null) {
                 parentDialog.dismiss();
@@ -5760,7 +5766,7 @@ private void showDownloadSettingsPanel() {
                     | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
             startActivityForResult(intent, REQ_PICK_DOWNLOAD_FOLDER);
         } catch (Exception e) {
-            Toast.makeText(this, "Pemilih folder tidak tersedia", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Pemilih folder tidak tersedia", QuietToast.LENGTH_SHORT).show();
         }
     }
 
@@ -6641,20 +6647,20 @@ private void showDownloadSettingsPanel() {
     private void shareSelectedDownloads() {
         ArrayList<DownloadItem> selected = getSelectedDownloads();
         if (selected.isEmpty()) {
-            Toast.makeText(this, "Belum ada file dipilih", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Belum ada file dipilih", QuietToast.LENGTH_SHORT).show();
             return;
         }
         if (selected.size() == 1) {
             shareDownloadedFile(selected.get(0));
             return;
         }
-        Toast.makeText(this, "Bagikan multi-file akan disempurnakan setelah FileProvider aktif", Toast.LENGTH_LONG).show();
+        QuietToast.makeText(this, "Bagikan multi-file akan disempurnakan setelah FileProvider aktif", QuietToast.LENGTH_LONG).show();
     }
 
     private void deleteSelectedDownloads() {
         ArrayList<DownloadItem> selected = getSelectedDownloads();
         if (selected.isEmpty()) {
-            Toast.makeText(this, "Belum ada file dipilih", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Belum ada file dipilih", QuietToast.LENGTH_SHORT).show();
             return;
         }
         new AlertDialog.Builder(this)
@@ -6854,7 +6860,7 @@ private void showDownloadSettingsPanel() {
         saveDownloadHistory();
         refreshDownloadPanel();
         updateDownloadKeepAliveState();
-        Toast.makeText(this, "Semua download dijeda", Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, "Semua download dijeda", QuietToast.LENGTH_SHORT).show();
     }
 
     private void resumeAllDownloads() {
@@ -6871,7 +6877,7 @@ private void showDownloadSettingsPanel() {
         }
         saveDownloadHistory();
         refreshDownloadPanel();
-        Toast.makeText(this, "Semua download masuk antrian", Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, "Semua download masuk antrian", QuietToast.LENGTH_SHORT).show();
         pumpDownloadQueue();
     }
 
@@ -6894,7 +6900,7 @@ private void showDownloadSettingsPanel() {
         activeDownloadSort = "Antrian";
         saveDownloadHistory();
         refreshDownloadPanel();
-        Toast.makeText(this, "File diprioritaskan", Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, "File diprioritaskan", QuietToast.LENGTH_SHORT).show();
         if (startIfPossible) pumpDownloadQueue();
     }
 
@@ -6911,7 +6917,7 @@ private void showDownloadSettingsPanel() {
         activeDownloadSort = "Antrian";
         saveDownloadHistory();
         refreshDownloadPanel();
-        Toast.makeText(this, direction < 0 ? "Naik antrian" : "Turun antrian", Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, direction < 0 ? "Naik antrian" : "Turun antrian", QuietToast.LENGTH_SHORT).show();
     }
 
     private void handleDownloadPrimaryAction(DownloadItem item) {
@@ -6941,7 +6947,7 @@ private void showDownloadSettingsPanel() {
                 openDownloadedFile(item);
             }
         } catch (Exception e) {
-            Toast.makeText(this, "Aksi download gagal: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Aksi download gagal: " + e.getMessage(), QuietToast.LENGTH_SHORT).show();
         }
 
         refreshDownloadPanel();
@@ -6970,7 +6976,7 @@ private void showDownloadSettingsPanel() {
         refreshDownloadPanel();
         updateDownloadKeepAliveState();
         showDownloadNotification(item, "Unduhan dijeda", false);
-        Toast.makeText(this, "Unduhan dijeda", Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, "Unduhan dijeda", QuietToast.LENGTH_SHORT).show();
         mainHandler.postDelayed(this::pumpDownloadQueue, 250);
     }
 
@@ -7005,7 +7011,7 @@ private void showDownloadSettingsPanel() {
                 item.engineInfo = "Melanjutkan koneksi";
                 saveDownloadHistory();
                 refreshDownloadPanel();
-                Toast.makeText(this, "Melanjutkan unduhan", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Melanjutkan unduhan", QuietToast.LENGTH_SHORT).show();
                 startQueuedDownloadNow(item);
             } else {
                 item.status = "queued";
@@ -7013,7 +7019,7 @@ private void showDownloadSettingsPanel() {
                 saveDownloadHistory();
                 refreshDownloadPanel();
                 showDownloadNotification(item, "Masuk antrian", true);
-                Toast.makeText(this, "Slot penuh, unduhan masuk antrian", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Slot penuh, unduhan masuk antrian", QuietToast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             failDownload(item, e.getMessage());
@@ -7060,7 +7066,7 @@ private void showDownloadSettingsPanel() {
             refreshDownloadPanel();
             updateDownloadKeepAliveState();
             showDownloadNotification(item, "Masuk antrian reload", true);
-            Toast.makeText(this, "Download dimulai ulang dan masuk antrian", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Download dimulai ulang dan masuk antrian", QuietToast.LENGTH_SHORT).show();
             enqueueOrStartDownload(item, out);
         } catch (Exception e) {
             failDownload(item, e.getMessage());
@@ -7167,11 +7173,11 @@ private void showDownloadSettingsPanel() {
         if (item == null) return;
         if (!canPlayDownloadInsideYield(item)) {
             if (item.hlsDownload || looksLikeHlsDownload(item.url, item.fileName)) {
-                Toast.makeText(this, "Video HLS dapat dibuka setelah proses penggabungan selesai",
-                        Toast.LENGTH_LONG).show();
+                QuietToast.makeText(this, "Video HLS dapat dibuka setelah proses penggabungan selesai",
+                        QuietToast.LENGTH_LONG).show();
             } else {
-                Toast.makeText(this, "Format ini belum mendukung putar sambil mengunduh",
-                        Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Format ini belum mendukung putar sambil mengunduh",
+                        QuietToast.LENGTH_SHORT).show();
             }
             return;
         }
@@ -7187,8 +7193,8 @@ private void showDownloadSettingsPanel() {
                     dedicatedPrivateProfile || isCurrentPrivateTab());
             startActivity(intent);
         } catch (Exception e) {
-            Toast.makeText(this, "Player belum dapat dibuka: " + safeText(e.getMessage()),
-                    Toast.LENGTH_LONG).show();
+            QuietToast.makeText(this, "Player belum dapat dibuka: " + safeText(e.getMessage()),
+                    QuietToast.LENGTH_LONG).show();
         }
     }
 
@@ -7196,7 +7202,7 @@ private void showDownloadSettingsPanel() {
         try {
             Uri uri = getBestDownloadUri(item);
             if (uri == null) {
-                Toast.makeText(this, "File tidak ditemukan", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "File tidak ditemukan", QuietToast.LENGTH_SHORT).show();
                 return;
             }
             try {
@@ -7208,13 +7214,13 @@ private void showDownloadSettingsPanel() {
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivity(Intent.createChooser(intent, "Bagikan file"));
         } catch (Exception e) {
-            Toast.makeText(this, "Gagal membagikan file", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Gagal membagikan file", QuietToast.LENGTH_SHORT).show();
         }
     }
 
     private void renameDownloadedFile(DownloadItem item) {
         if (item == null || getBestDownloadUri(item) == null) {
-            Toast.makeText(this, "File tidak ditemukan", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "File tidak ditemukan", QuietToast.LENGTH_SHORT).show();
             return;
         }
 
@@ -7229,7 +7235,7 @@ private void showDownloadSettingsPanel() {
                 .setPositiveButton("Simpan", (dialog, which) -> {
                     String newName = input.getText().toString().trim();
                     if (newName.isEmpty()) {
-                        Toast.makeText(this, "Nama file kosong", Toast.LENGTH_SHORT).show();
+                        QuietToast.makeText(this, "Nama file kosong", QuietToast.LENGTH_SHORT).show();
                         return;
                     }
                     try {
@@ -7262,12 +7268,12 @@ private void showDownloadSettingsPanel() {
                             item.fileName = newName;
                             saveDownloadHistory();
                             renderDownloadList();
-                            Toast.makeText(this, "Nama file diperbarui", Toast.LENGTH_SHORT).show();
+                            QuietToast.makeText(this, "Nama file diperbarui", QuietToast.LENGTH_SHORT).show();
                         } else {
-                            Toast.makeText(this, "Gagal mengganti nama", Toast.LENGTH_SHORT).show();
+                            QuietToast.makeText(this, "Gagal mengganti nama", QuietToast.LENGTH_SHORT).show();
                         }
                     } catch (Exception e) {
-                        Toast.makeText(this, "Gagal mengganti nama", Toast.LENGTH_SHORT).show();
+                        QuietToast.makeText(this, "Gagal mengganti nama", QuietToast.LENGTH_SHORT).show();
                     }
                 })
                 .setNegativeButton("Batal", null)
@@ -7300,7 +7306,7 @@ private void showDownloadSettingsPanel() {
         renderDownloadList();
         updateDownloadKeepAliveState();
         mainHandler.post(this::pumpDownloadQueue);
-        Toast.makeText(this, deleteFile ? "File + riwayat dihapus" : "Riwayat dihapus", Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, deleteFile ? "File + riwayat dihapus" : "Riwayat dihapus", QuietToast.LENGTH_SHORT).show();
     }
 
     private Uri getBestDownloadUri(DownloadItem item) {
@@ -7322,7 +7328,7 @@ private void showDownloadSettingsPanel() {
         try {
             Uri uri = getBestDownloadUri(item);
             if (uri == null) {
-                Toast.makeText(this, "File tidak ditemukan", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "File tidak ditemukan", QuietToast.LENGTH_SHORT).show();
                 return;
             }
             try {
@@ -7336,7 +7342,7 @@ private void showDownloadSettingsPanel() {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivity(intent);
         } catch (Exception e) {
-            Toast.makeText(this, "Tidak ada aplikasi untuk membuka file ini", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Tidak ada aplikasi untuk membuka file ini", QuietToast.LENGTH_SHORT).show();
         }
     }
 
@@ -7397,7 +7403,7 @@ private void showDownloadSettingsPanel() {
             showDownloadStartedBanner(item);
             enqueueOrStartDownload(item, out);
         } catch (Exception e) {
-            Toast.makeText(this, "Gagal memulai unduhan: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Gagal memulai unduhan: " + e.getMessage(), QuietToast.LENGTH_SHORT).show();
         }
     }
 
@@ -7406,7 +7412,7 @@ private void showDownloadSettingsPanel() {
     private void showDownloadStartedBanner(DownloadItem item) {
         runOnUiThread(() -> {
             if (contentFrame == null || item == null) {
-                Toast.makeText(this, "Unduhan dimulai", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Unduhan dimulai", QuietToast.LENGTH_SHORT).show();
                 return;
             }
             LinearLayout banner = new LinearLayout(this);
@@ -9115,8 +9121,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         refreshDownloadPanel();
         updateDownloadKeepAliveState();
         showDownloadNotification(item, exported ? "Unduhan selesai" : "Unduhan selesai • penyimpanan lokal", false);
-        runOnUiThread(() -> Toast.makeText(this, "Unduhan selesai: " + item.fileName,
-                Toast.LENGTH_SHORT).show());
+        runOnUiThread(() -> QuietToast.makeText(this, "Unduhan selesai: " + item.fileName,
+                QuietToast.LENGTH_SHORT).show());
         mainHandler.postDelayed(this::pumpDownloadQueue, 180L);
     }
 
@@ -9295,8 +9301,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         refreshDownloadPanel();
         updateDownloadKeepAliveState();
         showDownloadNotification(item, "Unduhan gagal • buka detail", false);
-        runOnUiThread(() -> Toast.makeText(this,
-                "Unduhan gagal. Buka Download untuk reload/detail.", Toast.LENGTH_LONG).show());
+        runOnUiThread(() -> QuietToast.makeText(this,
+                "Unduhan gagal. Buka Download untuk reload/detail.", QuietToast.LENGTH_LONG).show());
         mainHandler.postDelayed(this::pumpDownloadQueue, 300);
     }
 
@@ -9431,19 +9437,19 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private void toggleBookmark() {
         String url = getEffectiveCurrentUrl();
         if (url == null || url.length() == 0) {
-            Toast.makeText(this, "Belum ada situs untuk dibookmark", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Belum ada situs untuk dibookmark", QuietToast.LENGTH_SHORT).show();
             return;
         }
         BookmarkItemData existing = findBookmarkByUrl(url);
         if (existing != null) {
             bookmarkData.remove(existing);
             saveBookmarkData();
-            Toast.makeText(this, "Bookmark dihapus", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Bookmark dihapus", QuietToast.LENGTH_SHORT).show();
         } else {
             String title = (webView != null && webView.getTitle() != null && webView.getTitle().trim().length() > 0) ? webView.getTitle().trim() : guessLabelFromUrl(url);
             bookmarkData.add(0, new BookmarkItemData(title, url, "Bookmark seluler", System.currentTimeMillis()));
             saveBookmarkData();
-            Toast.makeText(this, "Situs ditambahkan ke bookmark", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Situs ditambahkan ke bookmark", QuietToast.LENGTH_SHORT).show();
         }
         updateTopActionStates();
     }
@@ -9489,7 +9495,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     translateTargetLang = codes[which];
                     translateTargetLabel = labels[which];
                     saveSettings();
-                    Toast.makeText(this, "Bahasa translate: " + translateTargetLabel, Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, "Bahasa translate: " + translateTargetLabel, QuietToast.LENGTH_SHORT).show();
 
                     if (translateEnabled && compatibleTranslateActive && !translateManuallyDisabled) {
                         clearCompatibleTranslationMarks();
@@ -9533,7 +9539,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         showTranslateLanguageDialog();
                     } else if (selected.startsWith("Terjemahkan halaman")) {
                         if (original == null || original.length() == 0) {
-                            Toast.makeText(this, "Buka website dulu untuk translate", Toast.LENGTH_SHORT).show();
+                            QuietToast.makeText(this, "Buka website dulu untuk translate", QuietToast.LENGTH_SHORT).show();
                             return;
                         }
                         startCompatibleTranslateSession(original);
@@ -9543,7 +9549,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         continueCompatibleTranslation();
                     } else if (selected.startsWith("Google Translate proxy")) {
                         if (original == null || original.length() == 0) {
-                            Toast.makeText(this, "Buka website dulu untuk translate", Toast.LENGTH_SHORT).show();
+                            QuietToast.makeText(this, "Buka website dulu untuk translate", QuietToast.LENGTH_SHORT).show();
                             return;
                         }
                         startGoogleTranslateSession(original);
@@ -9553,19 +9559,19 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         hideGoogleTranslateBar = false;
                         saveSettings();
                         showGoogleTranslateBar();
-                        Toast.makeText(this, "Bar Google Translate ditampilkan", Toast.LENGTH_SHORT).show();
+                        QuietToast.makeText(this, "Bar Google Translate ditampilkan", QuietToast.LENGTH_SHORT).show();
                     } else if (selected.startsWith("Sembunyikan bar")) {
                         hideGoogleTranslateBar = true;
                         saveSettings();
                         unblockTranslatedPageClicks();
-                        Toast.makeText(this, "Bar Google Translate disembunyikan dan klik website diaktifkan", Toast.LENGTH_SHORT).show();
+                        QuietToast.makeText(this, "Bar Google Translate disembunyikan dan klik website diaktifkan", QuietToast.LENGTH_SHORT).show();
                     } else if (selected.startsWith("Terjemahkan teks")) {
                         translatePageTextOnly();
                     } else if (selected.startsWith("Reload")) {
                         reloadCurrentWebsite();
                     } else if (selected.startsWith("Aktifkan klik")) {
                         unblockTranslatedPageClicks();
-                        Toast.makeText(this, "Klik menu website diaktifkan", Toast.LENGTH_SHORT).show();
+                        QuietToast.makeText(this, "Klik menu website diaktifkan", QuietToast.LENGTH_SHORT).show();
                     } else if (selected.startsWith("Matikan")) {
                         disableTranslateAndRestore(current);
                     }
@@ -9604,7 +9610,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             webView.evaluateJavascript("(function(){var t=(document.body&&document.body.innerText?document.body.innerText:'').toLowerCase();return t.indexOf('aku bukan robot')>-1||t.indexOf('not a robot')>-1||t.indexOf('captcha')>-1||t.indexOf('verify')>-1;})()", value -> {
                 if ("true".equals(value)) {
                     if (!translateEnabled || translateManuallyDisabled) return;
-                    Toast.makeText(this, "Website menolak Google Translate. Beralih ke mode kompatibel.", Toast.LENGTH_LONG).show();
+                    QuietToast.makeText(this, "Website menolak Google Translate. Beralih ke mode kompatibel.", QuietToast.LENGTH_LONG).show();
                     String raw = lastTranslateOriginalUrl != null && lastTranslateOriginalUrl.length() > 0 ? lastTranslateOriginalUrl : getOriginalForTranslate(url);
                     if (raw != null && raw.length() > 0) {
                         startCompatibleTranslateSession(raw);
@@ -9648,7 +9654,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             loadBrowserUrl(raw);
         }
         lastTranslateOriginalUrl = "";
-        Toast.makeText(this, "Translate dimatikan", Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, "Translate dimatikan", QuietToast.LENGTH_SHORT).show();
     }
 
     private boolean isCompatibleTranslateAllowed(int token) {
@@ -9675,7 +9681,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         if (lastCompatibleTranslateStartedAt > 0 && now - lastCompatibleTranslateStartedAt < 900) return;
         lastCompatibleTranslateStartedAt = now;
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, "Buka website dulu untuk translate kompatibel", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka website dulu untuk translate kompatibel", QuietToast.LENGTH_SHORT).show();
             return;
         }
 
@@ -9716,15 +9722,15 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (!isCompatibleTranslateAllowed(token)) return;
             runJsOnCurrentPage(js);
             updateTopActionStates();
-            Toast.makeText(this, "Translate kompatibel aktif ke " + translateTargetLabel, Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Translate kompatibel aktif ke " + translateTargetLabel, QuietToast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            Toast.makeText(this, "Translate kompatibel gagal", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Translate kompatibel gagal", QuietToast.LENGTH_SHORT).show();
         }
     }
 
     private void continueCompatibleTranslation() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, "Buka website dulu", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka website dulu", QuietToast.LENGTH_SHORT).show();
             return;
         }
         startCompatibleTranslateSession(getOriginalForTranslate(getEffectiveCurrentUrl()));
@@ -9804,7 +9810,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             String encoded = URLEncoder.encode(originalUrl, "UTF-8");
             loadBrowserUrl("https://translate.google.com/translate?sl=auto&tl=" + translateTargetLang + "&u=" + encoded);
             updateTopActionStates();
-            Toast.makeText(this, "Membuka Google Translate ke " + translateTargetLabel, Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Membuka Google Translate ke " + translateTargetLabel, QuietToast.LENGTH_SHORT).show();
         } catch (Exception e) {
             loadBrowserUrl(originalUrl);
         }
@@ -9866,7 +9872,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private void translatePageTextOnly() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, "Buka halaman dulu", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka halaman dulu", QuietToast.LENGTH_SHORT).show();
             return;
         }
         try {
@@ -9876,7 +9882,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     if (text.startsWith("\"") && text.endsWith("\"")) text = text.substring(1, text.length() - 1);
                     text = text.replace("\\n", "\n").replace("\\\"", "\"").replace("\\u003C", "<");
                     if (text.trim().length() == 0) {
-                        Toast.makeText(this, "Teks halaman tidak terbaca", Toast.LENGTH_SHORT).show();
+                        QuietToast.makeText(this, "Teks halaman tidak terbaca", QuietToast.LENGTH_SHORT).show();
                         return;
                     }
                     startGoogleTranslateSession(getOriginalForTranslate(getEffectiveCurrentUrl()));
@@ -9884,13 +9890,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     updateTopActionStates();
                     String encoded = URLEncoder.encode(text, "UTF-8");
                     loadBrowserUrl("https://translate.google.com/?sl=auto&tl=" + translateTargetLang + "&op=translate&text=" + encoded);
-                    Toast.makeText(this, "Menerjemahkan teks halaman ke " + translateTargetLabel, Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, "Menerjemahkan teks halaman ke " + translateTargetLabel, QuietToast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(this, "Gagal ambil teks halaman", Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, "Gagal ambil teks halaman", QuietToast.LENGTH_SHORT).show();
                 }
             });
         } catch (Exception e) {
-            Toast.makeText(this, "Translate teks tidak didukung di halaman ini", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Translate teks tidak didukung di halaman ini", QuietToast.LENGTH_SHORT).show();
         }
     }
 
@@ -9904,17 +9910,17 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 // v0.9.40: reload di browser mode harus hard reload, bukan webView.reload().
                 // webView.reload() sering memakai document/UA lama, jadi Desktop ON/OFF tidak langsung berubah.
                 hardReloadUrlWithCurrentBrowserMode(url, true);
-                Toast.makeText(this, desktopMode ? "Reload desktop mode" : "Reload mobile mode", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, desktopMode ? "Reload desktop mode" : "Reload mobile mode", QuietToast.LENGTH_SHORT).show();
             } else {
                 if (url != null && url.length() > 0) {
                     addressBar.setText(url);
                     openAddressBarUrl();
                 } else {
-                    Toast.makeText(this, "Belum ada website untuk reload", Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, "Belum ada website untuk reload", QuietToast.LENGTH_SHORT).show();
                 }
             }
         } catch (Exception e) {
-            Toast.makeText(this, "Gagal reload website", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Gagal reload website", QuietToast.LENGTH_SHORT).show();
         }
     }
 
@@ -9958,7 +9964,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         tabs.add(adTab);
         updateTabsCountUi();
 
-        Toast.makeText(this, "Direct link dibuka di tab baru", Toast.LENGTH_SHORT).show();
+        QuietToast.makeText(this, "Direct link dibuka di tab baru", QuietToast.LENGTH_SHORT).show();
 
         // Tetap tidak mengganggu tab utama. Jika auto-close aktif, tab iklan ditutup sedikit lebih lama
         // agar tidak terasa seperti flicker.
@@ -10051,7 +10057,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
             if (changed) {
                 updateTabsCountUi();
-                Toast.makeText(this, "Tab iklan otomatis ditutup", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Tab iklan otomatis ditutup", QuietToast.LENGTH_SHORT).show();
             }
         } catch (RuntimeException ignored) {
             // A stale WebView/tab must not interrupt browsing in the remaining tabs.
@@ -10151,14 +10157,14 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 try { if (Build.VERSION.SDK_INT >= 24 && request != null) hasGesture = request.hasGesture(); } catch (Exception ignored) {}
 
                 if (safeMode && isUnsafeUrl(u)) {
-                    Toast.makeText(MainActivity.this, "Diblokir Safe Browsing sederhana", Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(MainActivity.this, "Diblokir Safe Browsing sederhana", QuietToast.LENGTH_SHORT).show();
                     return true;
                 }
 
                 if (mainFrame && isTrustedDownloadIntentUrl(u)) {
                     markTrustedMainFrameNavigation(u);
                     prepareTabForMainFrameNavigation(requestTab, u);
-                    return false;
+                    return startHttpsFirstOverrideIfNeeded(view, u, requestTab);
                 }
 
                 // v0.9.45: direct image main-frame harus dicegat sebelum normal user navigation
@@ -10179,7 +10185,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     markTrustedMainFrameNavigation(u);
                     prepareTabForMainFrameNavigation(requestTab, u);
                     enableSiteCompatibilityModeForUrl(u);
-                    return false;
+                    return startHttpsFirstOverrideIfNeeded(view, u, requestTab);
                 }
 
                 // v0.9.46: strict compatibility navigation. Host utama dibiarkan jalan polos,
@@ -10200,7 +10206,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     markTrustedMainFrameNavigation(u);
                     prepareTabForMainFrameNavigation(requestTab, u);
                     if (isStrictSiteCompatibilityUrl(u)) enableSiteCompatibilityModeForUrl(u);
-                    return false;
+                    return startHttpsFirstOverrideIfNeeded(view, u, requestTab);
                 }
 
                 // v0.9.97: Compatibility Ad Shield. First-party reader navigation remains
@@ -10216,13 +10222,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     }
                     markTrustedMainFrameNavigation(u);
                     prepareTabForMainFrameNavigation(requestTab, u);
-                    return false;
+                    return startHttpsFirstOverrideIfNeeded(view, u, requestTab);
                 }
 
                 if (mainFrame && isNormalUserMainFrameNavigation(u, currentUrl, hasGesture)) {
                     markTrustedMainFrameNavigation(u);
                     prepareTabForMainFrameNavigation(requestTab, u);
-                    return false;
+                    return startHttpsFirstOverrideIfNeeded(view, u, requestTab);
                 }
 
                 if (request.isForMainFrame() && isExternalSchemeUrl(u)) {
@@ -10237,6 +10243,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     restoreAfterBlockedNavigation(view, u);
                     return true;
                 }
+                if (mainFrame) return startHttpsFirstOverrideIfNeeded(view, u, requestTab);
                 return false;
             }
 
@@ -10308,6 +10315,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     String errorText = error != null && error.getDescription() != null
                             ? String.valueOf(error.getDescription()).toLowerCase(Locale.US)
                             : "";
+                    if (request != null && request.isForMainFrame()
+                            && handleHttpsFirstMainFrameFailure(view, failedUrl, errorCode)) {
+                        return;
+                    }
                     if (request != null && request.isForMainFrame()
                             && isSiteCompatibilityModeActiveForUrl(failedUrl)) {
                         // Compatibility mode: biarkan WebView menampilkan hasil/error asli situs,
@@ -10434,6 +10445,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 String finalUrl = shownUrl != null ? shownUrl : url;
                 TabInfo commitOwner = findTabByWebView(view);
                 if (commitOwner == null) commitOwner = getCurrentTab();
+                handleHttpsFirstNavigationSuccess(commitOwner, finalUrl);
                 currentPageUrlForRequest = finalUrl;
                 if (commitOwner != null) commitOwner.currentPageUrlForRequest = finalUrl;
                 syncNightModeWebSettingsForUrl(finalUrl);
@@ -10470,6 +10482,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 String finalUrl = shownUrl != null ? shownUrl : url;
                 TabInfo currentTab = findTabByWebView(view);
                 if (currentTab == null) currentTab = getCurrentTab();
+                handleHttpsFirstNavigationSuccess(currentTab, finalUrl);
                 currentPageUrlForRequest = finalUrl;
                 if (currentTab != null) currentTab.currentPageUrlForRequest = finalUrl;
                 scheduleHorizontalGestureGuardCheck(finalUrl);
@@ -10814,22 +10827,22 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         box.addView(nightChoiceRow("OFF", "OFF".equals(nightModeOption), v -> {
             disableNightModeCompletely(true);
             updateTopActionStates();
-            Toast.makeText(this, "Mode Malam: OFF", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Mode Malam: OFF", QuietToast.LENGTH_SHORT).show();
         }));
         box.addView(nightChoiceRow("ON", "ON".equals(nightModeOption), v -> {
             setNightModeOptionAndApply("ON", true);
             updateTopActionStates();
-            Toast.makeText(this, "Mode Malam: ON", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Mode Malam: ON", QuietToast.LENGTH_SHORT).show();
         }));
         box.addView(nightChoiceRow("Auto ikut sistem", "AUTO".equals(nightModeOption), v -> {
             setNightModeOptionAndApply("AUTO", true);
             updateTopActionStates();
-            Toast.makeText(this, "Mode Malam: Auto ikut sistem", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Mode Malam: Auto ikut sistem", QuietToast.LENGTH_SHORT).show();
         }));
         box.addView(nightChoiceRow("Bersihkan style gelap halaman ini", false, v -> {
             disableNightModeCompletely(true);
             updateTopActionStates();
-            Toast.makeText(this, "Style gelap dibersihkan", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Style gelap dibersihkan", QuietToast.LENGTH_SHORT).show();
         }));
 
         LinearLayout buttons = new LinearLayout(this);
@@ -10918,7 +10931,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private void showNightModeExceptionDialog() {
         String host = getCurrentHostForSettings();
         if (host.length() == 0) {
-            Toast.makeText(this, "Buka situs dulu untuk mengatur pengecualian", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka situs dulu untuk mengatur pengecualian", QuietToast.LENGTH_SHORT).show();
             return;
         }
 
@@ -10936,7 +10949,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     saveSettings();
                     applyBrowserSettings();
                     scheduleNightModeSyncForPage(getEffectiveCurrentUrl());
-                    Toast.makeText(this, excepted ? "Pengecualian dihapus" : "Situs dikecualikan", Toast.LENGTH_SHORT).show();
+                    QuietToast.makeText(this, excepted ? "Pengecualian dihapus" : "Situs dikecualikan", QuietToast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Batal", null)
                 .show();
@@ -10949,6 +10962,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         String cleanUrl = url.trim();
         cleanUrl = normalizeUrlForCurrentBrowserMode(cleanUrl);
         if (cleanUrl == null || cleanUrl.length() == 0) return;
+        TabInfo activeLoadTab = getCurrentTab();
+        cleanUrl = prepareHttpsFirstNavigation(cleanUrl, activeLoadTab);
+        if (addressBar != null && webView.getVisibility() == View.VISIBLE) addressBar.setText(cleanUrl);
+        if (activeLoadTab != null && isHttpOrHttpsUrl(cleanUrl)) {
+            activeLoadTab.url = cleanUrl;
+            activeLoadTab.currentPageUrlForRequest = cleanUrl;
+        }
 
         String lower = cleanUrl.toLowerCase(Locale.US);
         if (lower.startsWith("javascript:") || lower.startsWith("about:") || lower.startsWith("data:")) {
@@ -10957,7 +10977,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
 
         try {
-            TabInfo activeLoadTab = getCurrentTab();
             currentPageUrlForRequest = cleanUrl;
             if (activeLoadTab != null) activeLoadTab.currentPageUrlForRequest = cleanUrl;
             markTrustedMainFrameNavigation(cleanUrl);
@@ -10985,12 +11004,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 headers.put("User-Agent", getDesktopUserAgent());
                 headers.put("Sec-CH-UA-Mobile", "?0");
                 headers.put("Sec-CH-UA-Platform", "\"Windows\"");
-                headers.put("Upgrade-Insecure-Requests", "1");
             } else {
                 headers.put("User-Agent", getMobileUserAgent());
                 headers.put("Sec-CH-UA-Mobile", "?1");
                 headers.put("Sec-CH-UA-Platform", "\"Android\"");
             }
+            headers.put("Upgrade-Insecure-Requests", "1");
             headers.put("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7");
             webView.loadUrl(cleanUrl, headers);
         } catch (Exception e) {
@@ -11043,7 +11062,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 if (!wasShowingWeb) showHome();
             }
 
-            Toast.makeText(this, desktopMode ? "Desktop mode aktif" : "Mode mobile aktif", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, desktopMode ? "Desktop mode aktif" : "Mode mobile aktif", QuietToast.LENGTH_SHORT).show();
         } catch (Exception e) {
             desktopMode = previousDesktopMode;
             try {
@@ -11230,7 +11249,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             }
             if (System.currentTimeMillis() - siteCompatibilityToastLastMs > 8000L) {
                 siteCompatibilityToastLastMs = System.currentTimeMillis();
-                Toast.makeText(this, "Mode kompatibel aktif untuk situs ini", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Mode kompatibel aktif untuk situs ini", QuietToast.LENGTH_SHORT).show();
             }
         } catch (Exception ignored) {
         }
@@ -11594,7 +11613,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             reloadLoopCount = 0;
             if ((now - reloadLoopToastLastMs) > 6000L) {
                 reloadLoopToastLastMs = now;
-                Toast.makeText(this, "Reload loop dicegah untuk situs ini", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Reload loop dicegah untuk situs ini", QuietToast.LENGTH_SHORT).show();
             }
             return true;
         }
@@ -11979,6 +11998,252 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         if (url == null) return false;
         String u = url.trim().toLowerCase(Locale.US);
         return u.startsWith("http://") || u.startsWith("https://");
+    }
+
+    // ===== HTTPS-First Navigation (v0.9.98) =====
+    private void clearAllHttpsFirstRuntimeState() {
+        try {
+            for (TabInfo tab : tabs) clearHttpsFirstPendingState(tab, true);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void clearHttpsFirstPendingState(TabInfo tab, boolean clearFallbackGuard) {
+        if (tab == null) return;
+        tab.pendingHttpsOriginalUrl = "";
+        tab.pendingHttpsUpgradeUrl = "";
+        tab.pendingHttpsStartedAtMs = 0L;
+        tab.httpsFallbackInProgress = false;
+        if (clearFallbackGuard) {
+            tab.httpsFallbackHost = "";
+            tab.httpsFallbackAllowedUntilMs = 0L;
+        }
+    }
+
+    private boolean isHttpUrl(String url) {
+        return url != null && url.trim().toLowerCase(Locale.US).startsWith("http://");
+    }
+
+    private boolean isHttpsUrl(String url) {
+        return url != null && url.trim().toLowerCase(Locale.US).startsWith("https://");
+    }
+
+    private boolean isPrivateIpv4Host(String host) {
+        try {
+            String[] parts = host.split("\\.");
+            if (parts.length != 4) return false;
+            int[] octets = new int[4];
+            for (int i = 0; i < 4; i++) {
+                if (parts[i].length() == 0 || parts[i].length() > 3) return false;
+                octets[i] = Integer.parseInt(parts[i]);
+                if (octets[i] < 0 || octets[i] > 255) return false;
+            }
+            return octets[0] == 10
+                    || octets[0] == 127
+                    || (octets[0] == 169 && octets[1] == 254)
+                    || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
+                    || (octets[0] == 192 && octets[1] == 168)
+                    || octets[0] == 0;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean isLocalOrPrivateHost(String host) {
+        if (host == null || host.trim().length() == 0) return true;
+        String h = host.trim().toLowerCase(Locale.US);
+        if (h.startsWith("[") && h.endsWith("]")) h = h.substring(1, h.length() - 1);
+        if (h.equals("localhost") || h.equals("::1") || h.equals("0:0:0:0:0:0:0:1")) return true;
+        if (h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".lan")
+                || h.endsWith(".home") || h.endsWith(".internal") || h.endsWith(".test")
+                || h.endsWith(".invalid") || h.endsWith(".onion")) return true;
+        if (!h.contains(".") && !h.contains(":")) return true;
+        if (isPrivateIpv4Host(h)) return true;
+        if (h.contains(":")) {
+            return h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe8")
+                    || h.startsWith("fe9") || h.startsWith("fea") || h.startsWith("feb");
+        }
+        return false;
+    }
+
+    private boolean isHttpsFirstExemptUrl(String url) {
+        try {
+            if (!isHttpUrl(url)) return true;
+            URI uri = new URI(url.trim());
+            String host = uri.getHost();
+            if (host == null || isLocalOrPrivateHost(host)) return true;
+            int port = uri.getPort();
+            return port != -1 && port != 80 && port != 443;
+        } catch (Exception ignored) {
+            return true;
+        }
+    }
+
+    private String buildHttpsUpgradeUrl(String httpUrl) {
+        try {
+            if (!isHttpUrl(httpUrl) || isHttpsFirstExemptUrl(httpUrl)) return httpUrl;
+            URI source = new URI(httpUrl.trim());
+            int sourcePort = source.getPort();
+            int securePort = sourcePort == 80 ? -1 : sourcePort;
+            URI secure = new URI(
+                    "https",
+                    source.getUserInfo(),
+                    source.getHost(),
+                    securePort,
+                    source.getPath(),
+                    source.getQuery(),
+                    source.getFragment());
+            return secure.toASCIIString();
+        } catch (Exception ignored) {
+            return httpUrl;
+        }
+    }
+
+    private boolean isHttpsFallbackGuardActive(TabInfo tab, String httpUrl) {
+        if (tab == null || !isHttpUrl(httpUrl)) return false;
+        if (System.currentTimeMillis() > tab.httpsFallbackAllowedUntilMs) return false;
+        String host = hostOfUrl(httpUrl);
+        return host.length() > 0 && host.equals(tab.httpsFallbackHost);
+    }
+
+    private String prepareHttpsFirstNavigation(String rawUrl, TabInfo tab) {
+        if (rawUrl == null) return null;
+        String clean = rawUrl.trim();
+        if (!httpsFirstEnabled || !isHttpUrl(clean) || isHttpsFirstExemptUrl(clean)) return clean;
+
+        if (tab != null && tab.httpsFallbackInProgress) {
+            String expected = tab.pendingHttpsOriginalUrl;
+            tab.httpsFallbackInProgress = false;
+            if (expected != null && expected.equals(clean)) {
+                tab.pendingHttpsOriginalUrl = "";
+                tab.pendingHttpsUpgradeUrl = "";
+                tab.pendingHttpsStartedAtMs = 0L;
+                return clean;
+            }
+        }
+        if (isHttpsFallbackGuardActive(tab, clean)) return clean;
+
+        String secure = buildHttpsUpgradeUrl(clean);
+        if (secure == null || secure.equals(clean)) return clean;
+        if (tab != null) {
+            tab.pendingHttpsOriginalUrl = clean;
+            tab.pendingHttpsUpgradeUrl = secure;
+            tab.pendingHttpsStartedAtMs = System.currentTimeMillis();
+        }
+        return secure;
+    }
+
+    private boolean startHttpsFirstOverrideIfNeeded(WebView view, String targetUrl, TabInfo tab) {
+        if (view == null || !isHttpUrl(targetUrl)) return false;
+        String secure = prepareHttpsFirstNavigation(targetUrl, tab);
+        if (secure == null || secure.equals(targetUrl)) return false;
+        markTrustedMainFrameNavigation(secure);
+        prepareTabForMainFrameNavigation(tab, secure);
+        if (tab != null) {
+            tab.url = secure;
+            tab.currentPageUrlForRequest = secure;
+        }
+        if (view == webView && addressBar != null) addressBar.setText(secure);
+        loadBrowserUrl(secure);
+        return true;
+    }
+
+    private boolean isHttpsFallbackEligibleError(int errorCode) {
+        return errorCode == WebViewClient.ERROR_HOST_LOOKUP
+                || errorCode == WebViewClient.ERROR_CONNECT
+                || errorCode == WebViewClient.ERROR_TIMEOUT
+                || errorCode == WebViewClient.ERROR_IO;
+    }
+
+    private boolean handleHttpsFirstMainFrameFailure(WebView view, String failedUrl, int errorCode) {
+        try {
+            if (!httpsFirstEnabled || view == null || !isHttpsUrl(failedUrl)
+                    || !isHttpsFallbackEligibleError(errorCode)) return false;
+            TabInfo tab = findTabByWebView(view);
+            if (tab == null && view == webView) tab = getCurrentTab();
+            if (tab == null || tab.pendingHttpsOriginalUrl == null || tab.pendingHttpsOriginalUrl.length() == 0) return false;
+            String expectedHost = hostOfUrl(tab.pendingHttpsUpgradeUrl);
+            String failedHost = hostOfUrl(failedUrl);
+            if (expectedHost.length() == 0 || failedHost.length() == 0
+                    || (!sameOrSubDomain(failedHost, expectedHost) && !sameOrSubDomain(expectedHost, failedHost))) {
+                return false;
+            }
+
+            String fallback = tab.pendingHttpsOriginalUrl;
+            tab.httpsFallbackHost = hostOfUrl(fallback);
+            tab.httpsFallbackAllowedUntilMs = System.currentTimeMillis() + 300000L;
+            tab.httpsFallbackInProgress = true;
+            tab.pendingHttpsUpgradeUrl = "";
+            tab.pendingHttpsStartedAtMs = 0L;
+            tab.url = fallback;
+            tab.currentPageUrlForRequest = fallback;
+            if (view == webView && addressBar != null) addressBar.setText(fallback);
+            try { view.stopLoading(); } catch (Exception ignored) {}
+            final TabInfo expectedTab = tab;
+            mainHandler.post(() -> {
+                if (expectedTab.closed || expectedTab.webView != view || view != webView) return;
+                loadBrowserUrl(fallback);
+            });
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean equivalentUrlIgnoringSchemeAndFragment(String a, String b) {
+        try {
+            URI ua = new URI(a);
+            URI ub = new URI(b);
+            String ha = ua.getHost() == null ? "" : ua.getHost().toLowerCase(Locale.US);
+            String hb = ub.getHost() == null ? "" : ub.getHost().toLowerCase(Locale.US);
+            if (!ha.equals(hb)) return false;
+            int pa = ua.getPort();
+            int pb = ub.getPort();
+            if (pa == 80 || pa == 443) pa = -1;
+            if (pb == 80 || pb == 443) pb = -1;
+            if (pa != pb) return false;
+            String pathA = ua.getPath() == null || ua.getPath().length() == 0 ? "/" : ua.getPath();
+            String pathB = ub.getPath() == null || ub.getPath().length() == 0 ? "/" : ub.getPath();
+            String queryA = ua.getQuery() == null ? "" : ua.getQuery();
+            String queryB = ub.getQuery() == null ? "" : ub.getQuery();
+            return pathA.equals(pathB) && queryA.equals(queryB);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void upgradeBookmarksAfterHttpsSuccess(String originalHttpUrl, String finalHttpsUrl) {
+        if (!isHttpUrl(originalHttpUrl) || !isHttpsUrl(finalHttpsUrl)) return;
+        boolean changed = false;
+        for (BookmarkItemData item : bookmarkData) {
+            if (item == null || !isHttpUrl(item.url)) continue;
+            String candidate = buildHttpsUpgradeUrl(item.url);
+            if (equivalentUrlIgnoringSchemeAndFragment(item.url, originalHttpUrl)
+                    || equivalentUrlIgnoringSchemeAndFragment(candidate, finalHttpsUrl)) {
+                item.url = finalHttpsUrl;
+                changed = true;
+            }
+        }
+        if (changed) saveBookmarkData();
+    }
+
+    private void handleHttpsFirstNavigationSuccess(TabInfo tab, String finalUrl) {
+        if (tab == null || !isHttpsUrl(finalUrl)) return;
+        String original = tab.pendingHttpsOriginalUrl;
+        if (original == null || original.length() == 0) {
+            String finalHost = hostOfUrl(finalUrl);
+            if (finalHost.equals(tab.httpsFallbackHost)) {
+                tab.httpsFallbackHost = "";
+                tab.httpsFallbackAllowedUntilMs = 0L;
+            }
+            return;
+        }
+        String expectedHost = hostOfUrl(tab.pendingHttpsUpgradeUrl);
+        String finalHost = hostOfUrl(finalUrl);
+        boolean related = expectedHost.length() > 0 && finalHost.length() > 0
+                && (sameOrSubDomain(finalHost, expectedHost) || sameOrSubDomain(expectedHost, finalHost));
+        if (related) upgradeBookmarksAfterHttpsSuccess(original, finalUrl);
+        clearHttpsFirstPendingState(tab, related);
     }
     private boolean isExternalSchemeUrl(String url) {
         if (url == null || url.trim().length() == 0) return false;
@@ -12516,7 +12781,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         String url = getEffectiveCurrentUrl();
         boolean httpPage = url != null && (url.startsWith("http://") || url.startsWith("https://"));
         if (!httpPage || webView == null || webView.getVisibility() != View.VISIBLE) {
-            Toast.makeText(this, "Buka halaman web dulu untuk memblokir elemen", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Buka halaman web dulu untuk memblokir elemen", QuietToast.LENGTH_SHORT).show();
             return;
         }
         elementPickerActive = true;
@@ -12525,19 +12790,19 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             elementPickerDialog = null;
         }
         runPageScript(buildElementPickerJs());
-        Toast.makeText(this, "Mode Blokir Elemen: ketuk iklan yang ingin disembunyikan", Toast.LENGTH_LONG).show();
+        QuietToast.makeText(this, "Mode Blokir Elemen: ketuk iklan yang ingin disembunyikan", QuietToast.LENGTH_LONG).show();
     }
 
     private void onPickerElementSelected(String selector, String preview) {
         if (!elementPickerActive) return;
         if (selector == null || selector.trim().length() == 0) {
-            Toast.makeText(this, "Tidak bisa memilih elemen itu, coba elemen lain", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Tidak bisa memilih elemen itu, coba elemen lain", QuietToast.LENGTH_SHORT).show();
             return;
         }
         final String sel = selector.trim();
         final String host = hostOfUrl(getEffectiveCurrentUrl());
         if (host == null || host.length() == 0) {
-            Toast.makeText(this, "Tidak bisa menentukan domain halaman ini", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Tidak bisa menentukan domain halaman ini", QuietToast.LENGTH_SHORT).show();
             finishElementPicker(false);
             return;
         }
@@ -12557,7 +12822,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             addUserElementFilter(host, sel);
             applyUserFiltersForCurrentPage();
             finishElementPicker(true);
-            Toast.makeText(this, "Elemen diblokir di " + host, Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Elemen diblokir di " + host, QuietToast.LENGTH_SHORT).show();
         });
         b.setNeutralButton("Naik 1 induk", (d, w) -> {
             // Jangan akhiri picker; minta JS memperlebar pilihan ke elemen induk.
@@ -12649,7 +12914,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     applyUserFiltersForCurrentPage();
                 }
                 dialog.dismiss();
-                Toast.makeText(this, "Filter situs dihapus", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Filter situs dihapus", QuietToast.LENGTH_SHORT).show();
             }));
         }
 
@@ -12905,11 +13170,25 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             return;
         }
         String url;
-        if (text.startsWith("http://") || text.startsWith("https://")) url = text;
-        else if (text.contains(".") && !text.contains(" ")) url = "https://" + text;
-        else url = buildSearchUrl(text);
+        boolean barePublicHost = !text.startsWith("http://")
+                && !text.startsWith("https://")
+                && text.contains(".")
+                && !text.contains(" ");
+        if (text.startsWith("http://") || text.startsWith("https://")) {
+            url = text;
+        } else if (barePublicHost) {
+            // Keep HTTPS as the visible/default destination, but retain an HTTP
+            // candidate so HTTPS-First can fall back only after a real connection
+            // failure. When HTTPS-First is disabled, schemeless public hosts still
+            // default to HTTPS rather than silently downgrading.
+            url = httpsFirstEnabled ? "http://" + text : "https://" + text;
+        } else {
+            url = buildSearchUrl(text);
+        }
 
         TabInfo currentTab = getCurrentTab();
+        url = prepareHttpsFirstNavigation(url, currentTab);
+        if (addressBar != null) addressBar.setText(url);
         currentTab.url = url;
         currentTab.title = url;
         saveTabsSession();
@@ -13199,7 +13478,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             String currentWebUrl = webView != null ? webView.getUrl() : "";
 
             if ((currentWebUrl == null || currentWebUrl.length() == 0) && tabUrl.length() == 0) {
-                Toast.makeText(this, "Belum ada halaman sebelumnya", Toast.LENGTH_SHORT).show();
+                QuietToast.makeText(this, "Belum ada halaman sebelumnya", QuietToast.LENGTH_SHORT).show();
                 return;
             }
 
@@ -13218,9 +13497,9 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
             updateVideoControlsVisibility();
             updateTopActionStates();
-            Toast.makeText(this, "Halaman terakhir dibuka lagi", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Halaman terakhir dibuka lagi", QuietToast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            Toast.makeText(this, "Tidak ada halaman untuk dibuka", Toast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Tidak ada halaman untuk dibuka", QuietToast.LENGTH_SHORT).show();
         }
     }
 
@@ -13504,6 +13783,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         adBlockRedirectToTempTab = p.getBoolean("adBlockRedirectToTempTab", true);
         adBlockAutoCloseAdTabs = p.getBoolean("adBlockAutoCloseAdTabs", true);
         dataSaver = p.getBoolean("dataSaver", false);
+        httpsFirstEnabled = p.getBoolean("httpsFirstEnabled", true);
         desktopMode = p.getBoolean("desktopMode", false);
         forceMobileModeAfterUpdateIfNeeded(p);
         textZoom = p.getInt("textZoom", 100);
@@ -13602,6 +13882,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 .putBoolean("adBlockRedirectToTempTab", adBlockRedirectToTempTab)
                 .putBoolean("adBlockAutoCloseAdTabs", adBlockAutoCloseAdTabs)
                 .putBoolean("dataSaver", dataSaver)
+                .putBoolean("httpsFirstEnabled", httpsFirstEnabled)
                 .putBoolean("desktopMode", desktopMode)
                 .putInt("textZoom", textZoom)
                 .putBoolean("shortcutDownload", shortcutDownload)
