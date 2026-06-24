@@ -32,7 +32,7 @@ public class ProgressivePlaybackPolicyTest {
         long[] done = {200, 350};
         assertEquals(200, ProgressivePlaybackPolicy.availableEndExclusive(
                 0, 1_000, 2, 0, false, starts, ends, done));
-        assertEquals(700, ProgressivePlaybackPolicy.availableEndExclusive(
+        assertEquals(850, ProgressivePlaybackPolicy.availableEndExclusive(
                 550, 1_000, 2, 0, false, starts, ends, done));
         assertEquals(300, ProgressivePlaybackPolicy.availableEndExclusive(
                 300, 1_000, 2, 0, false, starts, ends, done));

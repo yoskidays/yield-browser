@@ -102,4 +102,37 @@ public class ShieldEngineV2Test {
                 chapter305, chapter304, true, true, false, false));
     }
 
+    @Test
+    public void searchResultsAreNeverClassifiedAsReaderPages() {
+        String[] searchPages = {
+                "https://www.google.co.id/search?q=komiknesia",
+                "https://www.bing.com/search?q=komiknesia",
+                "https://duckduckgo.com/?q=komiknesia",
+                "https://search.yahoo.com/search?p=komiknesia",
+                "https://yandex.ru/search/?text=komiknesia",
+                "https://www.baidu.com/s?wd=komiknesia",
+                "https://search.brave.com/search?q=komiknesia",
+                "https://www.startpage.com/sp/search?query=komiknesia",
+                "https://www.ecosia.org/search?q=komiknesia",
+                "https://www.qwant.com/?q=komiknesia",
+                "https://searx.example.org/search?q=komiknesia"
+        };
+
+        for (String searchPage : searchPages) {
+            assertTrue(ShieldEngineV2.isSearchResultsPage(searchPage));
+            assertFalse(ShieldEngineV2.isReaderOrContentPage(searchPage));
+            assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                    "https://komiknesia.net/", searchPage, true, false, true, false));
+        }
+    }
+
+    @Test
+    public void readerBoundaryRemainsActiveAfterUniversalSearchFix() {
+        assertFalse(ShieldEngineV2.isSearchResultsPage(READER));
+        assertTrue(ShieldEngineV2.isReaderOrContentPage(READER));
+        assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://unknown-clean-domain.example/landing",
+                READER, true, true, false, false));
+    }
+
 }

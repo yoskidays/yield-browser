@@ -1,6 +1,13 @@
-# Yield Browser v0.10.06
+# Yield Browser v0.10.07
 
 Android browser source project with professional tab spaces, private profile isolation, History Engine V2, HTTPS-First navigation, Universal Reader Compatibility Repair, integrated AdBlock/Shield Engine V2, persistent manual element filtering, quiet UI, progressive download playback, and long-press link actions.
+
+
+## Universal search-result navigation fix
+
+Version 0.10.07 separates search-result pages from reader pages. A `/search` URL or an image-heavy search page is no longer classified as a comic reader, so normal result links can open across domains while known ad hosts and hard advertising tokens remain blocked.
+
+The allow lane covers regional and non-`.com` variants of Google, Bing, DuckDuckGo, Yahoo, Yandex, Baidu, Brave Search, Startpage, Ecosia, Qwant, Mojeek, Kagi, Naver, AOL, Ask, Swisscows, MetaGer, and standards-based self-hosted engines such as SearX/SearXNG. Generic engines are detected from a search-like path combined with a search query parameter rather than from one fixed domain list.
 
 ## Reader direct-link and blank-page recovery
 
@@ -30,8 +37,8 @@ Press and hold a normal web link or an image wrapped by a link, choose **Buka li
 
 ## Version
 
-- `versionCode 80`
-- `versionName 0.10.06`
+- `versionCode 81`
+- `versionName 0.10.07`
 - `minSdk 23`
 - `targetSdk 35`
 

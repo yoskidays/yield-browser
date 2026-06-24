@@ -1,10 +1,24 @@
-# Validation Report — Yield Browser v0.10.06
+# Validation Report — Yield Browser v0.10.07
 
 ## Version
 
-- `versionCode 80`
-- `versionName 0.10.06`
-- GitHub Actions APK artifact names updated to v0.10.06.
+- `versionCode 81`
+- `versionName 0.10.07`
+- GitHub Actions APK artifact names updated to v0.10.07.
+
+
+## Universal search navigation regression checks
+
+- Search-result pages are explicitly excluded from the strict reader boundary in both Java and the document-start Shield script.
+- Regional/non-`.com` search domains are recognized without relying on the browser's selected search-engine setting.
+- Generic SearX/SearXNG-style pages are recognized from a search-like path plus query parameter.
+- Clean external result links remain clickable on Google Indonesia, Bing, DuckDuckGo, Yahoo, Yandex, Brave Search, and SearX-style pages.
+- Known ad hosts and hard advertising-token URLs remain subject to Shield blocking on search pages.
+- Komiku chapter pages still block unknown cross-site direct-link takeovers.
+- Fourteen focused JVM unit tests passed for Shield Engine V2 and its generated page script.
+- Eight executable JavaScript navigation scenarios passed under Node.js.
+- The generated Shield script passed `node --check`.
+- All 61 project JVM test methods passed in the local Java 17 harness.
 
 ## Reader direct-link regression checks
 
@@ -43,8 +57,8 @@
 ## Test inventory
 
 - 18 JVM test classes.
-- 59 `@Test` cases in the project source.
-- New coverage includes reader cross-site takeover, transient blank-page recovery, and mobile touch/pointer guard assertions.
+- 61 `@Test` cases in the project source.
+- New coverage includes universal search-result navigation, regional search domains, self-hosted search URL shapes, reader cross-site takeover, transient blank-page recovery, and mobile touch/pointer guard assertions.
 
 ## Packaging checks
 

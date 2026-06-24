@@ -21,6 +21,8 @@ public class ShieldPageScriptTest {
         assertTrue(script.contains("pointerdown"));
         assertTrue(script.contains("passive:false"));
         assertTrue(script.contains("eventPoint"));
+        assertTrue(script.contains("function searchPage"));
+        assertTrue(script.contains("if(searchPage())return false"));
         assertTrue(script.contains("function badNav"));
         assertTrue(script.contains("return reader()&&!!h&&!!c&&!same(h,c)"));
         assertTrue(script.contains("lastBlockedAt"));

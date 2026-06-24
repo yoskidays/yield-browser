@@ -1,3 +1,17 @@
+# Yield Browser v0.10.07
+
+- Fixed search results becoming completely unclickable after the v0.10.06 reader direct-link hardening.
+- Removed `search`, `article`, `post`, and `category` from the strict reader-path classifier so ordinary content and search pages do not inherit the reader cross-domain boundary.
+- Added a universal search-results detector shared by the native navigation policy and Shield Engine V2 page script.
+- Supports regional Google/Yahoo/Yandex domains and popular engines including Bing, DuckDuckGo, Baidu, Brave Search, Startpage, Ecosia, Qwant, Mojeek, Kagi, Naver, AOL, Ask, Swisscows, and MetaGer.
+- Supports self-hosted SearX/SearXNG-style engines through search-path plus query-parameter detection.
+- Search result links may navigate to clean external sites, while known ad hosts, dangerous schemes, and hard advertising tokens remain blocked.
+- Search pages are excluded from universal blank-page compatibility recovery.
+- Added regression tests for eleven search-engine URL shapes and retained reader takeover blocking checks.
+- Added an executable JavaScript behavior test confirming seven search engines remain clickable while Komiku reader direct-links are still blocked.
+- Corrected the multipart progressive-playback test expectation to match the contiguous written range (`500 + 350 = 850`).
+- `versionCode 81`, `versionName 0.10.07`.
+
 # Yield Browser v0.10.06
 
 - Hardened reader pages against unknown cross-site direct-link takeovers, including destinations that do not match an existing ad-domain list.
