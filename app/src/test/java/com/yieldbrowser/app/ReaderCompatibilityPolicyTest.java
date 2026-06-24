@@ -39,4 +39,26 @@ public class ReaderCompatibilityPolicyTest {
         assertArrayEquals(new long[]{450L, 1800L},
                 ReaderCompatibilityPolicy.retrySchedule(false, false));
     }
+
+    @Test
+    public void compatibilityShieldBlocksHijackedCrossSiteClicks() {
+        assertTrue(ReaderCompatibilityPolicy.shouldBlockCrossSiteNavigation(
+                "https://onclickads.example/track", "https://komiku.org/chapter/12", true, true, false));
+        assertFalse(ReaderCompatibilityPolicy.shouldBlockCrossSiteNavigation(
+                "https://img.komiku.org/page.webp", "https://komiku.org/chapter/12", false, true, false));
+        assertFalse(ReaderCompatibilityPolicy.shouldBlockCrossSiteNavigation(
+                "https://example.org/article", "https://komiku.org/chapter/12", true, false, false));
+        assertFalse(ReaderCompatibilityPolicy.shouldBlockCrossSiteNavigation(
+                "https://login.example.org/continue", "https://komiku.org/chapter/12", false, false, false));
+    }
+
+    @Test
+    public void compatibilityResourcePolicyPreservesReaderAssets() {
+        assertTrue(ReaderCompatibilityPolicy.shouldBlockThirdPartyResource(
+                "https://doubleclick.net/ad.js", "https://komiku.org/chapter/12", true, false));
+        assertFalse(ReaderCompatibilityPolicy.shouldBlockThirdPartyResource(
+                "https://cdn.example/page-01.webp", "https://komiku.org/chapter/12", true, true));
+        assertFalse(ReaderCompatibilityPolicy.shouldBlockThirdPartyResource(
+                "https://komiku.org/assets/reader.js", "https://komiku.org/chapter/12", true, false));
+    }
 }

@@ -1,42 +1,38 @@
-# Validation Report — YieldBrowser v0.9.91
+# Validation Report — Yield Browser v0.10.04
 
-## Completed static checks
+## Version
 
-- Parsed 42 production and unit-test Java files with `javalang`.
-- Checked 713 Java method declarations for duplicate signatures.
-- Parsed 45 Android XML resource/manifest files.
-- Verified all manifest activities, services, and receivers have matching source classes.
-- Verified app drawable and mipmap references.
-- Verified `versionCode 65` and `versionName 0.9.91`.
-- Verified GitHub Actions artifact names use v0.9.91.
-- Compiled and executed a pure-Java smoke test for `ProgressivePlaybackPolicy`.
+- `versionCode 78`
+- `versionName 0.10.04`
+- GitHub Actions APK artifact names updated to v0.10.04.
 
-## Progressive playback scenarios verified at policy/source level
+## Reader-safe Click Hijack checks
 
-1. MP4 and other configured progressive containers are accepted.
-2. HLS/m3u8 is excluded from growing-file playback.
-3. A sequential download exposes only its completed prefix.
-4. A multipart pre-allocated file exposes completed ranges but not sparse holes.
-5. A completed file exposes its full byte range.
-6. Player requests use a loopback-only server and unguessable session token.
-7. Player status follows running, paused, queued, verifying, saving, completed, and failed states.
-8. Closing the player does not call pause or cancel on the download item.
-9. Private playback adds secure-window protection.
-10. Android 8+ Picture-in-Picture is declared on a resizable player activity.
+- Current Komiku chapter URL pattern is recognized as a safe same-site reader navigation.
+- A transition from chapter 304 to chapter 305 is allowed by the native Shield policy.
+- Same-origin relay URLs such as `/r/<opaque-token>` remain blocked.
+- Reader/content pages disable the duplicate legacy premium click listener while Shield Engine V2 remains active.
+- Ordinary non-reader pages retain the legacy listener when Click Hijack Protection is enabled.
+- Generated document-start JavaScript passes Java compilation and `node --check` syntax validation.
+- Mocked DOM runtime validation confirms that a blocked `onclickads.net` transparent overlay is cancelled and the underlying same-site next-chapter URL is opened.
+- Direct legitimate next-chapter clicks are not cancelled or reported as advertising.
+- `elementsFromPoint` recovery has an `elementFromPoint` fallback for older WebView engines.
 
-## Required runtime test matrix
+## Previous fixes retained
 
-- Android 11 direct MP4 with one connection.
-- Android 11 MP4 with 2, 3, and 4 multipart connections.
-- Pause and resume while playback is active.
-- Seek inside a downloaded range.
-- Seek into a not-yet-downloaded range and confirm buffering/recovery.
-- Download completion while the player remains open, including staged-file export to MediaStore.
-- Private-profile playback and secure recent-app preview.
-- Picture-in-Picture entry and return.
-- MP4 with `moov` metadata at the beginning and at the end.
-- WebM/MOV compatibility on representative devices.
+- Android Back destroys the active WebView when returning to Home with no earlier history.
+- Long-press links can open in a newly activated tab.
+- HTTP/HTTPS absolute, relative, and protocol-relative long-press destinations remain supported.
+- Non-web long-press schemes remain rejected.
+
+## Packaging checks
+
+- Project contains 146 files.
+- Part 1 contains exactly 100 files.
+- Part 2 contains exactly 46 files.
+- Archive file paths do not overlap.
+- Reconstructed archive contents match the source project byte-for-byte.
 
 ## Environment limitation
 
-A full Android Gradle build and emulator/device test were not executed in this container because Android SDK and Gradle are unavailable. The included GitHub Actions workflow runs unit tests and produces debug/release APK artifacts and remains the authoritative full build check.
+A full Android SDK/Gradle build was not executed in the local container because Gradle and Android SDK are not installed. The included GitHub Actions workflow performs unit tests, Android lint, debug APK build, and unsigned release APK build on push.

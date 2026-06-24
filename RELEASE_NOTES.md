@@ -1,27 +1,53 @@
-# YieldBrowser v0.9.91
+# Yield Browser v0.10.04
 
-## Putar sambil mengunduh
+- Fixed Next/Previous Chapter controls becoming unresponsive when **Proteksi Click Hijack** was enabled.
+- Reader/content pages now use Shield Engine V2 as the single click-hijack guard, avoiding duplicate event interception by the legacy premium listener.
+- Added click-through recovery for suspicious transparent overlays covering legitimate reader navigation controls.
+- A blocked overlay click can now resolve and open the safe same-site chapter link underneath the touch point.
+- Added support for reader controls using anchors, buttons, common `data-*` URL attributes, and simple JavaScript navigation handlers.
+- Retained blocking for known advertising hosts, dangerous external schemes, opaque cross-site destinations, and same-origin relay URLs.
+- Added regression coverage for the current Komiku chapter URL pattern, duplicate-guard policy, and generated Shield script recovery hooks.
+- Updated APK artifact names.
+- `versionCode 78`, `versionName 0.10.04`.
 
-- Added an internal progressive video player for active downloads.
-- Added a loopback-only HTTP Range server bound to `127.0.0.1`.
-- Added sparse-aware multipart playback so unfinished pre-allocated file regions are not read as valid media.
-- Added live download progress and speed inside the player.
-- Added automatic waiting/buffering when playback reaches data that has not arrived yet.
-- Added retry handling when a video container needs more metadata before it can start.
-- Added optional Picture-in-Picture on Android 8+.
-- Added **Putar sambil mengunduh** and **Tonton di Yield** actions in the download manager.
-- Added a download setting to enable or disable progressive playback.
-- Added secure-window protection for playback launched from a private tab/profile.
+# Yield Browser v0.10.03
 
-## Supported scope
+- Fixed a page continuing to load or run behind the Home screen after Android Back.
+- Android Back now resets the current tab and destroys its WebView when no earlier page history remains.
+- Stops JavaScript, media, redirects, network requests, and late callbacks from the page being left.
+- Clears stale browser progress state whenever Home is shown.
+- Preserves normal `goBack()` behavior while WebView history is still available.
+- Updated APK artifact names.
+- `versionCode 77`, `versionName 0.10.03`.
 
-- Progressive MP4, M4V, 3GP, WebM, MOV, and direct `videoplayback` downloads.
-- HLS/m3u8 continues to use the existing segment downloader and becomes playable after merge.
-- DRM and separate DASH audio/video representations are intentionally excluded from this first implementation.
+# Yield Browser v0.10.02
 
-## Existing improvements retained
+- Added press-and-hold detection for normal links inside WebView pages.
+- Added **Buka link di tab baru** context action.
+- The selected destination opens immediately in a newly created active tab.
+- Supports text links and images wrapped by anchors.
+- Resolves absolute, relative, root-relative, and protocol-relative HTTP/HTTPS URLs.
+- Rejects non-web schemes before creating a tab.
+- Added regression tests for long-press link URL resolution.
+- Updated APK artifact names.
+- `versionCode 76`, `versionName 0.10.02`.
 
-- Professional **Umum | Privat** tab spaces.
-- Isolated Android 9+ incognito WebView process/profile.
-- Adaptive 1–4 connection download engine.
-- Pause/resume, queueing, automatic retry, ETA, speed smoothing, and finalization progress.
+# Yield Browser v0.10.01
+
+- Fixed Previous/Next chapter buttons being blocked by Shield Engine V2.
+- Added a safe same-site reader-navigation lane for chapter and episode URLs.
+- Expanded reader path recognition to embedded slug forms such as `-chapter-`, `-episode-`, and `-read-online-`.
+- Protected legitimate reader navigation in the document-start click guard and programmatic anchor/form hooks.
+- Kept same-origin ad relays such as `/r/`, `/go/`, `/out/`, and `/redirect/` blocked.
+- Added regression tests for chapter-to-chapter navigation and relay blocking.
+- Updated APK artifact names.
+- `versionCode 75`, `versionName 0.10.01`.
+
+# YieldBrowser v0.10.00
+
+- Shield Engine V2 tetap aktif sebagai mesin internal AdBlock.
+- Tidak ada menu Shield terpisah.
+- Tombol menu utama kembali menjadi `AdBlock ON/OFF`.
+- Pengaturan lanjutan dibuka dari baris AdBlock yang sama.
+- Tidak ada statistik blokir, badge, atau toast rutin.
+- `versionCode 74`, `versionName 0.10.00`.
