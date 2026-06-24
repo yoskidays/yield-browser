@@ -10214,6 +10214,9 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean isShieldReaderOrCompatibilityContext(String url) {
+        // Search result pages intentionally navigate across domains and must never inherit the
+        // strict reader boundary, even when their path is /search or their DOM is image-heavy.
+        if (ShieldEngineV2.isSearchResultsPage(url)) return false;
         return isStrictSiteCompatibilityUrl(url)
                 || isSiteCompatibilityModeActiveForUrl(url)
                 || isReloadLoopGuardActiveForUrl(url)
@@ -11696,6 +11699,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (!adBlock) return false;
             if (!isHttpOrHttpsUrl(url)) return false;
             if (isStrictSiteCompatibilityUrl(url) || isSiteCompatibilityModeActiveForUrl(url)) return false;
+            if (ShieldEngineV2.isSearchResultsPage(url)) return false;
             if (isImageResourceUrl(url) || isMediaResourceUrl(url)) return false;
             String lowerUrl = url == null ? "" : url.toLowerCase(Locale.US);
             if (lowerUrl.contains(".pdf") || lowerUrl.contains("application/pdf")) return false;
@@ -11950,22 +11954,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
     }
 
-    private boolean isSearchEngineHost(String url) {
-        String host = normalizeHostForAdBlock(url);
-        if (host.length() == 0) return false;
-        return host.equals("google.com") || host.endsWith(".google.com")
-                || host.equals("bing.com") || host.endsWith(".bing.com")
-                || host.equals("duckduckgo.com") || host.endsWith(".duckduckgo.com")
-                || host.equals("yahoo.com") || host.endsWith(".yahoo.com")
-                || host.equals("yandex.com") || host.endsWith(".yandex.com");
-    }
-
     private boolean isSearchEngineResultNavigation(String targetUrl, String currentUrl) {
-        if (!isHttpOrHttpsUrl(targetUrl) || !isSearchEngineHost(currentUrl)) return false;
-        // v0.9.50: hasil pencarian adalah aksi user. Jangan otomatis membatalkan
-        // domain yang terlihat seperti ads/direct-link; Java guard berikutnya yang
-        // menentukan apakah perlu compatibility mode atau tab sementara.
-        return true;
+        if (!isHttpOrHttpsUrl(targetUrl)) return false;
+        // v0.10.07: universal search-result allow lane. Do not depend on a fixed list of
+        // .com domains: regional Google/Yahoo/Yandex domains and self-hosted SearX/SearXNG
+        // pages are recognized from their search URL shape by ShieldEngineV2.
+        return ShieldEngineV2.isSearchResultsPage(currentUrl);
     }
 
     private boolean isCompatibilityAdNavigation(String targetUrl, String currentUrl, boolean hasGesture) {

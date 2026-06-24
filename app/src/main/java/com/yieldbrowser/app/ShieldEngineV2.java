@@ -18,7 +18,19 @@ final class ShieldEngineV2 {
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern SAFE_CONTENT_PATH = Pattern.compile(
-            "(?:^|[/_-])(?:manga|manhwa|manhua|comic|komik|chapter|chapitre|capitulo|episode|reader|read(?:-online)?|reading|baca|novel|article|post|category|search)(?:[/_-]|$)",
+            "(?:^|[/_-])(?:manga|manhwa|manhua|comic|komik|chapter|chapitre|capitulo|episode|reader|read(?:-online)?|reading|baca|novel)(?:[/_-]|$)",
+            Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern SEARCH_PATH_HINT = Pattern.compile(
+            "(?:^|/)(?:search|search-results?|results?|web|html|find|s)(?:/|$|\\.)",
+            Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern SEARCH_QUERY_HINT = Pattern.compile(
+            "(?:^|[?&])(?:q|query|p|text|wd|keyword|keywords|search|search_query|term)=",
+            Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern KNOWN_SEARCH_HOST = Pattern.compile(
+            "(?:^|\\.)(?:google\\.[a-z.]+|bing\\.com|duckduckgo\\.com|yahoo\\.[a-z.]+|yandex\\.[a-z.]+|baidu\\.com|brave\\.com|startpage\\.com|ecosia\\.org|qwant\\.com|mojeek\\.com|kagi\\.com|naver\\.com|aol\\.com|ask\\.com|swisscows\\.com|metager\\.[a-z.]+)$",
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern RELAY_SEGMENT = Pattern.compile(
@@ -182,8 +194,24 @@ final class ShieldEngineV2 {
         return DIRECT_CONTENT_ASSET.matcher(url.toLowerCase(Locale.US)).matches();
     }
 
-    static boolean isReaderOrContentPage(String url) {
+    static boolean isSearchResultsPage(String url) {
         if (!isHttpOrHttps(url)) return false;
+        String host = hostOf(url);
+        if (host.isEmpty()) return false;
+        String path = pathOf(url);
+        String query = queryOf(url);
+        boolean hasSearchQuery = SEARCH_QUERY_HINT.matcher(query).find();
+        boolean hasSearchPath = SEARCH_PATH_HINT.matcher(path).find();
+        boolean knownSearchHost = KNOWN_SEARCH_HOST.matcher(host).find();
+
+        // Known engines use many regional domains and URL shapes. Generic engines such as
+        // SearX/SearXNG are also supported when both a search-like path and query are present.
+        return (knownSearchHost && (hasSearchQuery || hasSearchPath))
+                || (hasSearchPath && hasSearchQuery);
+    }
+
+    static boolean isReaderOrContentPage(String url) {
+        if (!isHttpOrHttps(url) || isSearchResultsPage(url)) return false;
         String path = pathOf(url);
         return SAFE_CONTENT_PATH.matcher(path).find() || ReaderCompatibilityPolicy.hasReaderPathHint(url);
     }
@@ -268,6 +296,17 @@ final class ShieldEngineV2 {
         }
     }
 
+    private static String queryOf(String url) {
+        if (url == null) return "";
+        try {
+            URI parsed = URI.create(url.trim());
+            String query = parsed.getRawQuery();
+            return query == null ? "" : "?" + query.toLowerCase(Locale.US);
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
     private static boolean sameSite(String first, String second) {
         return first.equals(second) || first.endsWith("." + second) || second.endsWith("." + first);
     }
@@ -300,8 +339,9 @@ final class ShieldPageScript {
                 + "function path(u){try{return(new URL(abs(u))).pathname.toLowerCase();}catch(e){return'';}}"
                 + "function same(a,b){return !!a&&!!b&&(a===b||a.endsWith('.'+b)||b.endsWith('.'+a));}"
                 + "function asset(u){return /\\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|woff2?|ttf|otf|mp4|m4v|mov|webm|mkv|m3u8|mpd|m4s|ts|mp3|aac|wav|ogg|pdf|zip|rar|7z)(?:$|[?#])/i.test(String(u||''));}"
-                + "function contentPath(p){return /(?:^|[\\/_-])(?:manga|manhwa|manhua|comic|komik|chapter|chapitre|capitulo|episode|reader|read(?:-online)?|reading|baca|novel|article|post|category|search)(?:[\\/_-]|$)/i.test(p||'');}"
-                + "function reader(){var p=location.pathname||'';if(contentPath(p))return true;try{return D.querySelectorAll('img[data-src],img[data-lazy-src],img[data-original],picture source[data-srcset]').length>=3;}catch(e){return false;}}"
+                + "function contentPath(p){return /(?:^|[\\/_-])(?:manga|manhwa|manhua|comic|komik|chapter|chapitre|capitulo|episode|reader|read(?:-online)?|reading|baca|novel)(?:[\\/_-]|$)/i.test(p||'');}"
+                + "function searchPage(){try{var h=host(location.href),p=path(location.href),q=low(location.search||'');var known=/(?:^|\\.)(?:google\\.[a-z.]+|bing\\.com|duckduckgo\\.com|yahoo\\.[a-z.]+|yandex\\.[a-z.]+|baidu\\.com|brave\\.com|startpage\\.com|ecosia\\.org|qwant\\.com|mojeek\\.com|kagi\\.com|naver\\.com|aol\\.com|ask\\.com|swisscows\\.com|metager\\.[a-z.]+)$/i.test(h);var qp=/(?:^|[?&])(?:q|query|p|text|wd|keyword|keywords|search|search_query|term)=/i.test(q);var pp=/(?:^|\\/)(?:search|search-results?|results?|web|html|find|s)(?:\\/|$|\\.)/i.test(p);return (known&&(qp||pp))||(pp&&qp);}catch(e){return false;}}"
+                + "function reader(){if(searchPage())return false;var p=location.pathname||'';if(contentPath(p))return true;try{return D.querySelectorAll('img[data-src],img[data-lazy-src],img[data-original],picture source[data-srcset]').length>=3;}catch(e){return false;}}"
                 + "function relay(u){var p=path(u);return /(?:^|\\/)(?:r|go|out|away|jump|visit|redirect|redir|click|link|external|open|track|tracking|offer|offers|promo|ads?|interstitial)(?:\\/|$)/i.test(p);}"
                 + "function redirParam(u){return /[?&](?:url|u|to|target|dest|destination|redirect|redirect_url|redirect_uri|redir|r|go|out|link|click|next|continue|return|return_to|return_url|navigate_url)=/i.test(dec(u));}"
                 + "function hardToken(u){return /(?:adclick|ad_click|adurl|clickunder|onclickads|popunder|popupads|interstitial|affiliate|aff_sub|af_click|click_id|campaign_id|tracking_id|utm_medium=affiliates|deep_and_deferred|navigate_url|reactpath)/i.test(dec(u));}"
