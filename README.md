@@ -1,6 +1,12 @@
-# Yield Browser v0.10.05
+# Yield Browser v0.10.06
 
 Android browser source project with professional tab spaces, private profile isolation, History Engine V2, HTTPS-First navigation, Universal Reader Compatibility Repair, integrated AdBlock/Shield Engine V2, persistent manual element filtering, quiet UI, progressive download playback, and long-press link actions.
+
+## Reader direct-link and blank-page recovery
+
+Version 0.10.06 hardens reader pages against mobile direct-link advertising. Unknown cross-site main-frame takeovers are quarantined on reader/content pages even when Android WebView reports a user gesture inherited from an image tap. Same-site chapter navigation, explicitly trusted flows, downloads, and direct image/media assets remain allowed.
+
+Shield Engine V2 now listens to touch, pointer, mouse, click, auxiliary-click, and submit events with non-passive touch listeners and normalized touch coordinates. Transient documents such as `about:blank` and `about:srcdoc` are treated as popup staging pages. Recovery reloads the tab-owned last safe chapter directly instead of walking through polluted WebView history.
 
 ## Persistent Block Element mode
 
@@ -24,8 +30,8 @@ Press and hold a normal web link or an image wrapped by a link, choose **Buka li
 
 ## Version
 
-- `versionCode 79`
-- `versionName 0.10.05`
+- `versionCode 80`
+- `versionName 0.10.06`
 - `minSdk 23`
 - `targetSdk 35`
 

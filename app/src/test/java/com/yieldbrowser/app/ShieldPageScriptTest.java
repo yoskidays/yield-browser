@@ -17,6 +17,13 @@ public class ShieldPageScriptTest {
         assertTrue(script.contains("elementsFromPoint"));
         assertTrue(script.contains("recoverReaderClick"));
         assertTrue(script.contains("location.assign(safe)"));
+        assertTrue(script.contains("touchstart"));
+        assertTrue(script.contains("pointerdown"));
+        assertTrue(script.contains("passive:false"));
+        assertTrue(script.contains("eventPoint"));
+        assertTrue(script.contains("function badNav"));
+        assertTrue(script.contains("return reader()&&!!h&&!!c&&!same(h,c)"));
+        assertTrue(script.contains("lastBlockedAt"));
         assertFalse(script.contains("Toast"));
         assertFalse(script.contains("blockedCount"));
     }

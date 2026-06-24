@@ -1,4 +1,4 @@
-# GitHub Upload Instructions — Yield Browser v0.10.05
+# GitHub Upload Instructions — Yield Browser v0.10.06
 
 The source is divided into two archives because the GitHub web uploader accepts a maximum of 100 files per upload batch.
 

@@ -61,4 +61,13 @@ public class ReaderCompatibilityPolicyTest {
         assertFalse(ReaderCompatibilityPolicy.shouldBlockThirdPartyResource(
                 "https://komiku.org/assets/reader.js", "https://komiku.org/chapter/12", true, false));
     }
+    @Test
+    public void detectsTransientBlankDocumentsUsedByDirectLinks() {
+        assertTrue(ReaderCompatibilityPolicy.isTransientBlankUrl(null));
+        assertTrue(ReaderCompatibilityPolicy.isTransientBlankUrl(""));
+        assertTrue(ReaderCompatibilityPolicy.isTransientBlankUrl("about:blank"));
+        assertTrue(ReaderCompatibilityPolicy.isTransientBlankUrl("ABOUT:SRCDOC"));
+        assertFalse(ReaderCompatibilityPolicy.isTransientBlankUrl("https://komiku.org/title-chapter-12/"));
+    }
+
 }

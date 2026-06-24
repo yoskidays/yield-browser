@@ -1,3 +1,17 @@
+# Yield Browser v0.10.06
+
+- Hardened reader pages against unknown cross-site direct-link takeovers, including destinations that do not match an existing ad-domain list.
+- Stopped treating an inherited Android WebView `hasGesture` flag as consent to leave a reader page.
+- Preserved same-site chapter navigation, direct content assets, explicitly trusted search/address-bar flows, and trusted downloads.
+- Added capture-phase guards for `touchstart`, `touchend`, `pointerdown`, `pointerup`, `mousedown`, and `mouseup`.
+- Added non-passive touch listeners and normalized coordinates for touch-based overlay recovery.
+- Classified `about:blank`, `about:srcdoc`, and empty HTML data documents as transient popup staging pages.
+- Changed reader recovery to load the tab-owned last safe URL directly instead of using `goBack()` through polluted ad history.
+- Prevented the temporary tab domain-switch allowance from whitelisting a stolen reader click.
+- Added regression coverage for unknown clean cross-site destinations, trusted reader exits, CDN image assets, generated touch guards, and transient blank URLs.
+- Updated APK artifact names.
+- `versionCode 80`, `versionName 0.10.06`.
+
 # Yield Browser v0.10.05
 
 - Changed **Blokir elemen** into a continuous picker that remains active after each block.

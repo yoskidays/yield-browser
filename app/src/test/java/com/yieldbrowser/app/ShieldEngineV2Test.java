@@ -23,12 +23,29 @@ public class ShieldEngineV2Test {
     }
 
     @Test
-    public void blocksKnownCrossSiteAdButAllowsCleanExternalLink() {
+    public void readerBoundaryBlocksKnownAndUnknownCrossSiteTakeovers() {
         assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
                 "https://onclickads.net/click_id=123",
                 READER, true, true, false, false));
+        assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://unknown-clean-domain.example/landing",
+                READER, true, true, false, false));
+    }
+
+    @Test
+    public void ordinaryPagesStillAllowCleanExternalLinks() {
         assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
                 "https://example.org/article",
+                "https://portal.example.com/home", true, false, false, false));
+    }
+
+    @Test
+    public void explicitTrustedFlowCanLeaveReaderAndReaderCdnAssetsStayAllowed() {
+        assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://accounts.example.org/login",
+                READER, true, true, true, false));
+        assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://img.komiku.org/uploads/page-01.webp",
                 READER, true, true, false, false));
     }
 

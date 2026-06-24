@@ -1,10 +1,21 @@
-# Validation Report — Yield Browser v0.10.05
+# Validation Report — Yield Browser v0.10.06
 
 ## Version
 
-- `versionCode 79`
-- `versionName 0.10.05`
-- GitHub Actions APK artifact names updated to v0.10.05.
+- `versionCode 80`
+- `versionName 0.10.06`
+- GitHub Actions APK artifact names updated to v0.10.06.
+
+## Reader direct-link regression checks
+
+- Unknown cross-site main-frame navigation is blocked when the source is a reader/content page, even when the request carries a user gesture.
+- Same-site chapter navigation and cross-site direct image/media assets remain allowed.
+- Explicitly trusted navigation can still leave a reader page.
+- Generated Shield script contains touch, pointer, mouse, click, auxiliary-click, and submit guards.
+- Touch listeners use `passive:false`, and touch coordinates are normalized before click-through recovery.
+- `about:blank`, `about:srcdoc`, and empty HTML data documents are classified as transient blank pages.
+- Reader recovery is deterministic and reloads the tab-owned last safe URL.
+- A standalone Java 17 regression harness passed 14 focused Shield checks.
 
 ## Persistent element-filter checks
 
@@ -32,8 +43,8 @@
 ## Test inventory
 
 - 18 JVM test classes.
-- 56 `@Test` cases in the project source.
-- New coverage: `ElementPickerScriptTest` and `UserElementFilterPolicyTest`.
+- 59 `@Test` cases in the project source.
+- New coverage includes reader cross-site takeover, transient blank-page recovery, and mobile touch/pointer guard assertions.
 
 ## Packaging checks
 
