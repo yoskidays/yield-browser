@@ -18,7 +18,7 @@ final class ShieldEngineV2 {
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern SAFE_CONTENT_PATH = Pattern.compile(
-            "(?:^|/)(?:manga|manhwa|manhua|comic|komik|chapter|chapitre|capitulo|episode|reader|read|reading|baca|novel|article|post|category|search)(?:[-_/]|$)",
+            "(?:^|[/_-])(?:manga|manhwa|manhua|comic|komik|chapter|chapitre|capitulo|episode|reader|read(?:-online)?|reading|baca|novel|article|post|category|search)(?:[/_-]|$)",
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern RELAY_SEGMENT = Pattern.compile(
@@ -63,6 +63,10 @@ final class ShieldEngineV2 {
 
         boolean sameSite = !sourceHost.isEmpty() && sameSite(targetHost, sourceHost);
         if (sameSite) {
+            // A chapter/episode link is a first-party content navigation, not an opaque relay.
+            // This explicit allow-lane must run before relay scoring because long chapter slugs
+            // (for example /title-chapter-6-1/) otherwise look like opaque tracking tokens.
+            if (isSafeSameSiteReaderNavigation(targetUrl, sourceUrl)) return false;
             return isHighConfidenceSameOriginRelay(targetUrl, sourceUrl, compatibilityOrReaderContext);
         }
 
@@ -113,6 +117,7 @@ final class ShieldEngineV2 {
         if (isDirectContentAsset(targetUrl)) return false;
 
         String targetPath = pathOf(targetUrl);
+        if (isSafeSameSiteReaderNavigation(targetUrl, sourceUrl)) return false;
         if (SAFE_CONTENT_PATH.matcher(targetPath).find()) return false;
 
         int score = 0;
@@ -126,6 +131,32 @@ final class ShieldEngineV2 {
         // `/r/<opaque token>` and equivalent reader relays must be blocked before the main tab
         // leaves the chapter. Outside reader mode, require more independent evidence.
         return score >= (compatibilityOrReaderContext ? 4 : 6);
+    }
+
+    /**
+     * Allows legitimate previous/next chapter navigation before the relay heuristic runs.
+     *
+     * Reader sites commonly use long semantic slugs such as
+     * /series-name-chapter-6-1/. The old opaque-segment score treated those slugs as an ad
+     * token when the source was already a chapter page. Only same-site, non-relay,
+     * non-ad destinations are eligible for this allow-lane.
+     */
+    static boolean isSafeSameSiteReaderNavigation(String targetUrl, String sourceUrl) {
+        if (!isHttpOrHttps(targetUrl) || !isHttpOrHttps(sourceUrl)) return false;
+        String targetHost = hostOf(targetUrl);
+        String sourceHost = hostOf(sourceUrl);
+        if (targetHost.isEmpty() || sourceHost.isEmpty() || !sameSite(targetHost, sourceHost)) return false;
+        if (isDirectContentAsset(targetUrl) || isRelayPath(targetUrl) || hasHardAdToken(targetUrl)) return false;
+
+        String targetPath = pathOf(targetUrl);
+        boolean targetReader = ReaderCompatibilityPolicy.hasReaderPathHint(targetUrl)
+                || SAFE_CONTENT_PATH.matcher(targetPath).find();
+        if (!targetReader) return false;
+
+        String sourcePath = pathOf(sourceUrl);
+        boolean sourceReaderOrListing = ReaderCompatibilityPolicy.hasReaderPathHint(sourceUrl)
+                || SAFE_CONTENT_PATH.matcher(sourcePath).find();
+        return sourceReaderOrListing;
     }
 
     static boolean isKnownAdOrTrackerUrl(String url) {
@@ -147,6 +178,16 @@ final class ShieldEngineV2 {
         if (!isHttpOrHttps(url)) return false;
         String path = pathOf(url);
         return SAFE_CONTENT_PATH.matcher(path).find() || ReaderCompatibilityPolicy.hasReaderPathHint(url);
+    }
+
+    /**
+     * The legacy premium click guard predates Shield Engine V2 and has no DOM-aware reader
+     * recovery. Running both guards on a chapter page can consume the same touch twice, so
+     * reader/content pages use only the V2 guard. Ordinary pages keep the legacy guard as an
+     * additional compatibility layer.
+     */
+    static boolean shouldUseLegacyClickGuard(String pageUrl, boolean clickHijackEnabled) {
+        return clickHijackEnabled && !isReaderOrContentPage(pageUrl);
     }
 
     private static boolean hasRedirectParameter(String url) {
@@ -251,31 +292,40 @@ final class ShieldPageScript {
                 + "function path(u){try{return(new URL(abs(u))).pathname.toLowerCase();}catch(e){return'';}}"
                 + "function same(a,b){return !!a&&!!b&&(a===b||a.endsWith('.'+b)||b.endsWith('.'+a));}"
                 + "function asset(u){return /\\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|woff2?|ttf|otf|mp4|m4v|mov|webm|mkv|m3u8|mpd|m4s|ts|mp3|aac|wav|ogg|pdf|zip|rar|7z)(?:$|[?#])/i.test(String(u||''));}"
-                + "function contentPath(p){return /(?:^|\\/)(?:manga|manhwa|manhua|comic|komik|chapter|chapitre|capitulo|episode|reader|read|reading|baca|novel|article|post|category|search)(?:[-_\\/]|$)/i.test(p||'');}"
+                + "function contentPath(p){return /(?:^|[\\/_-])(?:manga|manhwa|manhua|comic|komik|chapter|chapitre|capitulo|episode|reader|read(?:-online)?|reading|baca|novel|article|post|category|search)(?:[\\/_-]|$)/i.test(p||'');}"
                 + "function reader(){var p=location.pathname||'';if(contentPath(p))return true;try{return D.querySelectorAll('img[data-src],img[data-lazy-src],img[data-original],picture source[data-srcset]').length>=3;}catch(e){return false;}}"
                 + "function relay(u){var p=path(u);return /(?:^|\\/)(?:r|go|out|away|jump|visit|redirect|redir|click|link|external|open|track|tracking|offer|offers|promo|ads?|interstitial)(?:\\/|$)/i.test(p);}"
                 + "function redirParam(u){return /[?&](?:url|u|to|target|dest|destination|redirect|redirect_url|redirect_uri|redir|r|go|out|link|click|next|continue|return|return_to|return_url|navigate_url)=/i.test(dec(u));}"
                 + "function hardToken(u){return /(?:adclick|ad_click|adurl|clickunder|onclickads|popunder|popupads|interstitial|affiliate|aff_sub|af_click|click_id|campaign_id|tracking_id|utm_medium=affiliates|deep_and_deferred|navigate_url|reactpath)/i.test(dec(u));}"
                 + "function adHost(h){return /(?:^|\\.)(?:doubleclick\\.net|googlesyndication\\.com|googleadservices\\.com|onclickads\\.net|clickadu\\.com|popads\\.net|popcash\\.net|propellerads\\.com|adsterra\\.com|hilltopads\\.net|exoclick\\.com|trafficjunky\\.net|juicyads\\.com|admaven\\.com|realsrv\\.com|taboola\\.com|outbrain\\.com|mgid\\.com|revcontent\\.com)$/i.test(h||'');}"
                 + "function cheap(h){return /\\.(?:click|cfd|cam|monster|quest|buzz|icu|cyou|xyz|top|shop|site|space|online|live|fun|lol)$/i.test(h||'');}"
-                + "function sameRelay(u){var a=abs(u),h=host(a),c=host(location.href),p=path(a);if(!h||!c||!same(h,c)||asset(a)||contentPath(p))return false;var n=0;if(relay(a))n+=3;if(redirParam(a))n+=2;if(hardToken(a))n+=2;if(/(?:^|\\/)[a-z0-9_-]{16,}(?:\\/|$)/i.test(p))n+=1;if(reader())n+=2;return n>=4;}"
-                + "function bad(u){if(!S.config.enabled||!u)return false;var a=abs(u),l=low(a);if(/^(intent|market|shopeeid|lazada|tokopedia):/.test(l))return true;if(!/^https?:/i.test(a)||asset(a))return false;var h=host(a),c=host(location.href);if(same(h,c))return S.config.redirect&&sameRelay(a);if(adHost(h)||hardToken(a))return true;return reader()&&cheap(h)&&(redirParam(a)||/(?:^|\\/)[a-z0-9_-]{16,}(?:\\/|$)/i.test(path(a)));}"
+                + "function navMeta(node){try{var el=node&&node.closest?node.closest('a[href],area[href],button,[role=button],form[action]'):null;if(!el)return'';var rel=low(el.getAttribute&&el.getAttribute('rel'));var meta=low((el.id||'')+' '+(typeof el.className==='string'?el.className:'')+' '+(el.getAttribute&&el.getAttribute('aria-label')||'')+' '+(el.getAttribute&&el.getAttribute('title')||'')+' '+(el.innerText||el.textContent||''));return rel+' '+meta;}catch(e){return'';}}"
+                + "function navControl(node){return /(?:^|[ _-])(next|prev|previous|chapter|chapters|episode|bab|lanjut|selanjut|berikut|sebelum|daftar[ _-]*chapter)(?:[ _-]|$)/i.test(navMeta(node));}"
+                + "function safeReaderNav(u,node){var a=abs(u),h=host(a),c=host(location.href),p=path(a);if(!h||!c||!same(h,c)||asset(a)||relay(a)||hardToken(a))return false;if(contentPath(p))return true;return reader()&&navControl(node)&&!redirParam(a);}"
+                + "function sameRelay(u,node){var a=abs(u),h=host(a),c=host(location.href),p=path(a);if(!h||!c||!same(h,c)||asset(a)||safeReaderNav(a,node)||contentPath(p))return false;var n=0;if(relay(a))n+=3;if(redirParam(a))n+=2;if(hardToken(a))n+=2;if(/(?:^|\\/)[a-z0-9_-]{16,}(?:\\/|$)/i.test(p))n+=1;if(reader())n+=2;return n>=4;}"
+                + "function bad(u,node){if(!S.config.enabled||!u)return false;var a=abs(u),l=low(a);if(/^(intent|market|shopeeid|lazada|tokopedia):/.test(l))return true;if(!/^https?:/i.test(a)||asset(a))return false;var h=host(a),c=host(location.href);if(same(h,c)){if(safeReaderNav(a,node))return false;return S.config.redirect&&sameRelay(a,node);}if(adHost(h)||hardToken(a))return true;return reader()&&cheap(h)&&(redirParam(a)||/(?:^|\\/)[a-z0-9_-]{16,}(?:\\/|$)/i.test(path(a)));}"
                 + "function report(u){try{if(W.YieldAdBlockBridge&&YieldAdBlockBridge.onAdRedirect)YieldAdBlockBridge.onAdRedirect(String(u));}catch(e){}}"
-                + "function deny(e,u){try{report(u);if(e){e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();}}catch(x){}return false;}"
+                + "function cancelEvent(e){try{if(e){e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();}}catch(x){}return false;}"
+                + "function deny(e,u){try{if(u)report(u);}catch(x){}return cancelEvent(e);}"
                 + "function targetUrl(node){try{var a=node&&node.closest?node.closest('a[href],area[href]'):null;if(a)return a.href||a.getAttribute('href')||'';var f=node&&node.closest?node.closest('form[action]'):null;if(f)return f.action||f.getAttribute('action')||'';}catch(e){}return'';}"
-                + "function clickGuard(e){if(!S.config.enabled||!S.config.click)return;try{var u=targetUrl(e.target);if(u&&bad(u))return deny(e,u);}catch(x){}}"
-                + "function submitGuard(e){if(!S.config.enabled||!S.config.redirect)return;try{var f=e.target;if(f&&f.action&&bad(f.action))return deny(e,f.action);}catch(x){}}"
+                + "function candidateUrl(node){try{var el=node&&node.closest?node.closest('a[href],area[href],form[action],button,[role=button],[role=link],[data-href],[data-url],[data-link],[data-next],[data-prev],[data-chapter-url]'):node;if(!el)return'';var direct=targetUrl(el);if(direct)return abs(direct);var attrs=['data-href','data-url','data-link','data-next','data-prev','data-chapter-url'];for(var i=0;i<attrs.length;i++){var v=el.getAttribute&&el.getAttribute(attrs[i]);if(v&&/^(?:https?:|\\/\\/|\\/|\\.\\.?\\/|\\?)/i.test(String(v).trim()))return abs(v);}var oc=el.getAttribute&&el.getAttribute('onclick')||'';var m=String(oc).match(/(?:window\\.)?location(?:\\.href)?\\s*=\\s*['\"]([^'\"]+)['\"]|location\\.(?:assign|replace)\\(\\s*['\"]([^'\"]+)['\"]/i);if(m)return abs(m[1]||m[2]);}catch(e){}return'';}"
+                + "function clickSurfaceSuspicious(node){try{var el=node&&node.closest?node.closest('a,button,[role=button],[role=link],[onclick],[style]'):node;if(!el||navControl(el))return false;var u=candidateUrl(el);if(u&&bad(u,el))return true;var cs=getComputedStyle(el),p=cs.position,z=parseInt(cs.zIndex,10);if(!isFinite(z))z=0;var meta=low((el.id||'')+' '+(typeof el.className==='string'?el.className:'')+' '+(el.getAttribute&&el.getAttribute('aria-label')||''));var transparent=parseFloat(cs.opacity||'1')<0.22||cs.backgroundColor==='rgba(0, 0, 0, 0)'||cs.backgroundColor==='transparent';var marked=/(^|[ _-])(ad|ads|advert|popup|popunder|interstitial|clickunder|overlay|sponsor)([ _-]|$)/i.test(meta);var clickable=!!(el.onclick||(el.getAttribute&&el.getAttribute('onclick'))||cs.cursor==='pointer'||el.tagName==='A'||el.tagName==='BUTTON');return clickable&&(marked||((p==='fixed'||p==='absolute'||p==='sticky')&&transparent&&z>=10));}catch(e){return false;}}"
+                + "function pointElements(e,blocked){try{if(typeof D.elementsFromPoint==='function')return D.elementsFromPoint(e.clientX,e.clientY)||[];if(typeof D.elementFromPoint!=='function')return[];var style=blocked&&blocked.style,old=style?style.pointerEvents:'';if(style)style.pointerEvents='none';var below=D.elementFromPoint(e.clientX,e.clientY);if(style)style.pointerEvents=old;return below?[below]:[];}catch(x){return[];}}"
+                + "function safeReaderAtPoint(e,blocked){try{if(!reader()||!e)return'';var list=pointElements(e,blocked),seen=[];for(var i=0;i<list.length;i++){var raw=list[i],el=raw&&raw.closest?raw.closest('a[href],area[href],button,[role=button],[role=link],[data-href],[data-url],[data-link],[data-next],[data-prev],[data-chapter-url]'):null;if(!el||el===blocked||seen.indexOf(el)>=0)continue;seen.push(el);var u=candidateUrl(el);if(u&&safeReaderNav(u,el))return abs(u);}}catch(x){}return'';}"
+                + "function recoverReaderClick(e,blockedNode,blockedUrl){try{var safe=safeReaderAtPoint(e,blockedNode);if(!safe)return false;if(blockedUrl)deny(e,blockedUrl);else cancelEvent(e);if(S.readerNavLock)return true;S.readerNavLock=true;setTimeout(function(){try{location.assign(safe);}catch(x){try{location.href=safe;}catch(y){}}setTimeout(function(){S.readerNavLock=false;},500);},0);return true;}catch(x){return false;}}"
+                + "function clickGuard(e){if(!S.config.enabled||!S.config.click||S.readerNavLock)return;try{var blocked=e.target&&e.target.closest?e.target.closest('a,button,[role=button],[role=link],[onclick],[style]'):e.target;var u=targetUrl(e.target);if(u&&safeReaderNav(u,e.target))return;if(u&&bad(u,e.target)){if(recoverReaderClick(e,blocked,u))return;return deny(e,u);}if(!u&&clickSurfaceSuspicious(e.target)&&recoverReaderClick(e,blocked,''))return;}catch(x){}}"
+                + "function submitGuard(e){if(!S.config.enabled||!S.config.redirect)return;try{var f=e.target;if(f&&f.action&&safeReaderNav(f.action,f))return;if(f&&f.action&&bad(f.action,f))return deny(e,f.action);}catch(x){}}"
                 + "function visible(el){try{var r=el.getBoundingClientRect(),cs=getComputedStyle(el);return r.width>2&&r.height>2&&cs.display!=='none'&&cs.visibility!=='hidden';}catch(e){return false;}}"
-                + "function overlayBad(el){try{if(!visible(el))return false;var cs=getComputedStyle(el),r=el.getBoundingClientRect(),vw=Math.max(1,innerWidth),vh=Math.max(1,innerHeight);var cover=(r.width*r.height)/(vw*vh);if(cover<0.55)return false;var pos=cs.position;if(pos!=='fixed'&&pos!=='absolute'&&pos!=='sticky')return false;var z=parseInt(cs.zIndex,10);if(!isFinite(z))z=0;var meta=low((el.id||'')+' '+(typeof el.className==='string'?el.className:'')+' '+(el.getAttribute('aria-label')||''));var href=targetUrl(el)||'';var child='';try{var n=el.querySelector('a[href],iframe[src],form[action]');if(n)child=n.href||n.src||n.action||'';}catch(x){}var marked=/(^|[ _-])(ad|ads|advert|popup|popunder|interstitial|clickunder|sponsor)([ _-]|$)/i.test(meta);var transparent=parseFloat(cs.opacity||'1')<0.18||cs.backgroundColor==='rgba(0, 0, 0, 0)';var clickable=!!(el.onclick||el.getAttribute('onclick')||el.getAttribute('role')==='link'||cs.cursor==='pointer');var meaningful=false;try{meaningful=!!el.querySelector('img,video,audio,[role=dialog],button,input,textarea,select')||String(el.innerText||el.textContent||'').trim().length>24;}catch(x){}return bad(href)||bad(child)||marked||(reader()&&cover>0.72&&z>=1000&&transparent&&clickable&&!meaningful);}catch(e){return false;}}"
+                + "function overlayBad(el){try{if(!visible(el)||navControl(el))return false;try{var safeChild=el.querySelector('a[href][rel=next],a[href][rel=prev],a[href][class*=next],a[href][class*=prev],a[href][class*=chapter],[aria-label*=next i],[aria-label*=prev i]');if(safeChild&&safeReaderNav(targetUrl(safeChild),safeChild))return false;}catch(x){}var cs=getComputedStyle(el),r=el.getBoundingClientRect(),vw=Math.max(1,innerWidth),vh=Math.max(1,innerHeight);var cover=(r.width*r.height)/(vw*vh);if(cover<0.55)return false;var pos=cs.position;if(pos!=='fixed'&&pos!=='absolute'&&pos!=='sticky')return false;var z=parseInt(cs.zIndex,10);if(!isFinite(z))z=0;var meta=low((el.id||'')+' '+(typeof el.className==='string'?el.className:'')+' '+(el.getAttribute('aria-label')||''));var href=targetUrl(el)||'';var child='';try{var n=el.querySelector('a[href],iframe[src],form[action]');if(n)child=n.href||n.src||n.action||'';}catch(x){}var marked=/(^|[ _-])(ad|ads|advert|popup|popunder|interstitial|clickunder|sponsor)([ _-]|$)/i.test(meta);var transparent=parseFloat(cs.opacity||'1')<0.18||cs.backgroundColor==='rgba(0, 0, 0, 0)';var clickable=!!(el.onclick||el.getAttribute('onclick')||el.getAttribute('role')==='link'||cs.cursor==='pointer');var meaningful=false;try{meaningful=!!el.querySelector('img,video,audio,[role=dialog],button,input,textarea,select')||String(el.innerText||el.textContent||'').trim().length>24;}catch(x){}return bad(href,el)||bad(child,el)||marked||(reader()&&cover>0.72&&z>=1000&&transparent&&clickable&&!meaningful);}catch(e){return false;}}"
                 + "function clean(){if(!S.config.enabled)return;var removed=false;try{if(S.config.resource)D.querySelectorAll('iframe[src],script[src],ins[data-ad-client]').forEach(function(el){var u=el.src||el.getAttribute('data-ad-client')||'';if(u&&bad(u)){el.remove();removed=true;}});}catch(e){}try{if(S.config.click)D.querySelectorAll('[class*=popup],[class*=popunder],[class*=interstitial],[id*=popup],[id*=popunder],[id*=interstitial],[class*=overlay],[id*=overlay],[style*=z-index]').forEach(function(el){if(overlayBad(el)){el.style.setProperty('display','none','important');el.style.setProperty('pointer-events','none','important');removed=true;}});}catch(e){}if(removed){try{if(D.documentElement)D.documentElement.style.removeProperty('overflow');if(D.body)D.body.style.removeProperty('overflow');}catch(e){}}}"
                 + "function schedule(){if(S.timer)return;S.timer=setTimeout(function(){S.timer=0;clean();},80);}"
                 + "W.__yieldShieldV2SetConfig=function(n){try{if(n)Object.keys(n).forEach(function(k){S.config[k]=!!n[k];});schedule();}catch(e){}};"
                 + "W.__yieldShieldV2Run=clean;"
                 + "if(!S.installed){S.installed=true;"
-                + "try{var nativeOpen=W.open;W.open=function(u,n,f){if(S.config.enabled&&S.config.popup&&bad(u)){report(u);return{closed:true,focus:function(){},close:function(){}};}try{return nativeOpen.call(W,u,n,f);}catch(e){return null;}};}catch(e){}"
+                + "try{var nativeOpen=W.open;W.open=function(u,n,f){if(S.config.enabled&&S.config.popup&&bad(u,null)){report(u);return{closed:true,focus:function(){},close:function(){}};}try{return nativeOpen.call(W,u,n,f);}catch(e){return null;}};}catch(e){}"
                 + "D.addEventListener('click',clickGuard,true);D.addEventListener('auxclick',clickGuard,true);D.addEventListener('submit',submitGuard,true);"
-                + "try{var ac=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(S.config.enabled&&S.config.click&&bad(this.href)){report(this.href);return;}return ac.call(this);};}catch(e){}"
-                + "try{var fs=HTMLFormElement.prototype.submit;HTMLFormElement.prototype.submit=function(){if(S.config.enabled&&S.config.redirect&&bad(this.action)){report(this.action);return;}return fs.call(this);};}catch(e){}"
+                + "try{var ac=HTMLAnchorElement.prototype.click;HTMLAnchorElement.prototype.click=function(){if(S.config.enabled&&S.config.click&&!safeReaderNav(this.href,this)&&bad(this.href,this)){report(this.href);return;}return ac.call(this);};}catch(e){}"
+                + "try{var fs=HTMLFormElement.prototype.submit;HTMLFormElement.prototype.submit=function(){if(S.config.enabled&&S.config.redirect&&!safeReaderNav(this.action,this)&&bad(this.action,this)){report(this.action);return;}return fs.call(this);};}catch(e){}"
                 + "try{S.observer=new MutationObserver(schedule);S.observer.observe(D.documentElement||D,{childList:true,subtree:true,attributes:true,attributeFilter:['src','href','action','style','class']});}catch(e){}"
                 + "}"
                 + "if(D.readyState==='loading')D.addEventListener('DOMContentLoaded',function(){clean();setTimeout(clean,350);},true);else schedule();"

@@ -36,6 +36,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Message;
 import android.os.StrictMode;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
@@ -10217,6 +10218,90 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 hasGesture, context, explicitlyTrusted, legacySuspicious);
     }
 
+    private boolean handleLongPressedLink(WebView sourceView) {
+        if (elementPickerActive) return false;
+        if (sourceView == null || sourceView != webView
+                || sourceView.getVisibility() != View.VISIBLE) {
+            return false;
+        }
+
+        WebView.HitTestResult hitResult;
+        try {
+            hitResult = sourceView.getHitTestResult();
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+        if (hitResult == null) return false;
+
+        int type = hitResult.getType();
+        if (type != WebView.HitTestResult.SRC_ANCHOR_TYPE
+                && type != WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+            return false;
+        }
+
+        final String fallbackHref = hitResult.getExtra();
+        final String pageUrl = sourceView.getUrl();
+        final AtomicBoolean delivered = new AtomicBoolean(false);
+
+        Handler hrefHandler = new Handler(Looper.getMainLooper(), message -> {
+            if (!delivered.compareAndSet(false, true)) return true;
+            Bundle data = message != null ? message.getData() : null;
+            String resolvedHref = data != null ? data.getString("url") : null;
+            showLongPressedLinkMenu(sourceView, resolvedHref, fallbackHref, pageUrl);
+            return true;
+        });
+
+        try {
+            Message hrefMessage = hrefHandler.obtainMessage();
+            sourceView.requestFocusNodeHref(hrefMessage);
+        } catch (RuntimeException ignored) {
+            // The delayed fallback below still uses HitTestResult#getExtra().
+        }
+
+        mainHandler.postDelayed(() -> {
+            if (delivered.compareAndSet(false, true)) {
+                showLongPressedLinkMenu(sourceView, null, fallbackHref, pageUrl);
+            }
+        }, 180L);
+        return true;
+    }
+
+    private void showLongPressedLinkMenu(WebView sourceView, String requestedHref,
+                                         String fallbackHref, String pageUrl) {
+        if (sourceView == null || sourceView != webView
+                || sourceView.getVisibility() != View.VISIBLE) {
+            return;
+        }
+
+        String resolvedUrl = LongPressLinkPolicy.resolveHttpUrl(requestedHref, pageUrl);
+        if (resolvedUrl == null) {
+            resolvedUrl = LongPressLinkPolicy.resolveHttpUrl(fallbackHref, pageUrl);
+        }
+        if (resolvedUrl == null) return;
+
+        final String targetUrl = resolvedUrl;
+        new AlertDialog.Builder(this)
+                .setItems(new CharSequence[]{"Buka link di tab baru"}, (dialog, which) -> {
+                    if (which == 0) openLongPressedLinkInNewTab(targetUrl);
+                })
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
+    private void openLongPressedLinkInNewTab(String url) {
+        String targetUrl = LongPressLinkPolicy.resolveHttpUrl(url, getEffectiveCurrentUrl());
+        if (targetUrl == null) return;
+        if (safeMode && isUnsafeUrl(targetUrl)) {
+            QuietToast.makeText(this, "Diblokir Safe Browsing sederhana",
+                    QuietToast.LENGTH_SHORT).show();
+            return;
+        }
+
+        newTabInCurrentProfile();
+        if (addressBar != null) addressBar.setText(targetUrl);
+        openAddressBarUrl();
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
         applyBrowserSettings();
@@ -10227,6 +10312,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         applyProfileCookiePolicy(webView);
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
             beginDownloadFromWeb(url, contentDisposition, mimeType, userAgent);
+        });
+        final WebView configuredWebView = webView;
+        configuredWebView.setOnLongClickListener(v -> {
+            if (!(v instanceof WebView)) return false;
+            return handleLongPressedLink((WebView) v);
         });
 
         webView.setWebViewClient(new WebViewClient() {
@@ -10705,6 +10795,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             @Override
             public void onProgressChanged(WebView view, int newProgress) {
                 if (view != webView) return;
+                boolean homeVisible = homeScroll != null && homeScroll.getVisibility() == View.VISIBLE;
+                if (homeVisible || view.getVisibility() != View.VISIBLE) {
+                    progressBar.setProgress(0);
+                    progressBar.setVisibility(View.GONE);
+                    return;
+                }
                 progressBar.setProgress(newProgress);
                 progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
             }
@@ -13069,7 +13165,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         injectAdBlockCssEarly();
 
         String popupEnabled = adBlockPopupBlocker ? "true" : "false";
-        String clickEnabled = adBlockClickHijackBlocker ? "true" : "false";
+        // Reader/content pages use the DOM-aware Shield Engine V2 click guard only. The older
+        // premium listener is intentionally disabled there so one touch is not consumed twice
+        // before a legitimate Next/Previous Chapter control receives it.
+        String clickEnabled = ShieldEngineV2.shouldUseLegacyClickGuard(
+                getEffectiveCurrentUrl(), adBlockClickHijackBlocker) ? "true" : "false";
         String scriptEnabled = adBlockScriptIframeBlocker ? "true" : "false";
 
         String js = "javascript:(function(){"
@@ -13732,6 +13832,14 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         try {
             if (webView != null) webView.stopLoading();
         } catch (Exception ignored) {}
+        // Home must never keep a stale loading indicator visible. A hidden WebView can still
+        // finish a late callback after stopLoading(), so reset the browser-level progress UI here.
+        try {
+            if (progressBar != null) {
+                progressBar.setProgress(0);
+                progressBar.setVisibility(View.GONE);
+            }
+        } catch (Exception ignored) {}
 
         if (homeScroll != null) homeScroll.setVisibility(View.VISIBLE);
         if (webView != null) webView.setVisibility(View.GONE);
@@ -14077,7 +14185,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         if (webView != null && webView.getVisibility() == View.VISIBLE && webView.canGoBack()) {
             webView.goBack();
         } else if (webView != null && webView.getVisibility() == View.VISIBLE) {
-            showHome();
+            // Reaching Home through Android Back is a real exit from the current page, not merely
+            // a visual hide. Destroying the tab WebView stops JavaScript, media, redirects, network
+            // activity, and late WebView callbacks from continuing behind the Home screen.
+            navigateCurrentTabHome();
         } else {
             super.onBackPressed();
         }
