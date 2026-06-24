@@ -1,63 +1,58 @@
-# Block Element — Element Picker manual (gaya uBlock/Brave)
+# Blokir Elemen V2 — mode berkelanjutan dan filter permanen
 
-Fitur baru: pengguna bisa **mengetuk iklan/elemen yang lolos AdBlock** lalu
-menyembunyikannya secara permanen per situs. Murni **cosmetic filtering** —
-**tidak ada perubahan pada network layer** (`shouldInterceptRequest`,
-`buildBlockedResponse`, blocklist host) sehingga risiko regresi minimal. Mesin
-AdBlock yang sudah stabil (YouTube Safe AdBlock V6, popup→temp-tab, click-hijack,
-deteksi download-intent, compatibility mode) **tidak diubah**.
+Yield Browser v0.10.05 menyempurnakan fitur **Blokir elemen** menjadi cosmetic filter manual yang berdiri sendiri, tidak bergantung pada status AdBlock utama.
 
-## Cara pakai
+## Perilaku baru
 
-1. Buka menu **⋮ → "Blokir elemen"**.
-2. Banner "Mode Blokir Elemen" muncul di atas; ketuk iklan/elemen yang ingin disembunyikan.
-3. Elemen tersorot (kotak oranye) dan muncul **dialog Android** "Blokir elemen ini?"
-   berisi selektor + pratinjau, dengan tombol:
-   - **Blokir** — sembunyikan sekarang & simpan permanen untuk domain ini.
-   - **Naik 1 induk** — perlebar pilihan ke elemen induk (untuk iklan yang dibungkus
-     container), lalu dialog tampil ulang dengan selektor baru.
-   - **Batal** — keluar dari mode pilih.
-4. Kelola via **⋮ → "Filter situs ini"**: lihat/hapus per-selektor atau
-   "Hapus semua filter situs ini".
+1. Buka halaman web lalu pilih **⋮ → Blokir elemen**.
+2. Bar mode pemilih tetap tampil setelah satu elemen berhasil diblokir.
+3. Pengguna dapat langsung mengetuk elemen berikutnya tanpa membuka menu ulang.
+4. Tombol **X** di sisi kanan bar menutup mode pemilih.
+5. Dialog konfirmasi menyediakan:
+   - **Blokir & lanjut** — menyimpan filter dan tetap berada dalam mode pemilih.
+   - **Naik 1 induk** — memperluas pilihan ke container induk yang masih aman.
+   - **Batal pilihan** — membatalkan pilihan saat ini tetapi tidak menutup mode.
+6. Dialog menampilkan jumlah elemen yang akan terkena selector agar pengguna tidak memblokir area terlalu luas tanpa sadar.
 
-## Cara kerja
+## Persistensi dan AdBlock OFF
 
-- **Picker** (`buildElementPickerJs`): overlay JS yang menyorot elemen di bawah
-  sentuhan, menelan klik agar tautan iklan tidak ikut terbuka, lalu menghitung
-  **CSS selector stabil**: prioritas `#id` unik → tag + maksimal 2 kelas non-acak
-  (kelas hash/CSS-module dibuang) → jalur `:nth-of-type` hingga 5 level. Selektor
-  & pratinjau dikirim ke Android via `AdBlockBridge.onElementPicked`.
-- **Penyimpanan** (`PREFS`, tanpa dependensi baru): per host disimpan sebagai
-  `StringSet` kunci `ef_<host>`, dengan indeks host di `ef_hosts`. Mengikuti pola
-  `putStringSet` yang sudah dipakai project.
-- **Penerapan ulang** (`applyUserFiltersForCurrentPage`): satu
-  `<style id="yield-user-filters">` idempoten diinject **lebih awal di
-  `onPageCommitVisible`** (hide-before-paint, tanpa kedip), dengan jaring pengaman
-  di `onPageFinished` untuk halaman SPA. Saat sebuah filter dihapus, isi stylesheet
-  diperbarui (atau dikosongkan) tanpa reload.
+- Filter disimpan permanen di `SharedPreferences` berdasarkan host yang dinormalisasi.
+- Awalan `www.` diabaikan, sehingga `www.example.com` dan `example.com` memakai kumpulan filter yang sama.
+- Filter tetap diterapkan saat AdBlock utama **OFF**.
+- Filter tetap diterapkan pada compatibility mode dan halaman reader.
+- Membuka situs dari bookmark, riwayat, tab yang dipulihkan, atau mengetik URL akan memasang kembali filter host yang sama.
+- Filter hanya berhenti setelah dihapus melalui **Filter situs ini**.
 
-## Keamanan & batasan
+## Ketahanan halaman dinamis
 
-- `<video>`, `<html>`, `<body>` tidak pernah disembunyikan.
-- Halaman dalam **compatibility mode** dikecualikan dari injeksi (konsisten dengan
-  guard yang ada) agar situs anti-adblock tidak rusak/loop.
-- Picker hanya aktif di halaman `http/https`.
+Setiap host memakai satu stylesheet bernama `yield-user-filters`. Stylesheet diterapkan pada `onPageCommitVisible`, `onPageFinished`, saat kembali ke tab hidup, dan setelah pengaturan AdBlock berubah. Mutation observer ringan memasang ulang stylesheet jika situs mengganti `<head>` atau menghapus style pada navigasi SPA.
 
-## Berkas yang diubah
+CSS dibuat sebagai aturan terpisah per selector. Satu selector lama yang tidak valid tidak membatalkan seluruh kumpulan filter.
 
-- `app/src/main/java/com/yieldbrowser/app/MainActivity.java`
-  - Field state filter + status picker.
-  - `AdBlockBridge`: `onElementPicked`, `onPickerExited`.
-  - Dua entri menu di `showQuickMenu` ("Blokir elemen", "Filter situs ini").
-  - Hook penerapan filter di `onPageCommitVisible` & `onPageFinished`.
-  - Blok helper: persistensi, injektor CSS, picker JS, dialog konfirmasi,
-    manajer filter.
-- `app/src/main/res/drawable/ic_block_element.xml` (ikon crosshair, baru).
+## Keamanan pemilih
 
-## Validasi
+- Selector diverifikasi kembali di sisi Java sebelum disimpan.
+- Selector list, at-rule, kurung CSS, titik koma, karakter kontrol, dan payload injeksi CSS ditolak.
+- Elemen penting tidak dapat diblokir: `html`, `body`, `head`, `script`, `style`, `link`, `meta`, `title`, `video`, `audio`, dan `source`.
+- Tombol **Naik 1 induk** berhenti sebelum mencapai elemen penting.
+- Event sentuhan memakai `PointerEvent` bila tersedia, dengan fallback touch/mouse dan debounce untuk mencegah satu tap memunculkan dialog berulang.
+- Mode dibersihkan saat pindah tab, navigasi baru, kembali ke Home, WebView dihancurkan, atau Activity masuk background.
 
-- `MainActivity.java` lolos parse `javalang`; tidak ada duplikasi signature method.
-- Picker JS dan seluruh injektor CSS (apply/clear/parent/commit) lolos `node --check`.
-- Vector drawable baru lolos parse XML.
-- Build Gradle penuh + uji perangkat tetap perlu dijalankan via GitHub Actions
-  (Android SDK tidak tersedia di lingkungan editing ini).
+## Selector yang lebih stabil
+
+Urutan pembentukan selector:
+
+1. ID unik yang terlihat stabil.
+2. Tag dengan maksimal tiga class stabil jika sudah unik.
+3. Jalur induk hingga tujuh tingkat.
+4. `:nth-of-type` hanya ditambahkan ketika sibling dengan pola sama memang lebih dari satu.
+
+ID/class yang sangat panjang, berisi digit acak panjang, atau pola CSS-in-JS umum dihindari.
+
+## Berkas utama
+
+- `MainActivity.java` — lifecycle, penyimpanan, penerapan filter, bridge, dan dialog.
+- `ElementPickerScript.java` — UI picker berkelanjutan, tombol X, highlight, selector, dan event handling.
+- `UserElementFilterPolicy.java` — validasi selector dan proteksi elemen penting.
+- `ElementPickerScriptTest.java`
+- `UserElementFilterPolicyTest.java`

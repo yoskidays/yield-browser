@@ -1,3 +1,21 @@
+# Yield Browser v0.10.05
+
+- Changed **Blokir elemen** into a continuous picker that remains active after each block.
+- Added an explicit **X** button on the picker bar to exit without reopening the browser menu.
+- Changed the confirmation action to **Blokir & lanjut** and added **Batal pilihan** so cancelling one target does not close the picker.
+- Made manual cosmetic filters independent from the AdBlock master switch.
+- Manual filters now remain active when AdBlock is OFF and on compatibility/reader pages.
+- Persisted filters are reapplied when the same host is opened from bookmarks, history, restored tabs, or a fresh navigation.
+- Added resilient stylesheet reinjection for dynamic/SPA pages that replace the document head or remove injected styles.
+- Added matched-element counts to the confirmation dialog.
+- Improved selector stability by preferring stable unique IDs/classes and using `:nth-of-type` only when necessary.
+- Added Android-side selector validation and protection for critical document/media elements.
+- Added PointerEvent/touch/mouse deduplication to prevent duplicate dialogs from one tap.
+- Picker state is now cleared safely on navigation, tab changes, Home, WebView destruction, and Activity backgrounding.
+- Added `ElementPickerScript` and `UserElementFilterPolicy` regression tests.
+- Updated APK artifact names.
+- `versionCode 79`, `versionName 0.10.05`.
+
 # Yield Browser v0.10.04
 
 - Fixed Next/Previous Chapter controls becoming unresponsive when **Proteksi Click Hijack** was enabled.
