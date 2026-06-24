@@ -10356,6 +10356,14 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     return startHttpsFirstOverrideIfNeeded(view, u, requestTab);
                 }
 
+                // v0.10.06: popup/direct-link mobile sering membuka about:blank terlebih dahulu.
+                // Pada reader, dokumen transien itu tidak boleh menggantikan chapter utama.
+                if (mainFrame && ReaderCompatibilityPolicy.isTransientBlankUrl(u)
+                        && isShieldReaderOrCompatibilityContext(currentUrl)) {
+                    restoreAfterBlockedNavigation(view, u);
+                    return true;
+                }
+
                 // v0.9.45: direct image main-frame harus dicegat sebelum normal user navigation
                 // atau compatibility mode. Kalau tidak, klik/redirect gambar komik (.jpg/.jpeg/.webp)
                 // bisa mengambil alih tab utama dan berubah menjadi halaman gambar mentah.
@@ -10568,6 +10576,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 String safeBeforePageStarted = getTabReferenceUrl(activeOwner);
                 if ((safeBeforePageStarted == null || safeBeforePageStarted.length() == 0) && lastSafeHttpUrl != null) safeBeforePageStarted = lastSafeHttpUrl;
                 String startedUrl = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
+                if (ReaderCompatibilityPolicy.isTransientBlankUrl(startedUrl)
+                        && isShieldReaderOrCompatibilityContext(safeBeforePageStarted)) {
+                    restoreAfterBlockedNavigation(view, startedUrl);
+                    return;
+                }
                 boolean startedLegacySuspicious = isKnownPopupHost(startedUrl)
                         || isLikelyAdClickUrl(startedUrl)
                         || isAdUrl(startedUrl)
@@ -12039,6 +12052,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         if (currentHost.length() > 0 && sameOrSubDomain(targetHost, currentHost)) return true;
         if (isSearchEngineResultNavigation(targetUrl, currentUrl)) return true;
         if (isContextAllowedSuspiciousMainFrameNavigation(targetUrl, currentUrl, hasGesture)) return true;
+        // A gesture on a reader image can be stolen by a direct-link script. Do not promote an
+        // unknown cross-site destination to trusted navigation merely because hasGesture is true.
+        if (ShieldEngineV2.isReaderOrContentPage(currentUrl)
+                || ReaderCompatibilityPolicy.hasReaderPathHint(currentUrl)) return false;
         return hasGesture && !isKnownPopupHost(targetUrl) && !isAdUrl(targetUrl) && !isLikelyAdClickUrl(targetUrl);
     }
 
@@ -12526,13 +12543,24 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (isTrustedDownloadIntentUrl(blockedUrl)) {
                 return;
             }
-            if (isTrustedMainFrameNavigation(blockedUrl) || isTrustedMainFrameNavigationForTab(targetTab, blockedUrl)) {
-                return;
-            }
             boolean shieldRelay = blockedUrl != null && tabSafeUrl != null
                     && ShieldEngineV2.isHighConfidenceSameOriginRelay(blockedUrl, tabSafeUrl,
                     isShieldReaderOrCompatibilityContext(tabSafeUrl));
-            boolean blockedIsAdLike = shieldRelay || isExternalSchemeUrl(blockedUrl) || isKnownPopupHost(blockedUrl)
+            boolean shieldBlockedMainFrame = blockedUrl != null && tabSafeUrl != null
+                    && ShieldEngineV2.shouldBlockMainFrameNavigation(blockedUrl, tabSafeUrl, false,
+                    isShieldReaderOrCompatibilityContext(tabSafeUrl), false, false);
+            boolean transientBlankNavigation = ReaderCompatibilityPolicy.isTransientBlankUrl(blockedUrl);
+            boolean directImageAgainstSafeUrl = isDirectImageMainFrameNavigation(blockedUrl, tabSafeUrl);
+            // A short-lived tab domain-switch allowance must not whitelist a stolen reader touch.
+            // Honor trusted navigation only when the reader boundary did not classify the target.
+            if ((isTrustedMainFrameNavigation(blockedUrl)
+                    || isTrustedMainFrameNavigationForTab(targetTab, blockedUrl))
+                    && !shieldBlockedMainFrame && !transientBlankNavigation
+                    && !directImageAgainstSafeUrl) {
+                return;
+            }
+            boolean blockedIsAdLike = shieldRelay || shieldBlockedMainFrame || transientBlankNavigation
+                    || isExternalSchemeUrl(blockedUrl) || isKnownPopupHost(blockedUrl)
                     || isLikelyAdClickUrl(blockedUrl) || isSuspiciousPopupNavigation(blockedUrl, tabSafeUrl);
             if (!blockedIsAdLike && (isSiteCompatibilityModeActiveForUrl(blockedUrl) || isSiteCompatibilityModeActiveForUrl(tabSafeUrl)
                     || isReloadLoopGuardActiveForUrl(blockedUrl) || isReloadLoopGuardActiveForUrl(tabSafeUrl))) {
@@ -12545,17 +12573,19 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     && currentBefore != null
                     && currentBefore.length() > 0
                     && blockedUrl.equals(currentBefore);
-            boolean directImageNavigation = isDirectImageMainFrameNavigation(blockedUrl, currentBefore);
+            boolean directImageNavigation = directImageAgainstSafeUrl
+                    || isDirectImageMainFrameNavigation(blockedUrl, currentBefore);
 
             // Ad/direct image dipisah ke tab baru, tab utama tidak di-reload agar gambar/komik
             // yang sedang loading tidak berubah menjadi halaman .jpg/.jpeg mentah.
             if (directImageNavigation) {
                 captureDirectImageToTempTab(blockedUrl);
-            } else {
+            } else if (!transientBlankNavigation) {
                 captureAdRedirectToTempTab(blockedUrl);
             }
 
-            if (view != null && (navigationAlreadyChanged || directImageNavigation || isExternalSchemeUrl(blockedUrl))) {
+            if (view != null && (navigationAlreadyChanged || directImageNavigation
+                    || transientBlankNavigation || isExternalSchemeUrl(blockedUrl))) {
                 view.stopLoading();
             }
 
@@ -12571,8 +12601,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     if (!isLiveTabWebView(targetTab, restoreView, targetGeneration)) return;
 
                     String current = restoreView.getUrl();
-                    boolean currentBad = current == null
-                            || current.length() == 0
+                    boolean currentBad = ReaderCompatibilityPolicy.isTransientBlankUrl(current)
                             || isExternalSchemeUrl(current)
                             || isLikelyAdClickUrl(current)
                             || isDirectImageMainFrameNavigation(current, fallbackUrl)
@@ -12583,13 +12612,16 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     // Recover hanya pada WebView pemilik tab tersebut. Jangan pakai webView global,
                     // karena global bisa sudah menunjuk tab lain setelah close/switch tab.
                     if (currentBad) {
-                        boolean compatibilityFallback = fallbackUrl != null && fallbackUrl.length() > 0
+                        boolean deterministicFallback = fallbackUrl != null && fallbackUrl.length() > 0
                                 && (isStrictSiteCompatibilityUrl(fallbackUrl)
                                 || isSiteCompatibilityModeActiveForUrl(fallbackUrl)
-                                || isReloadLoopGuardActiveForUrl(fallbackUrl));
+                                || isReloadLoopGuardActiveForUrl(fallbackUrl)
+                                || isShieldReaderOrCompatibilityContext(fallbackUrl)
+                                || ReaderCompatibilityPolicy.isTransientBlankUrl(current));
                         // goBack can return to an intermediate about:blank/ad history entry.
-                        // Reader compatibility pages recover deterministically to their last safe URL.
-                        if (compatibilityFallback) {
+                        // Reader pages and transient blank documents always recover directly to
+                        // the tab-owned last safe URL instead of walking polluted WebView history.
+                        if (deterministicFallback) {
                             if (targetTab != null) prepareTabForMainFrameNavigation(targetTab, fallbackUrl);
                             restoreView.loadUrl(fallbackUrl);
                         } else if (restoreView.canGoBack()) {

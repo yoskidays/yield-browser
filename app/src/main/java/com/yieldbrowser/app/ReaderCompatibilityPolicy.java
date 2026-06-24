@@ -47,6 +47,17 @@ final class ReaderCompatibilityPolicy {
         }
     }
 
+    /** Returns true for transient empty documents commonly used by popup/direct-link scripts. */
+    static boolean isTransientBlankUrl(String url) {
+        if (url == null) return true;
+        String lower = url.trim().toLowerCase(Locale.US);
+        if (lower.isEmpty()) return true;
+        return lower.equals("about:blank")
+                || lower.equals("about:srcdoc")
+                || lower.equals("data:text/html,")
+                || lower.equals("data:text/html;charset=utf-8,");
+    }
+
 
     static boolean shouldBlockCrossSiteNavigation(String targetUrl,
                                                   String sourceUrl,
