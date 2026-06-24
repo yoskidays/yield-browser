@@ -441,7 +441,12 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void onElementPicked(String selector, String preview) {
-            runOnUiThread(() -> onPickerElementSelected(selector, preview));
+            runOnUiThread(() -> onPickerElementSelected(selector, preview, -1, ""));
+        }
+
+        @JavascriptInterface
+        public void onElementPickedV2(String selector, String preview, int matchCount, String tagName) {
+            runOnUiThread(() -> onPickerElementSelected(selector, preview, matchCount, tagName));
         }
 
         @JavascriptInterface
@@ -589,6 +594,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        if (elementPickerActive) finishElementPicker(false);
         downloadUiTickerRunning = false;
         mainHandler.removeCallbacks(downloadUiTicker);
         try {
@@ -1484,6 +1490,7 @@ content.addView(space(dp(36)));
     private void destroyTabWebView(TabInfo tab) {
         if (tab == null) return;
         WebView doomed = tab.webView;
+        if (doomed != null && doomed == webView && elementPickerActive) finishElementPicker(false);
         tab.webView = null;
         tab.webViewGeneration++;
         if (doomed == null) return;
@@ -2105,6 +2112,7 @@ content.addView(space(dp(36)));
     private void switchToTab(int index) {
         if (index < 0 || index >= tabs.size()) return;
         boolean changingTab = index != currentTabIndex;
+        if (changingTab && elementPickerActive) finishElementPicker(false);
         boolean saveBeforeSwitch = !skipNextSwitchTabStateSave;
         skipNextSwitchTabStateSave = false;
         if (saveBeforeSwitch) saveCurrentTabState();
@@ -2139,6 +2147,10 @@ content.addView(space(dp(36)));
                 tab.currentPageUrlForRequest = tab.url;
                 scheduleNightModeSyncForPage(tab.url);
                 scheduleHorizontalGestureGuardCheck(tab.url);
+                if (hasUserFiltersForCurrentHost()) {
+                    applyUserFiltersForCurrentPage();
+                    mainHandler.postDelayed(MainActivity.this::applyUserFiltersForCurrentPage, 250);
+                }
                 if (isStrictSiteCompatibilityUrl(tab.url) || isSiteCompatibilityModeActiveForUrl(tab.url)) {
                     applyPlainCompatibilitySettings();
                     if (desktopMode) {
@@ -10197,6 +10209,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 injectPremiumAdBlock();
             }
         }
+        if (hasUserFiltersForCurrentHost()) applyUserFiltersForCurrentPage();
         saveSettings();
     }
 
@@ -10540,6 +10553,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                if (view == webView && elementPickerActive) finishElementPicker(false);
                 if (view != webView) {
                     TabInfo owner = findTabByWebView(view);
                     if (owner != null) {
@@ -10661,11 +10675,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 if (adBlock) injectShieldEngineV2Fallback();
                 if (adBlock && !compatibilityPage) {
                     injectAdBlockCssEarly();
-                    if (hasUserFiltersForCurrentHost()) applyUserFiltersForCurrentPage();
                 } else if (compatibilityPage) {
                     if (adBlock) injectCompatibilityAdShield();
                     scheduleUniversalReaderCompatibilityRepair(finalUrl);
                 }
+                if (hasUserFiltersForCurrentHost()) applyUserFiltersForCurrentPage();
             }
 
             @Override
@@ -10740,13 +10754,15 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         injectYouTubeSafeAdBlockV6();
                         mainHandler.postDelayed(() -> { injectPremiumAdBlock(); injectYouTubeSafeAdBlockV6(); }, 1800);
                         mainHandler.postDelayed(() -> { injectPremiumAdBlock(); injectYouTubeSafeAdBlockV6(); }, 5200);
-                        if (hasUserFiltersForCurrentHost()) {
-                            mainHandler.postDelayed(() -> applyUserFiltersForCurrentPage(), 300);
-                        }
                     }
                     scheduleUniversalBlankCompatibilityRecovery(finalUrl);
                     scheduleUniversalReaderCompatibilityRepair(finalUrl);
                     updateVideoControlsVisibility();
+                }
+                if (hasUserFiltersForCurrentHost()) {
+                    applyUserFiltersForCurrentPage();
+                    mainHandler.postDelayed(MainActivity.this::applyUserFiltersForCurrentPage, 350);
+                    mainHandler.postDelayed(MainActivity.this::applyUserFiltersForCurrentPage, 1400);
                 }
                 if (currentTab == null) currentTab = getCurrentTab();
                 if (shouldRecordHistoryUrl(finalUrl) && currentTab != null && !currentTab.privateTab) {
@@ -12926,17 +12942,19 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         return s != null && !s.isEmpty();
     }
 
-    private void addUserElementFilter(String host, String selector) {
-        if (host == null || host.length() == 0 || selector == null) return;
+    private boolean addUserElementFilter(String host, String selector) {
+        if (host == null || host.length() == 0 || selector == null) return false;
         selector = selector.trim();
-        if (selector.length() == 0 || selector.length() > 600) return;
+        if (!UserElementFilterPolicy.isSafeSelector(selector, "")) return false;
         loadUserElementFilters();
         LinkedHashSet<String> set = userElementFilters.get(host);
         if (set == null) {
             set = new LinkedHashSet<>();
             userElementFilters.put(host, set);
         }
-        if (set.add(selector)) persistUserElementFiltersForHost(host);
+        boolean added = set.add(selector);
+        if (added) persistUserElementFiltersForHost(host);
+        return added;
     }
 
     private void removeUserElementFilter(String host, String selector) {
@@ -12954,46 +12972,57 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         LinkedHashSet<String> set = userFiltersForHost(host);
         if (set == null || set.isEmpty()) return "";
         StringBuilder sb = new StringBuilder();
-        boolean first = true;
+        final String hideRule = "{display:none!important;visibility:hidden!important;"
+                + "height:0!important;min-height:0!important;max-height:0!important;"
+                + "margin:0!important;padding:0!important;border:0!important;"
+                + "overflow:hidden!important;pointer-events:none!important;}\n";
         for (String sel : set) {
-            if (sel == null || sel.trim().length() == 0) continue;
-            if (!first) sb.append(',');
-            sb.append(sel.trim());
-            first = false;
+            if (!UserElementFilterPolicy.isSafeSelector(sel, "")) continue;
+            sb.append(sel.trim()).append(hideRule);
         }
-        if (sb.length() == 0) return "";
-        sb.append("{display:none!important;visibility:hidden!important;height:0!important;min-height:0!important;max-height:0!important;overflow:hidden!important;pointer-events:none!important;}");
         return sb.toString();
     }
 
-    // Terapkan (atau bersihkan) stylesheet filter pengguna untuk halaman aktif. Idempoten:
-    // memakai satu <style id="yield-user-filters"> dan hanya memperbarui isinya bila berubah.
+    // Filter manual merupakan fitur mandiri: selalu diterapkan walaupun AdBlock utama OFF dan
+    // tetap aktif pada compatibility mode. CSS tersimpan per host dan dipasang ulang bila situs
+    // mengganti <head> atau menghapus style saat SPA/dynamic navigation.
     private void applyUserFiltersForCurrentPage() {
-        if (webView == null || !adBlock) return;
+        if (webView == null) return;
         try {
             String cur = getEffectiveCurrentUrl();
-            if (isSiteCompatibilityModeActiveForUrl(cur)) return;
             String host = hostOfUrl(cur);
             String css = buildUserFilterCss(host);
-            String js;
-            if (css == null || css.length() == 0) {
-                js = "javascript:(function(){try{var el=document.getElementById('yield-user-filters');if(el)el.textContent='';}catch(e){}})();";
-            } else {
-                js = "javascript:(function(){try{"
-                        + "var css=\"" + escapeForJsDoubleQuotes(css) + "\";"
-                        + "var id='yield-user-filters';"
-                        + "var el=document.getElementById(id);"
-                        + "if(!el){el=document.createElement('style');el.id=id;el.setAttribute('type','text/css');(document.head||document.documentElement||document.body).appendChild(el);}"
-                        + "if(el.textContent!==css){el.textContent=css;}"
-                        + "}catch(e){}})();";
-            }
+            String js = "javascript:(function(){try{"
+                    + "var css=\"" + escapeForJsDoubleQuotes(css == null ? "" : css) + "\";"
+                    + "var id='yield-user-filters';"
+                    + "window.__yieldUserFiltersCss=css;"
+                    + "window.__yieldEnsureUserFilters=function(){try{"
+                    + "var root=document.head||document.documentElement||document.body;if(!root)return;"
+                    + "var el=document.getElementById(id);"
+                    + "if(!window.__yieldUserFiltersCss){if(el)el.textContent='';return;}"
+                    + "if(!el){el=document.createElement('style');el.id=id;el.setAttribute('type','text/css');root.appendChild(el);}"
+                    + "if(el.textContent!==window.__yieldUserFiltersCss)el.textContent=window.__yieldUserFiltersCss;"
+                    + "}catch(e){}};"
+                    + "window.__yieldEnsureUserFilters();"
+                    + "if(!css){"
+                    + "if(window.__yieldUserFiltersObserver){try{window.__yieldUserFiltersObserver.disconnect();}catch(e){}window.__yieldUserFiltersObserver=null;}"
+                    + "return;"
+                    + "}"
+                    + "if(!window.__yieldUserFiltersObserver&&window.MutationObserver&&document.documentElement){"
+                    + "window.__yieldUserFiltersObserver=new MutationObserver(function(){window.__yieldEnsureUserFilters();});"
+                    + "window.__yieldUserFiltersObserver.observe(document.documentElement,{childList:true,subtree:true});"
+                    + "}"
+                    + "setTimeout(window.__yieldEnsureUserFilters,250);"
+                    + "setTimeout(window.__yieldEnsureUserFilters,1000);"
+                    + "setTimeout(window.__yieldEnsureUserFilters,3000);"
+                    + "}catch(e){}})();";
             runPageScript(js);
         } catch (Exception ignored) {
         }
     }
 
     private String buildElementPickerJs() {
-        return "javascript:" + "(function(){\n  if(window.__yieldPickerActive){return;}\n  window.__yieldPickerActive=true;\n  var cur=null;\n  var listeners=[];\n  var overlay=document.createElement('div');\n  overlay.id='__yield_picker_overlay';\n  overlay.style.cssText='position:fixed;z-index:2147483646;pointer-events:none;background:rgba(243,154,34,0.25);border:2px solid #F39A22;box-shadow:0 0 0 100000px rgba(0,0,0,0.10);border-radius:3px;left:0;top:0;width:0;height:0;display:none;';\n  var bar=document.createElement('div');\n  bar.id='__yield_picker_bar';\n  bar.textContent='Mode Blokir Elemen \\u2014 ketuk elemen/iklan';\n  bar.style.cssText='position:fixed;z-index:2147483647;left:0;right:0;top:0;background:#15171C;color:#F39A22;font:600 14px sans-serif;padding:10px 14px;text-align:center;pointer-events:none;border-bottom:1px solid #F39A22;';\n  function attach(){try{var p=document.body||document.documentElement;p.appendChild(overlay);p.appendChild(bar);}catch(e){}}\n  attach();\n  function unique(sel){try{return document.querySelectorAll(sel).length===1;}catch(e){return false;}}\n  function stableClasses(node){\n    var out=[];\n    try{\n      var raw=(node.className&&node.className.baseVal!==undefined)?node.className.baseVal:node.className;\n      if(typeof raw!=='string'){return out;}\n      var arr=raw.trim().split(/\\s+/);\n      for(var i=0;i<arr.length&&out.length<2;i++){\n        var c=arr[i];\n        if(!c){continue;}\n        if(!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(c)){continue;}\n        if(c.length>30){continue;}\n        if(/\\d{4,}/.test(c)){continue;}\n        if(/^(css|sc|jsx|makeStyles|MuiBox|emotion)-/.test(c)){continue;}\n        out.push(c);\n      }\n    }catch(e){}\n    return out;\n  }\n  function nthOfType(node){\n    try{var i=1;var s=node.previousElementSibling;while(s){if(s.tagName===node.tagName){i++;}s=s.previousElementSibling;}return i;}catch(e){return 0;}\n  }\n  function path(el){\n    try{\n      if(!el||el.nodeType!==1){return '';}\n      var tag0=el.tagName.toLowerCase();\n      if(tag0==='html'||tag0==='body'){return tag0;}\n      if(el.id&&/^[A-Za-z][\\w-]*$/.test(el.id)&&unique('#'+el.id)){return '#'+el.id;}\n      var parts=[];\n      var node=el;\n      var depth=0;\n      while(node&&node.nodeType===1&&depth<5){\n        var tag=node.tagName.toLowerCase();\n        if(tag==='html'){break;}\n        if(tag==='body'){parts.unshift('body');break;}\n        if(node.id&&/^[A-Za-z][\\w-]*$/.test(node.id)&&unique('#'+node.id)){parts.unshift('#'+node.id);break;}\n        var sel=tag;\n        var cls=stableClasses(node);\n        if(cls.length){sel+='.'+cls.join('.');}\n        var nth=nthOfType(node);\n        if(nth>0){sel+=':nth-of-type('+nth+')';}\n        parts.unshift(sel);\n        node=node.parentElement;\n        depth++;\n      }\n      return parts.join('>');\n    }catch(e){return '';}\n  }\n  function highlight(el){\n    try{\n      if(!el){overlay.style.display='none';return;}\n      var r=el.getBoundingClientRect();\n      overlay.style.display='block';\n      overlay.style.left=Math.max(0,r.left)+'px';\n      overlay.style.top=Math.max(0,r.top)+'px';\n      overlay.style.width=Math.max(0,r.width)+'px';\n      overlay.style.height=Math.max(0,r.height)+'px';\n    }catch(e){}\n  }\n  function send(el){\n    try{\n      var sel=path(el);\n      var pv='';\n      try{pv=(el.outerHTML||'').replace(/\\s+/g,' ').slice(0,200);}catch(e){}\n      if(window.YieldAdBlockBridge&&YieldAdBlockBridge.onElementPicked){YieldAdBlockBridge.onElementPicked(sel,pv);}\n    }catch(e){}\n  }\n  function select(el){\n    if(!el||el===overlay||el===bar){return;}\n    if(el.id==='__yield_picker_overlay'||el.id==='__yield_picker_bar'){return;}\n    cur=el;\n    highlight(el);\n    send(el);\n  }\n  window.__yieldPickerParent=function(){\n    try{\n      if(cur&&cur.parentElement){\n        var p=cur.parentElement;\n        var t=p.tagName?p.tagName.toLowerCase():'';\n        if(t==='html'){return;}\n        select(p);\n      }\n    }catch(e){}\n  };\n  function cleanup(){\n    try{window.__yieldPickerActive=false;}catch(e){}\n    try{for(var i=0;i<listeners.length;i++){var L=listeners[i];document.removeEventListener(L[0],L[1],true);}}catch(e){}\n    listeners=[];\n    try{if(overlay&&overlay.parentNode){overlay.parentNode.removeChild(overlay);}}catch(e){}\n    try{if(bar&&bar.parentNode){bar.parentNode.removeChild(bar);}}catch(e){}\n    try{window.__yieldPickerParent=null;}catch(e){}\n  }\n  window.__yieldPickerCommit=function(){cleanup();};\n  window.__yieldPickerCancel=function(){\n    cleanup();\n    try{if(window.YieldAdBlockBridge&&YieldAdBlockBridge.onPickerExited){YieldAdBlockBridge.onPickerExited();}}catch(e){}\n  };\n  function pt(e){\n    var x=e.clientX,y=e.clientY;\n    if((x===null||x===undefined)&&e.touches&&e.touches[0]){x=e.touches[0].clientX;y=e.touches[0].clientY;}\n    if((x===null||x===undefined)&&e.changedTouches&&e.changedTouches[0]){x=e.changedTouches[0].clientX;y=e.changedTouches[0].clientY;}\n    return {x:x,y:y};\n  }\n  function onDown(e){\n    try{var p=pt(e);if(p.x!==null&&p.x!==undefined){var el=document.elementFromPoint(p.x,p.y);if(el){select(el);}}}catch(x){}\n    try{e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation){e.stopImmediatePropagation();}}catch(x){}\n    return false;\n  }\n  function swallow(e){\n    try{e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation){e.stopImmediatePropagation();}}catch(x){}\n    return false;\n  }\n  function onMove(e){\n    try{var p=pt(e);if(p.x!==null&&p.x!==undefined){var el=document.elementFromPoint(p.x,p.y);if(el&&el!==overlay&&el!==bar){highlight(el);}}}catch(x){}\n  }\n  function add(t,fn){\n    try{document.addEventListener(t,fn,{capture:true,passive:false});}catch(e){document.addEventListener(t,fn,true);}\n    listeners.push([t,fn]);\n  }\n  add('pointerdown',onDown);add('mousedown',onDown);add('touchstart',onDown);\n  add('click',swallow);add('auxclick',swallow);add('pointerup',swallow);add('mouseup',swallow);add('touchend',swallow);add('contextmenu',swallow);\n  add('mousemove',onMove);add('pointermove',onMove);\n})();\n";
+        return ElementPickerScript.build();
     }
 
     private void startElementPicker() {
@@ -13009,19 +13038,23 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             elementPickerDialog = null;
         }
         runPageScript(buildElementPickerJs());
-        QuietToast.makeText(this, "Mode Blokir Elemen: ketuk iklan yang ingin disembunyikan", QuietToast.LENGTH_LONG).show();
+        QuietToast.makeText(this, "Ketuk beberapa elemen; tekan X di bar atas untuk selesai", QuietToast.LENGTH_LONG).show();
     }
 
-    private void onPickerElementSelected(String selector, String preview) {
+    private void onPickerElementSelected(String selector, String preview,
+                                         int matchCount, String selectedTag) {
         if (!elementPickerActive) return;
-        if (selector == null || selector.trim().length() == 0) {
-            QuietToast.makeText(this, "Tidak bisa memilih elemen itu, coba elemen lain", QuietToast.LENGTH_SHORT).show();
+        if (!UserElementFilterPolicy.isSafeSelector(selector, selectedTag)) {
+            QuietToast.makeText(this, "Elemen penting atau selector tidak aman tidak dapat diblokir",
+                    QuietToast.LENGTH_SHORT).show();
+            continueElementPickerAfterSelection();
             return;
         }
         final String sel = selector.trim();
         final String host = hostOfUrl(getEffectiveCurrentUrl());
         if (host == null || host.length() == 0) {
-            QuietToast.makeText(this, "Tidak bisa menentukan domain halaman ini", QuietToast.LENGTH_SHORT).show();
+            QuietToast.makeText(this, "Tidak bisa menentukan domain halaman ini",
+                    QuietToast.LENGTH_SHORT).show();
             finishElementPicker(false);
             return;
         }
@@ -13029,37 +13062,63 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             try { elementPickerDialog.dismiss(); } catch (Exception ignored) {}
             elementPickerDialog = null;
         }
+
         String previewText = preview == null ? "" : preview.trim();
         if (previewText.length() > 180) previewText = previewText.substring(0, 180) + "\u2026";
+        int safeCount = UserElementFilterPolicy.normalizedMatchCount(matchCount);
         StringBuilder msg = new StringBuilder();
-        msg.append("Selektor:\n").append(sel);
+        msg.append("Selector:\n").append(sel);
+        if (safeCount > 0) {
+            msg.append("\n\nAkan menyembunyikan ")
+                    .append(safeCount)
+                    .append(safeCount == 1 ? " elemen." : " elemen pada halaman ini.");
+        }
         if (previewText.length() > 0) msg.append("\n\nPratinjau:\n").append(previewText);
+
         AlertDialog.Builder b = new AlertDialog.Builder(this);
         b.setTitle("Blokir elemen ini?");
         b.setMessage(msg.toString());
-        b.setPositiveButton("Blokir", (d, w) -> {
-            addUserElementFilter(host, sel);
+        b.setPositiveButton("Blokir & lanjut", (d, w) -> {
+            boolean added = addUserElementFilter(host, sel);
             applyUserFiltersForCurrentPage();
-            finishElementPicker(true);
-            QuietToast.makeText(this, "Elemen diblokir di " + host, QuietToast.LENGTH_SHORT).show();
+            continueElementPickerAfterSelection();
+            QuietToast.makeText(this,
+                    added ? "Elemen diblokir permanen di " + host
+                            : "Filter ini sudah tersimpan di " + host,
+                    QuietToast.LENGTH_SHORT).show();
         });
         b.setNeutralButton("Naik 1 induk", (d, w) -> {
-            // Jangan akhiri picker; minta JS memperlebar pilihan ke elemen induk.
-            // JS akan memanggil onElementPicked lagi sehingga dialog tampil ulang dengan selektor baru.
-            runPageScript("javascript:(function(){try{if(window.__yieldPickerParent)window.__yieldPickerParent();}catch(e){}})();");
+            elementPickerDialog = null;
+            mainHandler.postDelayed(() -> runPageScript(
+                    "javascript:(function(){try{if(window.__yieldPickerParent)window.__yieldPickerParent();}catch(e){}})();"
+            ), 80L);
         });
-        b.setNegativeButton("Batal", (d, w) -> finishElementPicker(false));
-        b.setOnCancelListener(d -> finishElementPicker(false));
+        b.setNegativeButton("Batal pilihan", (d, w) -> continueElementPickerAfterSelection());
+        b.setOnCancelListener(d -> continueElementPickerAfterSelection());
         elementPickerDialog = b.create();
+        elementPickerDialog.setOnDismissListener(d -> {
+            if (elementPickerDialog == d) elementPickerDialog = null;
+        });
         try { elementPickerDialog.show(); } catch (Exception ignored) {}
     }
 
+    private void continueElementPickerAfterSelection() {
+        if (!elementPickerActive) return;
+        if (elementPickerDialog != null) {
+            try { elementPickerDialog.dismiss(); } catch (Exception ignored) {}
+            elementPickerDialog = null;
+        }
+        runPageScript("javascript:(function(){try{if(window.__yieldPickerContinue)window.__yieldPickerContinue();}catch(e){}})();");
+    }
+
     private void finishElementPicker(boolean committed) {
+        boolean wasActive = elementPickerActive;
         elementPickerActive = false;
         if (elementPickerDialog != null) {
             try { elementPickerDialog.dismiss(); } catch (Exception ignored) {}
             elementPickerDialog = null;
         }
+        if (!wasActive && webView == null) return;
         String fn = committed ? "__yieldPickerCommit" : "__yieldPickerCancel";
         runPageScript("javascript:(function(){try{if(window." + fn + ")window." + fn + "();}catch(e){}})();");
     }
@@ -13819,6 +13878,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private void showHome() {
+        if (elementPickerActive) finishElementPicker(false);
         cancelSmoothSearchTransition();
         // Internal callers may render Home without mutating an already-empty tab. The explicit
         // Home button uses navigateCurrentTabHome(), which clears URL, history state, and WebView.
