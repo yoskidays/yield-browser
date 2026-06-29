@@ -47,7 +47,7 @@ import java.util.Map;
 /**
  * Internal player for progressive playback while a Yield download continues.
  *
- * v0.10.11 uses Media3 ExoPlayer with automatic SurfaceView/TextureView fallback.
+ * v0.10.12 uses Media3 ExoPlayer with automatic SurfaceView/TextureView fallback.
  * Realme devices on Android 11 start with SurfaceView and automatically retry with
  * TextureView if playback time advances without a visible frame.
  */
