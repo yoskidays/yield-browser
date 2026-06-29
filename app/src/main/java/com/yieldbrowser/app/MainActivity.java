@@ -14444,22 +14444,17 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
 
     // ===== Small UI helpers =====
+    // Implementations live in YieldUi so future extracted UI classes can reuse them without
+    // holding a MainActivity reference. These thin wrappers keep every existing call site unchanged.
     private View space(int height) {
-        View v = new View(this);
-        v.setLayoutParams(new LinearLayout.LayoutParams(-1, height));
-        return v;
+        return YieldUi.space(this, height);
     }
 
     private GradientDrawable roundRect(int fillColor, int radius, int strokeWidth, int strokeColor) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setShape(GradientDrawable.RECTANGLE);
-        drawable.setColor(fillColor);
-        drawable.setCornerRadius(radius);
-        if (strokeWidth > 0) drawable.setStroke(strokeWidth, strokeColor);
-        return drawable;
+        return YieldUi.roundRect(fillColor, radius, strokeWidth, strokeColor);
     }
 
     private int dp(int value) {
-        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+        return YieldUi.dp(this, value);
     }
 }
