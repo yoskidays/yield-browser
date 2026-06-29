@@ -2851,6 +2851,13 @@ content.addView(space(dp(36)));
         }));
 
         panel.addView(sectionTitle("Alat halaman"));
+        panel.addView(actionRow(R.drawable.ic_block_element, "Blokir elemen", "Pilih elemen pada halaman aktif untuk disembunyikan. Tetap tersedia di Setelan meski shortcut menu utama dimatikan.", v -> {
+            dialog.dismiss();
+            startElementPicker();
+        }));
+        panel.addView(actionRow(R.drawable.ic_safe, "Filter situs ini", "Kelola filter dan elemen yang diblokir untuk situs aktif. Tetap tersedia di Setelan meski shortcut menu utama dimatikan.", v -> {
+            switchDialogSmooth(dialog, () -> showUserFiltersManager());
+        }));
         panel.addView(actionRow(R.drawable.ic_history, "Riwayat browsing", "Lihat dan buka kembali halaman yang pernah dikunjungi.", v -> {
             switchDialogSmooth(dialog, () -> showHistoryPanel());
         }));
