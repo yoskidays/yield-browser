@@ -1,7 +1,10 @@
 package com.yieldbrowser.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.PictureInPictureParams;
+import android.content.pm.ActivityInfo;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -49,7 +52,10 @@ import java.util.Map;
 /**
  * Internal player for progressive playback while a Yield download continues.
  *
- * v0.10.13 uses Media3 ExoPlayer with automatic SurfaceView/TextureView fallback.
+ * v0.10.15 uses Media3 ExoPlayer with automatic SurfaceView/TextureView fallback
+ * and a complete responsive video control panel mounted outside the SurfaceView layer.
+ * This guarantees that the full controls remain visible on Realme Android 11, including
+ * portrait mode, where SurfaceView can cover normal overlay children.
  * Realme devices on Android 11 start with SurfaceView and automatically retry with
  * TextureView if playback time advances without a visible frame.
  */
@@ -85,10 +91,16 @@ public final class ProgressiveVideoActivity extends Activity {
     private View topBar;
     private View bottomBar;
     private View controlsBar;
+    private TextView rewindButton;
     private TextView playPauseBtn;
+    private TextView forwardButton;
     private SeekBar seekBar;
     private TextView currentTimeText;
     private TextView durationText;
+    private TextView speedButton;
+    private TextView qualityButton;
+    private TextView fullscreenButton;
+    private LinearLayout controlActionRowsHost;
 
     private boolean userSeeking;
     private boolean realmeAndroid11;
@@ -97,6 +109,8 @@ public final class ProgressiveVideoActivity extends Activity {
     private boolean controlsVisible;
     private int lastProgressPercent;
     private int controlTouchSlop;
+    private float playbackSpeed = 1f;
+    private boolean fullscreenMode;
 
     private String mediaUrl = "";
     private String statusUrl = "";
@@ -343,11 +357,6 @@ public final class ProgressiveVideoActivity extends Activity {
 
         installVideoOutputView();
 
-        controlsBar = buildControlsBar();
-        controlsBar.setVisibility(View.GONE);
-        playerFrame.addView(controlsBar,
-                new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
-
         LinearLayout waiting = new LinearLayout(this);
         waiting.setOrientation(LinearLayout.VERTICAL);
         waiting.setGravity(Gravity.CENTER);
@@ -390,6 +399,14 @@ public final class ProgressiveVideoActivity extends Activity {
         playerFrame.addView(waiting, new FrameLayout.LayoutParams(-1, -1));
         loadingText.setTag(waiting);
         root.addView(playerFrame, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        // Keep the complete controller outside playerFrame. SurfaceView is rendered in a
+        // separate native layer on several Realme/Android 11 builds and can cover overlay
+        // children even when bringToFront()/elevation are used. A sibling below the video
+        // surface cannot be covered, so all six controls remain visible in portrait.
+        controlsBar = buildControlsBar();
+        controlsBar.setVisibility(View.GONE);
+        root.addView(controlsBar, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout statusPanel = new LinearLayout(this);
         statusPanel.setOrientation(LinearLayout.VERTICAL);
@@ -463,6 +480,7 @@ public final class ProgressiveVideoActivity extends Activity {
                     .build();
             player.addListener(playerListener);
             player.setHandleAudioBecomingNoisy(true);
+            player.setPlaybackSpeed(playbackSpeed);
             attachVideoOutput(player);
             player.setMediaItem(MediaItem.fromUri(Uri.parse(source)));
             if (resumePositionMs > 0L) player.seekTo(resumePositionMs);
@@ -713,10 +731,35 @@ public final class ProgressiveVideoActivity extends Activity {
                                               android.content.res.Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
         if (topBar != null) topBar.setVisibility(
-                isInPictureInPictureMode ? View.GONE : View.VISIBLE);
+                isInPictureInPictureMode || fullscreenMode || !controlsVisible
+                        ? View.GONE : View.VISIBLE);
         if (bottomBar != null) bottomBar.setVisibility(
-                isInPictureInPictureMode ? View.GONE : View.VISIBLE);
+                isInPictureInPictureMode || fullscreenMode ? View.GONE : View.VISIBLE);
         if (isInPictureInPictureMode) setControlsVisible(false);
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        handler.post(() -> {
+            applyVideoAspectRatio();
+            updateFullscreenButton();
+            if (fullscreenMode) {
+                hideSystemUi();
+                if (topBar != null) topBar.setVisibility(View.GONE);
+                if (bottomBar != null) bottomBar.setVisibility(View.GONE);
+            }
+            rebuildControlActionRows();
+        });
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (fullscreenMode) {
+            exitFullscreenMode();
+            return;
+        }
+        super.onBackPressed();
     }
 
     @Override
@@ -733,6 +776,7 @@ public final class ProgressiveVideoActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (fullscreenMode) hideSystemUi();
         if (prepared && player != null && !manualRetryRequired
                 && player.getPlaybackState() != Player.STATE_ENDED) {
             player.play();
@@ -832,7 +876,7 @@ public final class ProgressiveVideoActivity extends Activity {
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 -1, -1, Gravity.CENTER);
         playerFrame.addView(videoOutputView, 0, lp);
-        if (controlsBar != null) controlsBar.bringToFront();
+        // controlsBar is intentionally a sibling below playerFrame, not an overlay.
     }
 
     private void attachVideoOutput(ExoPlayer target) {
@@ -875,33 +919,56 @@ public final class ProgressiveVideoActivity extends Activity {
     }
 
     private View buildControlsBar() {
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(10), dp(6), dp(10), dp(6));
-        bar.setBackgroundColor(Color.parseColor("#DD000000"));
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(6), dp(6), dp(6), dp(6));
+        panel.setBackgroundColor(Color.parseColor("#F0000000"));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            bar.setElevation(dp(12));
+            panel.setElevation(dp(18));
         }
-        bar.setOnClickListener(v -> {
-            // Consume clicks so the parent does not immediately hide controls.
+        panel.setClickable(true);
+        panel.setOnClickListener(v -> {
+            // Consume panel clicks so a button press never toggles the whole controller.
         });
 
-        playPauseBtn = new TextView(this);
-        playPauseBtn.setText("❚❚");
-        playPauseBtn.setTextColor(Color.WHITE);
-        playPauseBtn.setTextSize(18);
-        playPauseBtn.setGravity(Gravity.CENTER);
-        playPauseBtn.setOnClickListener(v -> togglePlayPause());
-        bar.addView(playPauseBtn, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        controlActionRowsHost = new LinearLayout(this);
+        controlActionRowsHost.setOrientation(LinearLayout.VERTICAL);
+
+        rewindButton = videoControlButton("−10s", "Mundur 10 detik", false,
+                v -> seekBySeconds(-10));
+
+        playPauseBtn = videoControlButton("▶", "Play atau pause", false,
+                v -> togglePlayPause());
+        playPauseBtn.setTextSize(19);
+
+        forwardButton = videoControlButton("+10s", "Maju 10 detik", false,
+                v -> seekBySeconds(10));
+
+        speedButton = videoControlButton("1x", "Kecepatan video", true,
+                v -> showPlaybackSpeedDialog());
+
+        qualityButton = videoControlButton("Auto", "Kualitas video otomatis", false,
+                v -> showQualityInfoDialog());
+
+        fullscreenButton = videoControlButton("Full", "Masuk layar penuh", false,
+                v -> toggleFullscreenMode());
+
+        rebuildControlActionRows();
+        panel.addView(controlActionRowsHost,
+                new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout timelineRow = new LinearLayout(this);
+        timelineRow.setOrientation(LinearLayout.HORIZONTAL);
+        timelineRow.setGravity(Gravity.CENTER_VERTICAL);
+        timelineRow.setPadding(dp(4), 0, dp(4), 0);
 
         currentTimeText = new TextView(this);
         currentTimeText.setText("0:00");
         currentTimeText.setTextColor(Color.parseColor("#E8EBF0"));
         currentTimeText.setTextSize(12);
-        LinearLayout.LayoutParams ctLp = new LinearLayout.LayoutParams(-2, -2);
-        ctLp.setMargins(dp(6), 0, dp(6), 0);
-        bar.addView(currentTimeText, ctLp);
+        currentTimeText.setGravity(Gravity.CENTER);
+        timelineRow.addView(currentTimeText,
+                new LinearLayout.LayoutParams(dp(50), dp(42)));
 
         seekBar = new SeekBar(this);
         seekBar.setMax(1000);
@@ -929,17 +996,234 @@ public final class ProgressiveVideoActivity extends Activity {
                 scheduleHideControls();
             }
         });
-        bar.addView(seekBar, new LinearLayout.LayoutParams(0, -2, 1f));
+        timelineRow.addView(seekBar,
+                new LinearLayout.LayoutParams(0, -2, 1f));
 
         durationText = new TextView(this);
         durationText.setText("0:00");
         durationText.setTextColor(Color.parseColor("#E8EBF0"));
         durationText.setTextSize(12);
-        LinearLayout.LayoutParams dtLp = new LinearLayout.LayoutParams(-2, -2);
-        dtLp.setMargins(dp(6), 0, dp(6), 0);
-        bar.addView(durationText, dtLp);
+        durationText.setGravity(Gravity.CENTER);
+        timelineRow.addView(durationText,
+                new LinearLayout.LayoutParams(dp(50), dp(42)));
 
-        return bar;
+        panel.addView(timelineRow, new LinearLayout.LayoutParams(-1, dp(44)));
+        return panel;
+    }
+
+    /**
+     * Portrait uses two rows of three buttons so every action is visible without
+     * clipping. Landscape keeps all six actions in one row, matching the browser
+     * toolbar style. This method may be called again after rotation.
+     */
+    private void rebuildControlActionRows() {
+        if (controlActionRowsHost == null || rewindButton == null
+                || playPauseBtn == null || forwardButton == null
+                || speedButton == null || qualityButton == null
+                || fullscreenButton == null) return;
+
+        detachFromParent(rewindButton);
+        detachFromParent(playPauseBtn);
+        detachFromParent(forwardButton);
+        detachFromParent(speedButton);
+        detachFromParent(qualityButton);
+        detachFromParent(fullscreenButton);
+        controlActionRowsHost.removeAllViews();
+
+        boolean portrait = getResources().getConfiguration().orientation
+                != Configuration.ORIENTATION_LANDSCAPE;
+        if (portrait) {
+            LinearLayout first = createControlActionRow();
+            first.addView(rewindButton);
+            first.addView(playPauseBtn);
+            first.addView(forwardButton);
+            controlActionRowsHost.addView(first,
+                    new LinearLayout.LayoutParams(-1, dp(56)));
+
+            LinearLayout second = createControlActionRow();
+            second.addView(speedButton);
+            second.addView(qualityButton);
+            second.addView(fullscreenButton);
+            controlActionRowsHost.addView(second,
+                    new LinearLayout.LayoutParams(-1, dp(56)));
+        } else {
+            LinearLayout row = createControlActionRow();
+            row.addView(rewindButton);
+            row.addView(playPauseBtn);
+            row.addView(forwardButton);
+            row.addView(speedButton);
+            row.addView(qualityButton);
+            row.addView(fullscreenButton);
+            controlActionRowsHost.addView(row,
+                    new LinearLayout.LayoutParams(-1, dp(58)));
+        }
+    }
+
+    private LinearLayout createControlActionRow() {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        return row;
+    }
+
+    private void detachFromParent(View view) {
+        if (view == null || !(view.getParent() instanceof android.view.ViewGroup)) return;
+        ((android.view.ViewGroup) view.getParent()).removeView(view);
+    }
+
+    private TextView videoControlButton(String text, String description,
+                                        boolean accent, View.OnClickListener listener) {
+        TextView button = new TextView(this);
+        button.setText(text);
+        button.setTextColor(accent ? Color.parseColor("#111111") : Color.WHITE);
+        button.setTextSize(12);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setGravity(Gravity.CENTER);
+        button.setSingleLine(true);
+        button.setIncludeFontPadding(false);
+        button.setContentDescription(description);
+        button.setBackground(roundRect(
+                accent ? Color.parseColor("#FF9F1C") : Color.parseColor("#20232A"),
+                dp(17), dp(1),
+                accent ? Color.TRANSPARENT : Color.parseColor("#3A3F49")));
+        button.setOnClickListener(v -> {
+            handler.removeCallbacks(hideControlsRunnable);
+            listener.onClick(v);
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(50), 1f);
+        lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+        button.setLayoutParams(lp);
+        return button;
+    }
+
+    private void seekBySeconds(int seconds) {
+        if (player == null) return;
+        long duration = safeDuration();
+        long target = Math.max(0L, safePosition() + seconds * 1000L);
+        if (duration > 0L) target = Math.min(duration, target);
+
+        if (!usingOrigin && duration > 0L
+                && lastProgressPercent > 0 && lastProgressPercent < 100) {
+            long downloadedCap = duration * lastProgressPercent / 100L;
+            target = Math.min(target, downloadedCap);
+        }
+
+        try {
+            player.seekTo(target);
+            updateSeekUi();
+            setControlsVisible(true);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void showPlaybackSpeedDialog() {
+        final String[] labels = {"0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x"};
+        final float[] values = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f};
+        int checked = 2;
+        for (int i = 0; i < values.length; i++) {
+            if (Math.abs(values[i] - playbackSpeed) < 0.001f) {
+                checked = i;
+                break;
+            }
+        }
+
+        handler.removeCallbacks(hideControlsRunnable);
+        new AlertDialog.Builder(this)
+                .setTitle("Kecepatan video")
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    playbackSpeed = values[which];
+                    try {
+                        if (player != null) player.setPlaybackSpeed(playbackSpeed);
+                    } catch (Exception ignored) {
+                    }
+                    updateSpeedButton();
+                    dialog.dismiss();
+                    setControlsVisible(true);
+                })
+                .setNegativeButton("Batal", (dialog, which) -> setControlsVisible(true))
+                .setOnCancelListener(dialog -> setControlsVisible(true))
+                .show();
+    }
+
+    private void showQualityInfoDialog() {
+        handler.removeCallbacks(hideControlsRunnable);
+        new AlertDialog.Builder(this)
+                .setTitle("Kualitas video: Auto")
+                .setMessage("Video download memakai kualitas file sumber. Karena file MP4 ini hanya memiliki satu track video, kualitas tidak dapat diubah tanpa mengunduh sumber lain.")
+                .setPositiveButton("OK", (dialog, which) -> setControlsVisible(true))
+                .setOnCancelListener(dialog -> setControlsVisible(true))
+                .show();
+    }
+
+    private void updateSpeedButton() {
+        if (speedButton == null) return;
+        String label;
+        if (Math.abs(playbackSpeed - Math.round(playbackSpeed)) < 0.001f) {
+            label = Math.round(playbackSpeed) + "x";
+        } else {
+            label = String.format(Locale.US, "%.2fx", playbackSpeed)
+                    .replace(".00x", "x")
+                    .replace("0x", "x");
+        }
+        speedButton.setText(label);
+    }
+
+    private void toggleFullscreenMode() {
+        if (fullscreenMode) exitFullscreenMode();
+        else enterFullscreenMode();
+    }
+
+    private void enterFullscreenMode() {
+        fullscreenMode = true;
+        try {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        } catch (Exception ignored) {
+        }
+        hideSystemUi();
+        if (topBar != null) topBar.setVisibility(View.GONE);
+        if (bottomBar != null) bottomBar.setVisibility(View.GONE);
+        updateFullscreenButton();
+        setControlsVisible(true);
+    }
+
+    private void exitFullscreenMode() {
+        fullscreenMode = false;
+        try {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        } catch (Exception ignored) {
+        }
+        showSystemUi();
+        if (bottomBar != null) bottomBar.setVisibility(View.VISIBLE);
+        updateFullscreenButton();
+        setControlsVisible(true);
+    }
+
+    private void updateFullscreenButton() {
+        if (fullscreenButton == null) return;
+        fullscreenButton.setText(fullscreenMode ? "Exit" : "Full");
+        fullscreenButton.setContentDescription(fullscreenMode
+                ? "Keluar dari layar penuh" : "Masuk layar penuh");
+    }
+
+    private void hideSystemUi() {
+        try {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            | View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void showSystemUi() {
+        try {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        } catch (Exception ignored) {
+        }
     }
 
     private void installControlTapTarget(View target) {
@@ -987,7 +1271,7 @@ public final class ProgressiveVideoActivity extends Activity {
         if (controlsBar != null) controlsBar.setVisibility(
                 visible ? View.VISIBLE : View.GONE);
         if (topBar != null && !isInPictureInPictureMode()) {
-            topBar.setVisibility(visible ? View.VISIBLE : View.GONE);
+            topBar.setVisibility(visible && !fullscreenMode ? View.VISIBLE : View.GONE);
         }
         handler.removeCallbacks(hideControlsRunnable);
         if (visible) {
@@ -1020,6 +1304,8 @@ public final class ProgressiveVideoActivity extends Activity {
         if (playPauseBtn == null) return;
         boolean playing = player != null && player.isPlaying();
         playPauseBtn.setText(playing ? "❚❚" : "▶");
+        updateSpeedButton();
+        updateFullscreenButton();
         if (playing) scheduleHideControls();
         else handler.removeCallbacks(hideControlsRunnable);
     }
