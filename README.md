@@ -1,14 +1,14 @@
-# Yield Browser 0.10.15
+# Yield Browser 0.10.16
 
-Browser Android native dengan download manager, pemutaran video saat download berlangsung, mode privat, Shield Engine, riwayat, bookmark, dan reader mode.
+Browser Android native dengan download manager, pemutaran video saat download berlangsung, mode privat, Shield Engine, riwayat, bookmark, reader mode, dan kontrol menu yang dapat disesuaikan.
 
-## Perbaikan 0.10.15
+## Perbaikan 0.10.16
 
-- Panel kontrol video lengkap dipindahkan keluar dari lapisan `SurfaceView`, sehingga tidak lagi tertutup renderer video pada Realme 5 Pro Android 11.
-- Mode portrait menampilkan kontrol dalam dua baris: mundur 10 detik, play/pause, maju 10 detik, kecepatan, Auto, dan Full.
-- Mode landscape menampilkan keenam kontrol dalam satu baris.
-- Ketuk video untuk menampilkan atau menyembunyikan panel; auto-hide tetap aktif saat video berjalan.
-- Seekbar, waktu berjalan, durasi, progres download, renderer fallback, dan Media3 ExoPlayer 1.6.1 tetap dipertahankan.
+- Shortcut **Blokir elemen** sekarang dapat diaktifkan atau dinonaktifkan melalui **Sesuaikan menu**.
+- Shortcut **Filter situs ini** sekarang dapat diaktifkan atau dinonaktifkan melalui **Sesuaikan menu**.
+- Kedua shortcut tetap aktif secara default agar perilaku pengguna lama tidak berubah.
+- Saat shortcut dimatikan, hanya item pada menu utama yang disembunyikan; filter elemen yang sudah tersimpan tetap aman dan tetap diterapkan pada situs.
+- Panel kontrol video lengkap, stabilitas Realme 5 Pro Android 11, dan Media3 ExoPlayer 1.6.1 tetap dipertahankan.
 
 ## Build
 
