@@ -12,9 +12,11 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Rational;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
@@ -47,7 +49,7 @@ import java.util.Map;
 /**
  * Internal player for progressive playback while a Yield download continues.
  *
- * v0.10.12 uses Media3 ExoPlayer with automatic SurfaceView/TextureView fallback.
+ * v0.10.13 uses Media3 ExoPlayer with automatic SurfaceView/TextureView fallback.
  * Realme devices on Android 11 start with SurfaceView and automatically retry with
  * TextureView if playback time advances without a visible frame.
  */
@@ -65,6 +67,8 @@ public final class ProgressiveVideoActivity extends Activity {
     private static final long LOCAL_PREPARE_TIMEOUT_MS = 15_000L;
     private static final long ORIGIN_PREPARE_TIMEOUT_MS = 22_000L;
     private static final long FIRST_FRAME_TIMEOUT_MS = 8_000L;
+    private static final long CONTROLS_HIDE_DELAY_MS = 6_000L;
+    private static final long TAP_MAX_DURATION_MS = 550L;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -92,6 +96,7 @@ public final class ProgressiveVideoActivity extends Activity {
     private int videoOutputMode = VideoOutputCompatibilityPolicy.OUTPUT_TEXTURE;
     private boolean controlsVisible;
     private int lastProgressPercent;
+    private int controlTouchSlop;
 
     private String mediaUrl = "";
     private String statusUrl = "";
@@ -228,6 +233,9 @@ public final class ProgressiveVideoActivity extends Activity {
             handler.removeCallbacks(firstFrameWatchdog);
             hideWaiting();
             updatePlayPauseGlyph();
+            // Show the controls only after a real frame is visible. Previously the
+            // auto-hide timer could expire while the decoder was still preparing.
+            setControlsVisible(true);
         }
 
         @Override
@@ -242,7 +250,12 @@ public final class ProgressiveVideoActivity extends Activity {
         @Override
         public void onIsPlayingChanged(boolean isPlaying) {
             updatePlayPauseGlyph();
-            if (isPlaying && firstFrameSeen) hideWaiting();
+            if (isPlaying && firstFrameSeen) {
+                hideWaiting();
+                scheduleHideControls();
+            } else if (prepared || firstFrameSeen) {
+                setControlsVisible(true);
+            }
         }
 
         @Override
@@ -257,6 +270,7 @@ public final class ProgressiveVideoActivity extends Activity {
         videoOutputMode = VideoOutputCompatibilityPolicy.preferredOutput(
                 Build.VERSION.SDK_INT, Build.BRAND, Build.MANUFACTURER, Build.MODEL);
         realmeAndroid11 = videoOutputMode == VideoOutputCompatibilityPolicy.OUTPUT_SURFACE;
+        controlTouchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setStatusBarColor(Color.BLACK);
         getWindow().setNavigationBarColor(Color.BLACK);
@@ -322,7 +336,7 @@ public final class ProgressiveVideoActivity extends Activity {
 
         playerFrame = new FrameLayout(this);
         playerFrame.setBackgroundColor(Color.BLACK);
-        playerFrame.setOnClickListener(v -> toggleControls());
+        installControlTapTarget(playerFrame);
         playerFrame.addOnLayoutChangeListener((v, left, top, right, bottom,
                                                oldLeft, oldTop, oldRight, oldBottom) ->
                 applyVideoAspectRatio());
@@ -813,9 +827,12 @@ public final class ProgressiveVideoActivity extends Activity {
             videoOutputView = textureView;
         }
 
+        installControlTapTarget(videoOutputView);
+
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 -1, -1, Gravity.CENTER);
         playerFrame.addView(videoOutputView, 0, lp);
+        if (controlsBar != null) controlsBar.bringToFront();
     }
 
     private void attachVideoOutput(ExoPlayer target) {
@@ -862,7 +879,10 @@ public final class ProgressiveVideoActivity extends Activity {
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(10), dp(6), dp(10), dp(6));
-        bar.setBackgroundColor(Color.parseColor("#CC000000"));
+        bar.setBackgroundColor(Color.parseColor("#DD000000"));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            bar.setElevation(dp(12));
+        }
         bar.setOnClickListener(v -> {
             // Consume clicks so the parent does not immediately hide controls.
         });
@@ -922,6 +942,42 @@ public final class ProgressiveVideoActivity extends Activity {
         return bar;
     }
 
+    private void installControlTapTarget(View target) {
+        if (target == null) return;
+        target.setClickable(true);
+        target.setOnClickListener(v -> toggleControls());
+        target.setOnTouchListener(new View.OnTouchListener() {
+            float downX;
+            float downY;
+            long downAt;
+
+            @Override
+            public boolean onTouch(View view, MotionEvent event) {
+                if (event == null) return false;
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        downX = event.getX();
+                        downY = event.getY();
+                        downAt = event.getEventTime();
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                        float dx = Math.abs(event.getX() - downX);
+                        float dy = Math.abs(event.getY() - downY);
+                        long elapsed = event.getEventTime() - downAt;
+                        if (dx <= controlTouchSlop && dy <= controlTouchSlop
+                                && elapsed <= TAP_MAX_DURATION_MS) {
+                            view.performClick();
+                        }
+                        return true;
+                    case MotionEvent.ACTION_CANCEL:
+                        return true;
+                    default:
+                        return true;
+                }
+            }
+        });
+    }
+
     private void toggleControls() {
         setControlsVisible(!controlsVisible);
     }
@@ -944,8 +1000,8 @@ public final class ProgressiveVideoActivity extends Activity {
     private void scheduleHideControls() {
         handler.removeCallbacks(hideControlsRunnable);
         boolean playing = player != null && player.isPlaying();
-        if (playing && !userSeeking) {
-            handler.postDelayed(hideControlsRunnable, 3500L);
+        if (playing && firstFrameSeen && !userSeeking) {
+            handler.postDelayed(hideControlsRunnable, CONTROLS_HIDE_DELAY_MS);
         }
     }
 
