@@ -5,7 +5,6 @@ import android.app.PictureInPictureParams;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -13,6 +12,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Rational;
 import android.view.Gravity;
+import android.view.SurfaceView;
+import android.view.TextureView;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -21,7 +22,16 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.TextView;
-import android.widget.VideoView;
+
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.common.VideoSize;
+import androidx.media3.datasource.DefaultDataSource;
+import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.exoplayer.DefaultRenderersFactory;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 
 import org.json.JSONObject;
 
@@ -34,7 +44,13 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
-/** Internal player for progressive playback while a Yield download continues in the background. */
+/**
+ * Internal player for progressive playback while a Yield download continues.
+ *
+ * v0.10.11 uses Media3 ExoPlayer with automatic SurfaceView/TextureView fallback.
+ * Realme devices on Android 11 start with SurfaceView and automatically retry with
+ * TextureView if playback time advances without a visible frame.
+ */
 public final class ProgressiveVideoActivity extends Activity {
     static final String EXTRA_MEDIA_URL = "yield_media_url";
     static final String EXTRA_STATUS_URL = "yield_status_url";
@@ -46,9 +62,17 @@ public final class ProgressiveVideoActivity extends Activity {
     static final String EXTRA_ORIGIN_REFERER = "yield_origin_referer";
     static final String EXTRA_ORIGIN_COOKIE = "yield_origin_cookie";
 
+    private static final long LOCAL_PREPARE_TIMEOUT_MS = 15_000L;
+    private static final long ORIGIN_PREPARE_TIMEOUT_MS = 22_000L;
+    private static final long FIRST_FRAME_TIMEOUT_MS = 8_000L;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private VideoView videoView;
-    private MediaPlayer activePlayer;
+
+    private FrameLayout playerFrame;
+    private View videoOutputView;
+    private TextureView textureView;
+    private SurfaceView surfaceView;
+    private ExoPlayer player;
     private ProgressBar loading;
     private ProgressBar downloadProgress;
     private TextView loadingText;
@@ -56,13 +80,16 @@ public final class ProgressiveVideoActivity extends Activity {
     private TextView retryButton;
     private View topBar;
     private View bottomBar;
-    // v0.9.92: kontrol video kustom (MediaController bawaan sering tidak muncul di FrameLayout).
     private View controlsBar;
     private TextView playPauseBtn;
     private SeekBar seekBar;
     private TextView currentTimeText;
     private TextView durationText;
+
     private boolean userSeeking;
+    private boolean realmeAndroid11;
+    private boolean alternateOutputTried;
+    private int videoOutputMode = VideoOutputCompatibilityPolicy.OUTPUT_TEXTURE;
     private boolean controlsVisible;
     private int lastProgressPercent;
 
@@ -73,6 +100,7 @@ public final class ProgressiveVideoActivity extends Activity {
     private String originUserAgent = "";
     private String originReferer = "";
     private String originCookie = "";
+
     private boolean usingOrigin;
     private boolean originAvailable;
     private boolean firstFrameSeen;
@@ -80,9 +108,14 @@ public final class ProgressiveVideoActivity extends Activity {
     private boolean prepared;
     private boolean destroyed;
     private boolean statusTerminal;
+    private boolean manualRetryRequired;
     private int playbackErrors;
-    private int resumePositionMs;
+    private long resumePositionMs;
     private volatile boolean statusFetchInFlight;
+
+    private int videoWidth;
+    private int videoHeight;
+    private float videoPixelRatio = 1f;
 
     private final Runnable statusTicker = new Runnable() {
         @Override
@@ -97,7 +130,7 @@ public final class ProgressiveVideoActivity extends Activity {
         @Override
         public void run() {
             if (destroyed) return;
-            if (prepared && controlsVisible) updateSeekUi();
+            if ((prepared || firstFrameSeen) && controlsVisible) updateSeekUi();
             handler.postDelayed(this, 500L);
         }
     };
@@ -108,12 +141,14 @@ public final class ProgressiveVideoActivity extends Activity {
         @Override
         public void run() {
             if (destroyed || !preparing) return;
-            if (ProgressivePlaybackPolicy.shouldFallbackToOrigin(
-                    usingOrigin, !originUrl.isEmpty(), playbackErrors, true)) {
+            if (retryWithAlternateVideoOutput("Renderer video pertama terlalu lama menunggu")) {
+                return;
+            }
+            if (!usingOrigin && !originUrl.isEmpty()) {
                 switchToOrigin("Player lokal terlalu lama menunggu data");
             } else {
                 preparing = false;
-                showFatal("Video belum dapat disiapkan. Coba lagi setelah data bertambah.");
+                showFatal("Video belum dapat disiapkan. Coba lagi atau buka dengan pemutar lain.");
             }
         }
     };
@@ -122,33 +157,106 @@ public final class ProgressiveVideoActivity extends Activity {
         @Override
         public void run() {
             if (destroyed || !prepared || firstFrameSeen) return;
-            int position = 0;
-            int videoWidth = 0;
-            int videoHeight = 0;
-            try {
-                position = videoView == null ? 0 : videoView.getCurrentPosition();
-                if (activePlayer != null) {
-                    videoWidth = activePlayer.getVideoWidth();
-                    videoHeight = activePlayer.getVideoHeight();
-                }
-            } catch (Exception ignored) {}
-            if (position > 700 && videoWidth > 0 && videoHeight > 0) return;
-            if (ProgressivePlaybackPolicy.shouldFallbackToOrigin(
-                    usingOrigin, !originUrl.isEmpty(), playbackErrors, true)) {
-                switchToOrigin("Video lokal terbuka tetapi frame tidak tampil");
-            } else if (usingOrigin) {
-                try { if (videoView != null) videoView.stopPlayback(); }
-                catch (Exception ignored) {}
-                prepared = false;
-                activePlayer = null;
-                showFatal("Video terbuka, tetapi perangkat tidak dapat merender frame videonya");
+
+            long position = safePosition();
+            if (retryWithAlternateVideoOutput(position > 500L
+                    ? "Audio berjalan tetapi gambar belum tampil"
+                    : "Frame video pertama belum tampil")) {
+                return;
             }
+            if (!usingOrigin && !originUrl.isEmpty()) {
+                switchToOrigin(position > 500L
+                        ? "Audio berjalan tetapi gambar lokal tidak tampil"
+                        : "Frame video lokal belum tampil");
+                return;
+            }
+
+            pausePlayerQuietly();
+            showFatal(position > 500L
+                    ? "Suara atau waktu video berjalan, tetapi gambar tidak dapat dirender oleh decoder internal."
+                    : "Frame video tidak berhasil tampil pada perangkat ini.");
+        }
+    };
+
+    private final Player.Listener playerListener = new Player.Listener() {
+        @Override
+        public void onPlaybackStateChanged(int playbackState) {
+            if (destroyed) return;
+
+            if (playbackState == Player.STATE_BUFFERING) {
+                if (!firstFrameSeen) {
+                    showWaiting(usingOrigin
+                            ? "Memuat streaming cadangan…"
+                            : "Membaca data video yang tersedia…");
+                }
+                return;
+            }
+
+            if (playbackState == Player.STATE_READY) {
+                handler.removeCallbacks(preparationWatchdog);
+                preparing = false;
+                prepared = true;
+                manualRetryRequired = false;
+                playbackErrors = 0;
+                loading.setVisibility(View.VISIBLE);
+                if (!firstFrameSeen) {
+                    showWaiting("Menunggu frame video pertama…");
+                    handler.removeCallbacks(firstFrameWatchdog);
+                    handler.postDelayed(firstFrameWatchdog, FIRST_FRAME_TIMEOUT_MS);
+                }
+                updatePlayPauseGlyph();
+                setControlsVisible(true);
+                return;
+            }
+
+            if (playbackState == Player.STATE_ENDED) {
+                handler.removeCallbacks(firstFrameWatchdog);
+                statusText.setText("Pemutaran selesai");
+                updatePlayPauseGlyph();
+                setControlsVisible(true);
+            }
+        }
+
+        @Override
+        public void onRenderedFirstFrame() {
+            if (destroyed) return;
+            firstFrameSeen = true;
+            prepared = true;
+            preparing = false;
+            manualRetryRequired = false;
+            handler.removeCallbacks(preparationWatchdog);
+            handler.removeCallbacks(firstFrameWatchdog);
+            hideWaiting();
+            updatePlayPauseGlyph();
+        }
+
+        @Override
+        public void onVideoSizeChanged(VideoSize size) {
+            videoWidth = Math.max(0, size.width);
+            videoHeight = Math.max(0, size.height);
+            videoPixelRatio = size.pixelWidthHeightRatio > 0f
+                    ? size.pixelWidthHeightRatio : 1f;
+            applyVideoAspectRatio();
+        }
+
+        @Override
+        public void onIsPlayingChanged(boolean isPlaying) {
+            updatePlayPauseGlyph();
+            if (isPlaying && firstFrameSeen) hideWaiting();
+        }
+
+        @Override
+        public void onPlayerError(PlaybackException error) {
+            onPlaybackError(error);
         }
     };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        videoOutputMode = VideoOutputCompatibilityPolicy.preferredOutput(
+                Build.VERSION.SDK_INT, Build.BRAND, Build.MANUFACTURER, Build.MODEL);
+        realmeAndroid11 = videoOutputMode == VideoOutputCompatibilityPolicy.OUTPUT_SURFACE;
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setStatusBarColor(Color.BLACK);
         getWindow().setNavigationBarColor(Color.BLACK);
@@ -165,6 +273,7 @@ public final class ProgressiveVideoActivity extends Activity {
         originReferer = safe(getIntent().getStringExtra(EXTRA_ORIGIN_REFERER));
         originCookie = safe(getIntent().getStringExtra(EXTRA_ORIGIN_COOKIE));
         originAvailable = !originUrl.isEmpty();
+
         String title = safe(getIntent().getStringExtra(EXTRA_TITLE));
         if (title.isEmpty()) title = "Video Yield";
 
@@ -205,32 +314,35 @@ public final class ProgressiveVideoActivity extends Activity {
 
         TextView pip = actionText("▣", 21);
         pip.setContentDescription("Picture in Picture");
-        pip.setVisibility(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? View.VISIBLE : View.GONE);
+        pip.setVisibility(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? View.VISIBLE : View.GONE);
         pip.setOnClickListener(v -> enterPip());
         toolbar.addView(pip, new LinearLayout.LayoutParams(dp(48), dp(54)));
         root.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(54)));
 
-        FrameLayout playerFrame = new FrameLayout(this);
+        playerFrame = new FrameLayout(this);
         playerFrame.setBackgroundColor(Color.BLACK);
-        videoView = new VideoView(this);
-        videoView.setBackgroundColor(Color.BLACK);
-        playerFrame.addView(videoView, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+        playerFrame.setOnClickListener(v -> toggleControls());
+        playerFrame.addOnLayoutChangeListener((v, left, top, right, bottom,
+                                               oldLeft, oldTop, oldRight, oldBottom) ->
+                applyVideoAspectRatio());
 
-        View tapCatcher = new View(this);
-        tapCatcher.setBackgroundColor(Color.TRANSPARENT);
-        tapCatcher.setOnClickListener(v -> toggleControls());
-        playerFrame.addView(tapCatcher, new FrameLayout.LayoutParams(-1, -1));
+        installVideoOutputView();
 
         controlsBar = buildControlsBar();
         controlsBar.setVisibility(View.GONE);
-        playerFrame.addView(controlsBar, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        playerFrame.addView(controlsBar,
+                new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
 
         LinearLayout waiting = new LinearLayout(this);
         waiting.setOrientation(LinearLayout.VERTICAL);
         waiting.setGravity(Gravity.CENTER);
         waiting.setPadding(dp(24), dp(24), dp(24), dp(24));
+        waiting.setClickable(false);
+
         loading = new ProgressBar(this);
         waiting.addView(loading, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
         loadingText = new TextView(this);
         loadingText.setText("Menyiapkan video…");
         loadingText.setTextColor(Color.parseColor("#E8EBF0"));
@@ -251,15 +363,18 @@ public final class ProgressiveVideoActivity extends Activity {
         retryButton.setVisibility(View.GONE);
         retryButton.setOnClickListener(v -> {
             playbackErrors = 0;
+            manualRetryRequired = false;
+            alternateOutputTried = false;
+            selectPreferredVideoOutput();
             retryButton.setVisibility(View.GONE);
             startPlayback(true);
         });
         LinearLayout.LayoutParams retryLp = new LinearLayout.LayoutParams(dp(150), dp(42));
         retryLp.setMargins(0, dp(18), 0, 0);
         waiting.addView(retryButton, retryLp);
+
         playerFrame.addView(waiting, new FrameLayout.LayoutParams(-1, -1));
         loadingText.setTag(waiting);
-
         root.addView(playerFrame, new LinearLayout.LayoutParams(-1, 0, 1));
 
         LinearLayout statusPanel = new LinearLayout(this);
@@ -274,7 +389,8 @@ public final class ProgressiveVideoActivity extends Activity {
         statusText.setTextSize(12);
         statusPanel.addView(statusText, new LinearLayout.LayoutParams(-1, -2));
 
-        downloadProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        downloadProgress = new ProgressBar(this, null,
+                android.R.attr.progressBarStyleHorizontal);
         downloadProgress.setMax(100);
         LinearLayout.LayoutParams progressLp = new LinearLayout.LayoutParams(-1, dp(5));
         progressLp.setMargins(0, dp(8), 0, 0);
@@ -282,80 +398,12 @@ public final class ProgressiveVideoActivity extends Activity {
         root.addView(statusPanel, new LinearLayout.LayoutParams(-1, -2));
 
         setContentView(root);
-
-        videoView.setOnPreparedListener(this::onPrepared);
-        videoView.setOnCompletionListener(mp -> {
-            statusText.setText("Pemutaran selesai");
-            updatePlayPauseGlyph();
-            setControlsVisible(true);
-        });
-        videoView.setOnErrorListener((mp, what, extra) -> onPlaybackError());
-    }
-
-    private void onPrepared(MediaPlayer player) {
-        handler.removeCallbacks(preparationWatchdog);
-        activePlayer = player;
-        preparing = false;
-        prepared = true;
-        firstFrameSeen = false;
-        playbackErrors = 0;
-        try {
-            player.setOnInfoListener((mp, what, extra) -> {
-                if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
-                    firstFrameSeen = true;
-                    handler.removeCallbacks(firstFrameWatchdog);
-                    hideWaiting();
-                    return true;
-                }
-                return false;
-            });
-        } catch (Exception ignored) {
-        }
-        if (resumePositionMs > 0) videoView.seekTo(resumePositionMs);
-        videoView.start();
-        // Beberapa perangkat tidak mengirim MEDIA_INFO_VIDEO_RENDERING_START. Overlay tetap
-        // disembunyikan saat prepared, sementara watchdog memastikan layar hitam tidak menetap.
-        hideWaiting();
-        handler.removeCallbacks(firstFrameWatchdog);
-        handler.postDelayed(firstFrameWatchdog, 6000L);
-        updatePlayPauseGlyph();
-        setControlsVisible(true);
-    }
-
-    private boolean onPlaybackError() {
-        handler.removeCallbacks(preparationWatchdog);
-        handler.removeCallbacks(firstFrameWatchdog);
-        preparing = false;
-        prepared = false;
-        firstFrameSeen = false;
-        activePlayer = null;
-        playbackErrors++;
-        try {
-            resumePositionMs = Math.max(0, videoView.getCurrentPosition());
-            videoView.stopPlayback();
-        } catch (Exception ignored) {
-        }
-
-        if (ProgressivePlaybackPolicy.shouldFallbackToOrigin(
-                usingOrigin, !originUrl.isEmpty(), playbackErrors, false)) {
-            switchToOrigin("Data lokal belum cocok dengan player perangkat");
-            return true;
-        }
-
-        showWaiting(statusTerminal || usingOrigin
-                ? "Format atau codec video belum dapat diputar oleh perangkat ini"
-                : "Menunggu bagian video berikutnya…");
-        if (!statusTerminal && !usingOrigin && playbackErrors <= 3) {
-            handler.postDelayed(() -> startPlayback(true), 2200L);
-        } else {
-            loading.setVisibility(View.GONE);
-            retryButton.setVisibility(View.VISIBLE);
-        }
-        return true;
     }
 
     private void startPlayback(boolean force) {
         if (destroyed || preparing || (prepared && !force)) return;
+
+        manualRetryRequired = false;
         preparing = true;
         prepared = false;
         firstFrameSeen = false;
@@ -364,43 +412,113 @@ public final class ProgressiveVideoActivity extends Activity {
         showWaiting(usingOrigin
                 ? "Membuka streaming cadangan sambil download tetap berjalan…"
                 : "Menyiapkan video dari data download yang tersedia…");
+
+        handler.removeCallbacks(preparationWatchdog);
+        handler.removeCallbacks(firstFrameWatchdog);
+        releasePlayer(true);
+
+        String source = usingOrigin ? originUrl : mediaUrl;
+        if (source.isEmpty()) {
+            preparing = false;
+            showFatal("Sumber video tidak tersedia");
+            return;
+        }
+
         try {
-            handler.removeCallbacks(preparationWatchdog);
-            handler.removeCallbacks(firstFrameWatchdog);
-            if (force) videoView.stopPlayback();
-            if (usingOrigin) {
-                videoView.setVideoURI(Uri.parse(originUrl), buildOriginHeaders());
-            } else {
-                videoView.setVideoURI(Uri.parse(mediaUrl));
+            DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
+                    .setAllowCrossProtocolRedirects(true)
+                    .setConnectTimeoutMs(15_000)
+                    .setReadTimeoutMs(35_000);
+
+            Map<String, String> headers = usingOrigin
+                    ? buildOriginHeaders() : buildLocalHeaders();
+            if (!headers.isEmpty()) httpFactory.setDefaultRequestProperties(headers);
+            if (usingOrigin && !originUserAgent.isEmpty()) {
+                httpFactory.setUserAgent(originUserAgent);
             }
-            videoView.requestFocus();
-            handler.postDelayed(preparationWatchdog, usingOrigin ? 18_000L : 10_000L);
+
+            DefaultDataSource.Factory dataSourceFactory =
+                    new DefaultDataSource.Factory(this, httpFactory);
+            DefaultMediaSourceFactory mediaSourceFactory =
+                    new DefaultMediaSourceFactory(dataSourceFactory);
+            DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
+                    .setEnableDecoderFallback(true);
+
+            player = new ExoPlayer.Builder(this, renderersFactory)
+                    .setMediaSourceFactory(mediaSourceFactory)
+                    .build();
+            player.addListener(playerListener);
+            player.setHandleAudioBecomingNoisy(true);
+            attachVideoOutput(player);
+            player.setMediaItem(MediaItem.fromUri(Uri.parse(source)));
+            if (resumePositionMs > 0L) player.seekTo(resumePositionMs);
+            player.prepare();
+            player.play();
+
+            handler.postDelayed(preparationWatchdog,
+                    usingOrigin ? ORIGIN_PREPARE_TIMEOUT_MS : LOCAL_PREPARE_TIMEOUT_MS);
         } catch (Exception e) {
             preparing = false;
-            if (!usingOrigin && !originUrl.isEmpty()) switchToOrigin("Player lokal tidak dapat dibuka");
-            else showFatal("Player tidak dapat membuka video");
+            releasePlayer(false);
+            if (retryWithAlternateVideoOutput("Renderer video tidak dapat dibuat")) {
+                return;
+            }
+            if (!usingOrigin && !originUrl.isEmpty()) {
+                switchToOrigin("Player lokal tidak dapat dibuka");
+            } else {
+                showFatal("Player tidak dapat membuka video");
+            }
         }
+    }
+
+    private void onPlaybackError(PlaybackException error) {
+        handler.removeCallbacks(preparationWatchdog);
+        handler.removeCallbacks(firstFrameWatchdog);
+        resumePositionMs = Math.max(resumePositionMs, safePosition());
+        preparing = false;
+        prepared = false;
+        firstFrameSeen = false;
+        playbackErrors++;
+        releasePlayer(false);
+
+        if (retryWithAlternateVideoOutput("Decoder pertama gagal merender video")) {
+            return;
+        }
+        if (!usingOrigin && !originUrl.isEmpty()) {
+            switchToOrigin("Data lokal belum cocok dengan decoder perangkat");
+            return;
+        }
+
+        String detail = error == null ? "" : safe(error.getMessage());
+        String message = "Format atau decoder video belum dapat diputar di player internal";
+        if (!detail.isEmpty()) message += ". " + trimError(detail);
+        showFatal(message);
     }
 
     private void switchToOrigin(String reason) {
         if (destroyed || usingOrigin || originUrl.isEmpty()) return;
         handler.removeCallbacks(preparationWatchdog);
         handler.removeCallbacks(firstFrameWatchdog);
-        try {
-            if (videoView != null) {
-                resumePositionMs = Math.max(resumePositionMs, videoView.getCurrentPosition());
-                videoView.stopPlayback();
-            }
-        } catch (Exception ignored) {
-        }
+        resumePositionMs = Math.max(resumePositionMs, safePosition());
+        releasePlayer(false);
+
         usingOrigin = true;
         preparing = false;
         prepared = false;
-        activePlayer = null;
         firstFrameSeen = false;
+        manualRetryRequired = false;
+        alternateOutputTried = false;
+        selectPreferredVideoOutput();
         statusText.setText("Mode streaming cadangan • download tetap berjalan");
         showWaiting(reason + ". Beralih ke sumber video…");
         handler.postDelayed(() -> startPlayback(true), 250L);
+    }
+
+    private Map<String, String> buildLocalHeaders() {
+        HashMap<String, String> headers = new HashMap<>();
+        headers.put("Accept", "*/*");
+        headers.put("Accept-Encoding", "identity");
+        return headers;
     }
 
     private Map<String, String> buildOriginHeaders() {
@@ -443,25 +561,29 @@ public final class ProgressiveVideoActivity extends Activity {
                 connection.setUseCaches(false);
                 int code = connection.getResponseCode();
                 if (code != 200) return;
+
                 StringBuilder body = new StringBuilder();
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                         connection.getInputStream(), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = reader.readLine()) != null) body.append(line);
                 }
+
                 JSONObject json = new JSONObject(body.toString());
                 String state = json.optString("status", "");
                 int progress = json.optInt("progress", 0);
                 long speed = json.optLong("speedBytesPerSecond", 0L);
                 boolean playable = json.optBoolean("playable", false);
-                boolean serverOriginAvailable = json.optBoolean("originAvailable", originAvailable);
+                boolean serverOriginAvailable = json.optBoolean(
+                        "originAvailable", originAvailable);
                 boolean preferOrigin = json.optBoolean("preferOrigin", false);
                 statusTerminal = "completed".equals(state) || "failed".equals(state)
                         || "removed".equals(state);
+
                 runOnUiThread(() -> {
                     originAvailable = serverOriginAvailable || !originUrl.isEmpty();
                     if (preferOrigin && !usingOrigin && !originUrl.isEmpty()
-                            && !preparing && !prepared) {
+                            && !preparing && !prepared && !manualRetryRequired) {
                         usingOrigin = true;
                     }
                     applyStatus(state, progress, speed, playable);
@@ -477,7 +599,8 @@ public final class ProgressiveVideoActivity extends Activity {
     private void applyStatus(String state, int progress, long speed, boolean playable) {
         if (destroyed) return;
         lastProgressPercent = Math.max(0, Math.min(100, progress));
-        downloadProgress.setProgress(Math.max(0, Math.min(100, progress)));
+        downloadProgress.setProgress(lastProgressPercent);
+
         String text;
         if ("running".equals(state)) {
             text = "Mengunduh " + progress + "%";
@@ -494,7 +617,7 @@ public final class ProgressiveVideoActivity extends Activity {
             text = "Download selesai • video tersimpan";
             downloadProgress.setProgress(100);
         } else if ("failed".equals(state)) {
-            text = "Download gagal • bagian yang sudah tersedia tetap dapat diputar";
+            text = "Download gagal • bagian yang tersedia tetap dapat diputar";
         } else {
             text = "Download tetap berjalan di latar belakang";
         }
@@ -502,10 +625,41 @@ public final class ProgressiveVideoActivity extends Activity {
             text += " • streaming cadangan aktif";
         }
         statusText.setText(text);
-        if (playable && !preparing && !prepared) startPlayback(false);
-        if (!playable && !prepared && !preparing) {
+
+        if (playable && !preparing && !prepared && !manualRetryRequired) {
+            startPlayback(false);
+        }
+        if (!playable && !prepared && !preparing && !manualRetryRequired) {
             showWaiting("Menunggu data awal video… " + progress + "%");
         }
+    }
+
+    private void applyVideoAspectRatio() {
+        if (playerFrame == null || videoOutputView == null
+                || videoWidth <= 0 || videoHeight <= 0) return;
+
+        playerFrame.post(() -> {
+            if (destroyed || playerFrame == null || videoOutputView == null) return;
+            int frameWidth = playerFrame.getWidth();
+            int frameHeight = playerFrame.getHeight();
+            if (frameWidth <= 0 || frameHeight <= 0) return;
+
+            float videoRatio = (videoWidth * videoPixelRatio) / Math.max(1f, videoHeight);
+            float frameRatio = frameWidth / (float) frameHeight;
+            int width;
+            int height;
+            if (frameRatio > videoRatio) {
+                height = frameHeight;
+                width = Math.max(1, Math.round(height * videoRatio));
+            } else {
+                width = frameWidth;
+                height = Math.max(1, Math.round(width / videoRatio));
+            }
+
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                    width, height, Gravity.CENTER);
+            videoOutputView.setLayoutParams(lp);
+        });
     }
 
     private void showWaiting(String text) {
@@ -520,6 +674,7 @@ public final class ProgressiveVideoActivity extends Activity {
     }
 
     private void showFatal(String message) {
+        manualRetryRequired = true;
         showWaiting(message);
         if (loading != null) loading.setVisibility(View.GONE);
         if (retryButton != null) retryButton.setVisibility(View.VISIBLE);
@@ -528,8 +683,11 @@ public final class ProgressiveVideoActivity extends Activity {
     private void enterPip() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isInPictureInPictureMode()) return;
         try {
+            Rational ratio = videoWidth > 0 && videoHeight > 0
+                    ? new Rational(Math.max(1, videoWidth), Math.max(1, videoHeight))
+                    : new Rational(16, 9);
             PictureInPictureParams params = new PictureInPictureParams.Builder()
-                    .setAspectRatio(new Rational(16, 9))
+                    .setAspectRatio(ratio)
                     .build();
             enterPictureInPictureMode(params);
         } catch (Exception ignored) {
@@ -540,8 +698,10 @@ public final class ProgressiveVideoActivity extends Activity {
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode,
                                               android.content.res.Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
-        if (topBar != null) topBar.setVisibility(isInPictureInPictureMode ? View.GONE : View.VISIBLE);
-        if (bottomBar != null) bottomBar.setVisibility(isInPictureInPictureMode ? View.GONE : View.VISIBLE);
+        if (topBar != null) topBar.setVisibility(
+                isInPictureInPictureMode ? View.GONE : View.VISIBLE);
+        if (bottomBar != null) bottomBar.setVisibility(
+                isInPictureInPictureMode ? View.GONE : View.VISIBLE);
         if (isInPictureInPictureMode) setControlsVisible(false);
     }
 
@@ -549,25 +709,20 @@ public final class ProgressiveVideoActivity extends Activity {
     protected void onPause() {
         super.onPause();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode()) return;
-        try {
-            if (videoView != null && videoView.isPlaying()) {
-                resumePositionMs = videoView.getCurrentPosition();
-                videoView.pause();
-                updatePlayPauseGlyph();
-            }
-        } catch (Exception ignored) {
+        if (player != null && player.isPlaying()) {
+            resumePositionMs = Math.max(resumePositionMs, safePosition());
+            player.pause();
+            updatePlayPauseGlyph();
         }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        try {
-            if (prepared && videoView != null && !videoView.isPlaying()) {
-                videoView.start();
-                updatePlayPauseGlyph();
-            }
-        } catch (Exception ignored) {
+        if (prepared && player != null && !manualRetryRequired
+                && player.getPlaybackState() != Player.STATE_ENDED) {
+            player.play();
+            updatePlayPauseGlyph();
         }
     }
 
@@ -575,13 +730,49 @@ public final class ProgressiveVideoActivity extends Activity {
     protected void onDestroy() {
         destroyed = true;
         handler.removeCallbacksAndMessages(null);
-        try {
-            if (videoView != null) videoView.stopPlayback();
-            activePlayer = null;
-        } catch (Exception ignored) {
-        }
+        releasePlayer(false);
         notifySessionClosed();
         super.onDestroy();
+    }
+
+    private void releasePlayer(boolean preservePosition) {
+        ExoPlayer current = player;
+        player = null;
+        if (current == null) return;
+        try {
+            if (preservePosition) {
+                resumePositionMs = Math.max(resumePositionMs,
+                        Math.max(0L, current.getCurrentPosition()));
+            }
+            current.removeListener(playerListener);
+            if (surfaceView != null) {
+                current.clearVideoSurfaceView(surfaceView);
+            } else if (textureView != null) {
+                current.clearVideoTextureView(textureView);
+            } else {
+                current.clearVideoSurface();
+            }
+            current.release();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void pausePlayerQuietly() {
+        try {
+            if (player != null) {
+                resumePositionMs = Math.max(resumePositionMs, safePosition());
+                player.pause();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private long safePosition() {
+        try {
+            return player == null ? 0L : Math.max(0L, player.getCurrentPosition());
+        } catch (Exception ignored) {
+            return 0L;
+        }
     }
 
     private void notifySessionClosed() {
@@ -600,15 +791,84 @@ public final class ProgressiveVideoActivity extends Activity {
         }, "yield-player-close").start();
     }
 
+    private void installVideoOutputView() {
+        if (playerFrame == null) return;
+
+        if (videoOutputView != null) {
+            playerFrame.removeView(videoOutputView);
+        }
+        textureView = null;
+        surfaceView = null;
+
+        if (videoOutputMode == VideoOutputCompatibilityPolicy.OUTPUT_SURFACE) {
+            surfaceView = new SurfaceView(this);
+            surfaceView.setContentDescription("Video");
+            videoOutputView = surfaceView;
+        } else {
+            textureView = new TextureView(this);
+            // Non-opaque avoids a vendor compositor edge case where the texture can stay black
+            // even though playback time advances. The player frame itself remains black.
+            textureView.setOpaque(false);
+            textureView.setContentDescription("Video");
+            videoOutputView = textureView;
+        }
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                -1, -1, Gravity.CENTER);
+        playerFrame.addView(videoOutputView, 0, lp);
+    }
+
+    private void attachVideoOutput(ExoPlayer target) {
+        if (target == null) return;
+        if (surfaceView != null) {
+            target.setVideoSurfaceView(surfaceView);
+        } else if (textureView != null) {
+            target.setVideoTextureView(textureView);
+        }
+    }
+
+    private boolean retryWithAlternateVideoOutput(String reason) {
+        if (destroyed || alternateOutputTried) return false;
+
+        alternateOutputTried = true;
+        resumePositionMs = Math.max(resumePositionMs, safePosition());
+        handler.removeCallbacks(preparationWatchdog);
+        handler.removeCallbacks(firstFrameWatchdog);
+        releasePlayer(false);
+
+        videoOutputMode = VideoOutputCompatibilityPolicy.alternateOutput(videoOutputMode);
+        installVideoOutputView();
+        preparing = false;
+        prepared = false;
+        firstFrameSeen = false;
+        manualRetryRequired = false;
+        showWaiting(reason + ". Mengganti renderer video…");
+        handler.postDelayed(() -> startPlayback(true), 220L);
+        return true;
+    }
+
+    private void selectPreferredVideoOutput() {
+        int preferred = realmeAndroid11
+                ? VideoOutputCompatibilityPolicy.OUTPUT_SURFACE
+                : VideoOutputCompatibilityPolicy.OUTPUT_TEXTURE;
+        if (videoOutputMode != preferred || videoOutputView == null) {
+            videoOutputMode = preferred;
+            installVideoOutputView();
+        }
+    }
+
     private View buildControlsBar() {
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setPadding(dp(10), dp(6), dp(10), dp(6));
         bar.setBackgroundColor(Color.parseColor("#CC000000"));
+        bar.setOnClickListener(v -> {
+            // Consume clicks so the parent does not immediately hide controls.
+        });
 
         playPauseBtn = new TextView(this);
-        playPauseBtn.setText("\u275A\u275A"); // pause glyph
+        playPauseBtn.setText("❚❚");
         playPauseBtn.setTextColor(Color.WHITE);
         playPauseBtn.setTextSize(18);
         playPauseBtn.setGravity(Gravity.CENTER);
@@ -629,8 +889,10 @@ public final class ProgressiveVideoActivity extends Activity {
             @Override
             public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                 if (fromUser) {
-                    long dur = safeDuration();
-                    if (dur > 0) currentTimeText.setText(formatTime(dur * progress / 1000L));
+                    long duration = safeDuration();
+                    if (duration > 0) {
+                        currentTimeText.setText(formatTime(duration * progress / 1000L));
+                    }
                 }
             }
 
@@ -647,8 +909,7 @@ public final class ProgressiveVideoActivity extends Activity {
                 scheduleHideControls();
             }
         });
-        LinearLayout.LayoutParams sbLp = new LinearLayout.LayoutParams(0, -2, 1f);
-        bar.addView(seekBar, sbLp);
+        bar.addView(seekBar, new LinearLayout.LayoutParams(0, -2, 1f));
 
         durationText = new TextView(this);
         durationText.setText("0:00");
@@ -667,8 +928,11 @@ public final class ProgressiveVideoActivity extends Activity {
 
     private void setControlsVisible(boolean visible) {
         controlsVisible = visible;
-        if (controlsBar != null) controlsBar.setVisibility(visible ? View.VISIBLE : View.GONE);
-        if (topBar != null) topBar.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (controlsBar != null) controlsBar.setVisibility(
+                visible ? View.VISIBLE : View.GONE);
+        if (topBar != null && !isInPictureInPictureMode()) {
+            topBar.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
         handler.removeCallbacks(hideControlsRunnable);
         if (visible) {
             updateSeekUi();
@@ -679,76 +943,72 @@ public final class ProgressiveVideoActivity extends Activity {
 
     private void scheduleHideControls() {
         handler.removeCallbacks(hideControlsRunnable);
-        boolean playing;
-        try {
-            playing = videoView != null && videoView.isPlaying();
-        } catch (Exception e) {
-            playing = false;
+        boolean playing = player != null && player.isPlaying();
+        if (playing && !userSeeking) {
+            handler.postDelayed(hideControlsRunnable, 3500L);
         }
-        if (playing && !userSeeking) handler.postDelayed(hideControlsRunnable, 3500L);
     }
 
     private void togglePlayPause() {
-        if (videoView == null) return;
-        try {
-            if (videoView.isPlaying()) videoView.pause();
-            else videoView.start();
-        } catch (Exception ignored) {
+        if (player == null) {
+            if (!manualRetryRequired) startPlayback(true);
+            return;
         }
+        if (player.isPlaying()) player.pause();
+        else player.play();
         updatePlayPauseGlyph();
         setControlsVisible(true);
     }
 
     private void updatePlayPauseGlyph() {
         if (playPauseBtn == null) return;
-        boolean playing;
-        try {
-            playing = videoView != null && videoView.isPlaying();
-        } catch (Exception e) {
-            playing = false;
-        }
-        playPauseBtn.setText(playing ? "\u275A\u275A" : "\u25B6");
+        boolean playing = player != null && player.isPlaying();
+        playPauseBtn.setText(playing ? "❚❚" : "▶");
         if (playing) scheduleHideControls();
         else handler.removeCallbacks(hideControlsRunnable);
     }
 
     private void updateSeekUi() {
-        if (seekBar == null || videoView == null) return;
-        long dur = safeDuration();
-        long pos;
-        try {
-            pos = Math.max(0, videoView.getCurrentPosition());
-        } catch (Exception e) {
-            pos = 0;
+        if (seekBar == null) return;
+        long duration = safeDuration();
+        long position = safePosition();
+        if (duration > 0) {
+            if (!userSeeking) {
+                seekBar.setProgress((int) Math.min(1000L,
+                        position * 1000L / Math.max(1L, duration)));
+            }
+            durationText.setText(formatTime(duration));
+
+            int buffered = player == null ? 0 : Math.max(0, player.getBufferedPercentage());
+            int secondary = usingOrigin
+                    ? buffered * 10
+                    : Math.max(buffered, lastProgressPercent) * 10;
+            seekBar.setSecondaryProgress(Math.min(1000, secondary));
         }
-        if (dur > 0) {
-            if (!userSeeking) seekBar.setProgress((int) (pos * 1000L / dur));
-            durationText.setText(formatTime(dur));
-            if (lastProgressPercent > 0) seekBar.setSecondaryProgress(lastProgressPercent * 10);
-        }
-        if (!userSeeking) currentTimeText.setText(formatTime(pos));
+        if (!userSeeking) currentTimeText.setText(formatTime(position));
     }
 
     private long safeDuration() {
         try {
-            int d = videoView != null ? videoView.getDuration() : 0;
-            return Math.max(0, d);
-        } catch (Exception e) {
-            return 0;
+            long duration = player == null ? 0L : player.getDuration();
+            return duration > 0L ? duration : 0L;
+        } catch (Exception ignored) {
+            return 0L;
         }
     }
 
     private void seekToProgress(int progress) {
-        long dur = safeDuration();
-        if (dur <= 0 || videoView == null) return;
-        long target = dur * progress / 1000L;
-        // Batasi seek hingga bagian yang sudah terunduh agar tidak melompat ke "lubang" data.
-        if (lastProgressPercent > 0 && lastProgressPercent < 100) {
-            long cap = dur * lastProgressPercent / 100L;
+        long duration = safeDuration();
+        if (duration <= 0L || player == null) return;
+        long target = duration * progress / 1000L;
+
+        if (!usingOrigin && lastProgressPercent > 0 && lastProgressPercent < 100) {
+            long cap = duration * lastProgressPercent / 100L;
             if (target > cap) target = cap;
         }
+
         try {
-            videoView.seekTo((int) target);
+            player.seekTo(target);
         } catch (Exception ignored) {
         }
     }
@@ -773,7 +1033,8 @@ public final class ProgressiveVideoActivity extends Activity {
         return view;
     }
 
-    private static GradientDrawable roundRect(int fillColor, int radius, int strokeWidth, int strokeColor) {
+    private static GradientDrawable roundRect(int fillColor, int radius,
+                                              int strokeWidth, int strokeColor) {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(fillColor);
         drawable.setCornerRadius(radius);
@@ -790,7 +1051,14 @@ public final class ProgressiveVideoActivity extends Activity {
         if (bytesPerSecond < 1024L * 1024L) {
             return String.format(Locale.US, "%.1f KB/s", bytesPerSecond / 1024.0);
         }
-        return String.format(Locale.US, "%.1f MB/s", bytesPerSecond / (1024.0 * 1024.0));
+        return String.format(Locale.US, "%.1f MB/s",
+                bytesPerSecond / (1024.0 * 1024.0));
+    }
+
+    private static String trimError(String value) {
+        String normalized = value == null ? "" : value.replace('\n', ' ').trim();
+        if (normalized.length() <= 120) return normalized;
+        return normalized.substring(0, 117) + "…";
     }
 
     private static String safe(String value) {
