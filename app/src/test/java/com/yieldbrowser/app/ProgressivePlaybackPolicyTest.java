@@ -46,4 +46,36 @@ public class ProgressivePlaybackPolicyTest {
                 new long[]{249, 499, 749, 999},
                 new long[]{0, 0, 0, 0}));
     }
+
+    @Test
+    public void resolvedOriginUrlWinsOverOriginalUrl() {
+        assertEquals("https://cdn.example/video.mp4",
+                ProgressivePlaybackPolicy.selectOriginUrl(
+                        "https://cdn.example/video.mp4", "https://site.example/download?id=1"));
+        assertEquals("https://site.example/video.mp4",
+                ProgressivePlaybackPolicy.selectOriginUrl("", "https://site.example/video.mp4"));
+        assertEquals("", ProgressivePlaybackPolicy.selectOriginUrl("content://local", "file:///video.mp4"));
+    }
+
+    @Test
+    public void startupThresholdIsBoundedByFileLength() {
+        assertEquals(512_000L, ProgressivePlaybackPolicy.minimumStartupBytes(512_000L));
+        assertEquals(2L * 1024L * 1024L,
+                ProgressivePlaybackPolicy.minimumStartupBytes(3L * 1024L * 1024L * 1024L));
+    }
+
+    @Test
+    public void originRangeIsCappedToFourMegabytes() {
+        assertEquals(4L * 1024L * 1024L - 1L,
+                ProgressivePlaybackPolicy.capOriginRangeEnd(0L, 100L * 1024L * 1024L));
+        assertEquals(9_999L, ProgressivePlaybackPolicy.capOriginRangeEnd(9_000L, 9_999L));
+    }
+
+    @Test
+    public void localFailureOrTimeoutTriggersSingleOriginFallback() {
+        assertTrue(ProgressivePlaybackPolicy.shouldFallbackToOrigin(false, true, 1, false));
+        assertTrue(ProgressivePlaybackPolicy.shouldFallbackToOrigin(false, true, 0, true));
+        assertFalse(ProgressivePlaybackPolicy.shouldFallbackToOrigin(true, true, 3, true));
+        assertFalse(ProgressivePlaybackPolicy.shouldFallbackToOrigin(false, false, 3, true));
+    }
 }

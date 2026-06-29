@@ -1,47 +1,36 @@
-# Yield Browser v0.10.07
+# Yield Browser v0.10.09
 
-Android browser source project with professional tab spaces, private profile isolation, History Engine V2, HTTPS-First navigation, Universal Reader Compatibility Repair, integrated AdBlock/Shield Engine V2, persistent manual element filtering, quiet UI, progressive download playback, and long-press link actions.
+Yield Browser adalah proyek browser Android native berbasis Java 17 dengan `minSdk 23` dan `targetSdk 35`.
 
+## Perbaikan terbaru
 
-## Universal search-result navigation fix
+Versi 0.10.09 memperbaiki layar hitam ketika video dibuka saat proses unduhan masih berjalan.
 
-Version 0.10.07 separates search-result pages from reader pages. A `/search` URL or an image-heavy search page is no longer classified as a comic reader, so normal result links can open across domains while known ad hosts and hard advertising tokens remain blocked.
+- Server progresif mempertahankan ukuran total dan rentang media yang benar.
+- Pemutaran menunggu data awal yang cukup sebelum player dimulai.
+- URL CDN hasil redirect serta header autentikasi digunakan kembali.
+- Video MP4 dengan metadata di bagian akhir dapat beralih ke streaming sumber.
+- Player otomatis memakai jalur cadangan saat persiapan atau frame pertama macet.
+- Download utama tetap berjalan ketika player berpindah ke jalur streaming cadangan.
+- Kesalahan codec atau render ditampilkan dengan jelas dan tidak dibiarkan menjadi layar hitam.
+- Finalisasi video berukuran besar tetap berjalan di background agar tidak memicu ANR.
 
-The allow lane covers regional and non-`.com` variants of Google, Bing, DuckDuckGo, Yahoo, Yandex, Baidu, Brave Search, Startpage, Ecosia, Qwant, Mojeek, Kagi, Naver, AOL, Ask, Swisscows, MetaGer, and standards-based self-hosted engines such as SearX/SearXNG. Generic engines are detected from a search-like path combined with a search query parameter rather than from one fixed domain list.
+## Versi aplikasi
 
-## Reader direct-link and blank-page recovery
-
-Version 0.10.06 hardens reader pages against mobile direct-link advertising. Unknown cross-site main-frame takeovers are quarantined on reader/content pages even when Android WebView reports a user gesture inherited from an image tap. Same-site chapter navigation, explicitly trusted flows, downloads, and direct image/media assets remain allowed.
-
-Shield Engine V2 now listens to touch, pointer, mouse, click, auxiliary-click, and submit events with non-passive touch listeners and normalized touch coordinates. Transient documents such as `about:blank` and `about:srcdoc` are treated as popup staging pages. Recovery reloads the tab-owned last safe chapter directly instead of walking through polluted WebView history.
-
-## Persistent Block Element mode
-
-Version 0.10.05 changes **Blokir elemen** into a continuous picker. After **Blokir & lanjut** is selected, the picker stays active so another element can be selected immediately. A large **X** button on the right side of the orange picker bar is the explicit exit control.
-
-Manual element filters are now independent from the AdBlock master switch. A saved filter remains active when AdBlock is OFF, on compatibility/reader pages, after reopening the site from a bookmark or history, and after restoring a live tab. Filters are stored per normalized host and remain enabled until removed from **Filter situs ini**.
-
-The selector engine now reports the number of matched elements, avoids common dynamic IDs/classes, adds `:nth-of-type` only when required, and validates every selector again on Android. Critical document and media elements cannot be blocked. Pointer/touch event deduplication prevents a single tap from producing duplicate dialogs.
-
-## Reader-safe Click Hijack Protection
-
-Version 0.10.04 fixed reader navigation controls that could become unresponsive while **Proteksi Click Hijack** was enabled. Reader/content pages use the DOM-aware Shield Engine V2 click guard, including click-through recovery when a suspicious transparent overlay covers a legitimate same-site chapter control.
-
-## Back to Home loading fix
-
-Android Back resets the current tab and destroys its WebView when no earlier page history remains. JavaScript, media, redirects, network activity, and late callbacks from the previous page cannot continue behind Home.
-
-## Open link in new tab
-
-Press and hold a normal web link or an image wrapped by a link, choose **Buka link di tab baru**, and Yield Browser creates, activates, and loads the destination in a new tab while preserving the original tab.
-
-## Version
-
-- `versionCode 81`
-- `versionName 0.10.07`
+- `versionCode 83`
+- `versionName 0.10.09`
 - `minSdk 23`
 - `targetSdk 35`
 
-## GitHub Actions
+## Struktur utama
 
-The workflow runs unit tests, Android lint, debug APK build, and unsigned release APK build.
+- `.github/workflows/build-apk.yml`
+- `app/build.gradle`
+- `app/src/main/AndroidManifest.xml`
+- `app/src/main/java/com/yieldbrowser/app/`
+- `app/src/main/res/`
+- `app/src/test/java/com/yieldbrowser/app/`
+
+## Build APK
+
+Workflow GitHub Actions di `.github/workflows/build-apk.yml` dapat digunakan untuk membangun APK debug. Unggah kedua paket ke root repository yang sama, kemudian jalankan workflow dari menu Actions.
