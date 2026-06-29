@@ -52,7 +52,7 @@ import java.util.Map;
 /**
  * Internal player for progressive playback while a Yield download continues.
  *
- * v0.10.15 uses Media3 ExoPlayer with automatic SurfaceView/TextureView fallback
+ * Since v0.10.15, this player uses Media3 ExoPlayer with automatic SurfaceView/TextureView fallback
  * and a complete responsive video control panel mounted outside the SurfaceView layer.
  * This guarantees that the full controls remain visible on Realme Android 11, including
  * portrait mode, where SurfaceView can cover normal overlay children.

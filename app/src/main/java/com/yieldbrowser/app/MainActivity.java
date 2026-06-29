@@ -308,6 +308,10 @@ public class MainActivity extends Activity {
     private boolean shortcutFindPage = false;
     private boolean shortcutShare = false;
     private boolean shortcutFullscreen = false;
+    // These two site tools are visible by default, but can now be hidden from
+    // the main overflow menu through "Sesuaikan menu".
+    private boolean shortcutBlockElement = true;
+    private boolean shortcutSiteFilter = true;
 
     // Video feature settings.
     private boolean videoControlsEnabled = true;
@@ -2640,13 +2644,17 @@ content.addView(space(dp(36)));
             }));
         }
 
-        menu.addView(menuRow(R.drawable.ic_block_element, "Blokir elemen", v -> {
-            dialog.dismiss();
-            startElementPicker();
-        }));
-        menu.addView(menuRow(R.drawable.ic_safe, "Filter situs ini", v -> {
-            switchDialogSmooth(dialog, () -> showUserFiltersManager());
-        }));
+        if (shortcutBlockElement) {
+            menu.addView(menuRow(R.drawable.ic_block_element, "Blokir elemen", v -> {
+                dialog.dismiss();
+                startElementPicker();
+            }));
+        }
+        if (shortcutSiteFilter) {
+            menu.addView(menuRow(R.drawable.ic_safe, "Filter situs ini", v -> {
+                switchDialogSmooth(dialog, () -> showUserFiltersManager());
+            }));
+        }
 
         menu.addView(menuDivider());
         menu.addView(menuRow(R.drawable.ic_settings, "Setelan", v -> {
@@ -3262,6 +3270,8 @@ content.addView(space(dp(36)));
         panel.addView(customizeToggleRow(R.drawable.ic_find_page, "Cari di halaman", shortcutFindPage, v -> { shortcutFindPage = !shortcutFindPage; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_share, "Bagikan halaman", shortcutShare, v -> { shortcutShare = !shortcutShare; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_fullscreen, "Layar penuh", shortcutFullscreen, v -> { shortcutFullscreen = !shortcutFullscreen; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_block_element, "Blokir elemen", shortcutBlockElement, v -> { shortcutBlockElement = !shortcutBlockElement; saveSettings(); }));
+        panel.addView(customizeToggleRow(R.drawable.ic_safe, "Filter situs ini", shortcutSiteFilter, v -> { shortcutSiteFilter = !shortcutSiteFilter; saveSettings(); }));
         panel.addView(customizeToggleRow(R.drawable.ic_video_control, "Kontrol video", shortcutVideoControls, v -> { shortcutVideoControls = !shortcutVideoControls; saveSettings(); }));
 
         dialog.setContentView(scroll);
@@ -14241,6 +14251,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         shortcutFindPage = p.getBoolean("shortcutFindPage", false);
         shortcutShare = p.getBoolean("shortcutShare", false);
         shortcutFullscreen = p.getBoolean("shortcutFullscreen", false);
+        shortcutBlockElement = p.getBoolean("shortcutBlockElement", true);
+        shortcutSiteFilter = p.getBoolean("shortcutSiteFilter", true);
         videoControlsEnabled = p.getBoolean("videoControlsEnabled", true);
         videoBufferBooster = p.getBoolean("videoBufferBooster", true);
         hlsSegmentPrefetch = p.getBoolean("hlsSegmentPrefetch", true);
@@ -14283,6 +14295,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             shortcutFindPage = false;
             shortcutShare = false;
             shortcutFullscreen = false;
+            shortcutBlockElement = true;
+            shortcutSiteFilter = true;
             shortcutVideoControls = false;
 
             p.edit()
@@ -14298,6 +14312,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     .putBoolean("shortcutFindPage", shortcutFindPage)
                     .putBoolean("shortcutShare", shortcutShare)
                     .putBoolean("shortcutFullscreen", shortcutFullscreen)
+                    .putBoolean("shortcutBlockElement", shortcutBlockElement)
+                    .putBoolean("shortcutSiteFilter", shortcutSiteFilter)
                     .putBoolean("shortcutVideoControls", shortcutVideoControls)
                     .putBoolean("menuDefaultsV030", true)
                     .apply();
@@ -14339,6 +14355,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 .putBoolean("shortcutFindPage", shortcutFindPage)
                 .putBoolean("shortcutShare", shortcutShare)
                 .putBoolean("shortcutFullscreen", shortcutFullscreen)
+                .putBoolean("shortcutBlockElement", shortcutBlockElement)
+                .putBoolean("shortcutSiteFilter", shortcutSiteFilter)
                 .putBoolean("videoControlsEnabled", videoControlsEnabled)
                 .putBoolean("videoBufferBooster", videoBufferBooster)
                 .putBoolean("hlsSegmentPrefetch", hlsSegmentPrefetch)
