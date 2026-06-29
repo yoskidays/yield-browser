@@ -1,22 +1,19 @@
-# Yield Browser 0.10.16
+# Yield Browser 0.10.17
 
-Browser Android native dengan download manager, pemutaran video saat download berlangsung, mode privat, Shield Engine, riwayat, bookmark, reader mode, dan kontrol menu yang dapat disesuaikan.
+Browser Android native dengan download manager, Shield Engine, mode privat, reader mode, dan pemutar video progresif berbasis Media3.
 
-## Perbaikan 0.10.16
+## Perbaikan 0.10.17
 
-- Shortcut **Blokir elemen** sekarang dapat diaktifkan atau dinonaktifkan melalui **Sesuaikan menu**.
-- Shortcut **Filter situs ini** sekarang dapat diaktifkan atau dinonaktifkan melalui **Sesuaikan menu**.
-- Kedua shortcut tetap aktif secara default agar perilaku pengguna lama tidak berubah.
-- Saat shortcut dimatikan, hanya item pada menu utama yang disembunyikan; filter elemen yang sudah tersimpan tetap aman dan tetap diterapkan pada situs.
-- Panel kontrol video lengkap, stabilitas Realme 5 Pro Android 11, dan Media3 ExoPlayer 1.6.1 tetap dipertahankan.
+- `Blokir elemen` sekarang selalu tersedia di `Setelan Yield > Alat halaman`.
+- `Filter situs ini` sekarang selalu tersedia di `Setelan Yield > Alat halaman`.
+- Tombol ON/OFF di `Sesuaikan menu` hanya mengatur visibilitas shortcut pada menu utama.
+- Mematikan shortcut tidak menonaktifkan fitur dan tidak menghapus filter yang tersimpan.
+- Perbaikan video progresif, kontrol lengkap, kompatibilitas Realme Android 11, dan Media3 1.6.1 tetap dipertahankan.
 
-## Build
+## Versi
 
-- compileSdk 35
-- targetSdk 35
-- minSdk 23
-- Android Gradle Plugin 8.7.3
-- Media3 ExoPlayer 1.6.1
-- Java 17
-
-Build APK melalui workflow GitHub Actions pada `.github/workflows/build-apk.yml`.
+- versionCode: 91
+- versionName: 0.10.17
+- minSdk: 23
+- targetSdk: 35
+- compileSdk: 35
