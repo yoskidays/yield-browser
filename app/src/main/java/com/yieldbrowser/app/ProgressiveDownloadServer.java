@@ -44,7 +44,7 @@ final class ProgressiveDownloadServer {
     private static final long SESSION_IDLE_TTL_MS = 30L * 60L * 1000L;
     private static final long CLOSED_SESSION_TTL_MS = 90L * 1000L;
     private static final long WAIT_FOR_TOTAL_MS = 15_000L;
-    private static final long WAIT_FOR_BYTES_MS = 120_000L;
+    private static final long WAIT_FOR_BYTES_MS = 30_000L;
     // v0.9.92: jika byte yang diminta belum tersedia lokal, tunggu sebentar saja lalu beri sinyal,
     // jangan menggantung 120 detik (penyebab layar blank pada moov-di-akhir).
     private static final long ORIGIN_FALLBACK_WAIT_MS = 8_000L;
@@ -218,13 +218,14 @@ final class ProgressiveDownloadServer {
 
         int sourceGeneration = state.currentGeneration();
 
-        // 1) Byte awal range sudah ada lokal -> sajikan hanya bagian yang tersedia SEKARANG (clamp).
-        //    Player akan meminta lanjutannya. Ini mencegah server menggantung menunggu byte.
+        // 1) Byte awal range sudah ada lokal. Header harus tetap menjelaskan range yang diminta,
+        //    bukan file pendek palsu. Body kemudian mengikuti pertumbuhan file di latar belakang.
+        //    Kontrak ini penting untuk GET tanpa Range dan Range bytes=0-; respons 200/206 yang
+        //    dipotong ke prefix lama membuat MediaPlayer menganggap MP4 rusak lalu hanya hitam.
         long availableEnd = state.availableEndExclusive(range.start);
         if (availableEnd > range.start) {
-            long serveEnd = Math.min(range.end, availableEnd - 1L);
-            writeMediaHeaders(output, partial, range.start, serveEnd, total, mime);
-            streamLocalRange(state, output, range.start, serveEnd, sourceGeneration);
+            writeMediaHeaders(output, partial, range.start, range.end, total, mime);
+            streamGrowingLocalRange(state, output, range.start, range.end, sourceGeneration);
             return;
         }
 
@@ -241,9 +242,8 @@ final class ProgressiveDownloadServer {
             state.touch();
             availableEnd = state.availableEndExclusive(range.start);
             if (availableEnd > range.start) {
-                long serveEnd = Math.min(range.end, availableEnd - 1L);
-                writeMediaHeaders(output, partial, range.start, serveEnd, total, mime);
-                streamLocalRange(state, output, range.start, serveEnd, sourceGeneration);
+                writeMediaHeaders(output, partial, range.start, range.end, total, mime);
+                streamGrowingLocalRange(state, output, range.start, range.end, sourceGeneration);
                 return;
             }
             if (state.isTerminalWithoutMoreBytes(range.start)) break;
@@ -272,37 +272,56 @@ final class ProgressiveDownloadServer {
         output.flush();
     }
 
-    // Streaming byte yang DIPASTIKAN sudah tersedia lokal pada [start, end].
-    private static void streamLocalRange(SessionState state, OutputStream output,
-                                         long start, long end, int sourceGeneration) throws IOException {
+    // Streaming range dengan kontrak Content-Length stabil. Jika player lebih cepat daripada
+    // download, koneksi menunggu frontier lokal alih-alih menutup respons sebagai file terpotong.
+    private static void streamGrowingLocalRange(SessionState state, OutputStream output,
+                                                long start, long end,
+                                                int sourceGeneration) throws IOException {
         if (end < start) return;
         byte[] buffer = new byte[STREAM_BUFFER];
         long position = start;
+        long waitingSince = 0L;
         SeekableReader reader = null;
         try {
-            reader = state.openReader();
-            if (reader == null) return;
             while (position <= end) {
-                if (state.currentGeneration() != sourceGeneration) return;
-                int wanted = (int) Math.min(buffer.length, end - position + 1L);
-                int read;
-                try {
-                    read = reader.read(position, buffer, wanted);
-                } catch (IOException staleReader) {
-                    closeQuietly(reader);
-                    reader = state.openReader();
-                    if (reader == null) throw staleReader;
-                    read = reader.read(position, buffer, wanted);
-                }
-                if (read <= 0) {
-                    // Seharusnya tidak terjadi (byte dijamin ada); hindari loop sibuk lalu berhenti.
-                    sleepQuietly(60L);
-                    if (state.availableEndExclusive(position) <= position) return;
+                if (state.currentGeneration() != sourceGeneration || state.isClosed()) return;
+                long availableEnd = state.availableEndExclusive(position);
+                if (availableEnd <= position) {
+                    if (state.isTerminalWithoutMoreBytes(position)) return;
+                    if (waitingSince == 0L) waitingSince = System.currentTimeMillis();
+                    if (System.currentTimeMillis() - waitingSince > WAIT_FOR_BYTES_MS) return;
+                    sleepQuietly(120L);
                     continue;
                 }
-                output.write(buffer, 0, read);
+                waitingSince = 0L;
+                long chunkEnd = Math.min(end, availableEnd - 1L);
+                if (reader == null) reader = state.openReader();
+                if (reader == null) {
+                    sleepQuietly(100L);
+                    continue;
+                }
+                while (position <= chunkEnd) {
+                    if (state.currentGeneration() != sourceGeneration || state.isClosed()) return;
+                    int wanted = (int) Math.min(buffer.length, chunkEnd - position + 1L);
+                    int read;
+                    try {
+                        read = reader.read(position, buffer, wanted);
+                    } catch (IOException staleReader) {
+                        closeQuietly(reader);
+                        reader = state.openReader();
+                        if (reader == null) throw staleReader;
+                        read = reader.read(position, buffer, wanted);
+                    }
+                    if (read <= 0) {
+                        closeQuietly(reader);
+                        reader = null;
+                        sleepQuietly(60L);
+                        break;
+                    }
+                    output.write(buffer, 0, read);
+                    position += read;
+                }
                 output.flush();
-                position += read;
             }
         } finally {
             closeQuietly(reader);
@@ -423,6 +442,10 @@ final class ProgressiveDownloadServer {
             touch();
         }
 
+        boolean isClosed() {
+            return closedAtMs > 0L;
+        }
+
         int currentGeneration() {
             return item.runGeneration;
         }
@@ -502,47 +525,46 @@ final class ProgressiveDownloadServer {
             return "video/mp4";
         }
 
-        // ===== v0.9.92: origin side-fetch + deteksi moov (perbaikan blank play-while-download) =====
+        // ===== v0.10.09: origin side-fetch yang mengikuti URL final dan menjaga kontrak Range =====
 
-        boolean canOriginFetch() {
-            String url = safe(item.url);
-            return url.startsWith("http://") || url.startsWith("https://");
+        private String originUrl() {
+            return ProgressivePlaybackPolicy.selectOriginUrl(item.resolvedUrl, item.url);
         }
 
-        // Ambil [start,end] langsung dari URL sumber dan teruskan ke player. Dipakai saat byte itu
-        // belum diunduh secara lokal (mis. atom moov di akhir file, atau seek ke depan). Hanya
-        // diterima jika server sumber menghormati Range (HTTP 206); jika balas 200 (file penuh),
-        // dibatalkan agar tidak mengunduh ulang seluruh file lewat jalur ini.
+        boolean canOriginFetch() {
+            return !originUrl().isEmpty();
+        }
+
+        // Ambil bagian kecil [start,end] langsung dari URL sumber. Jalur ini dipakai ketika atom
+        // moov/byte seek belum tersedia lokal. Range dibatasi agar player tidak tanpa sengaja
+        // menggandakan seluruh file besar melalui koneksi streaming cadangan.
         boolean serveFromOrigin(OutputStream output, long start, long end, long total, String mime) {
             if (!canOriginFetch()) return false;
             if (start < 0L || end < start || start >= total) return false;
+            long cappedEnd = ProgressivePlaybackPolicy.capOriginRangeEnd(start, Math.min(end, total - 1L));
             HttpURLConnection connection = null;
             InputStream input = null;
-            boolean started = false;
+            boolean headersWritten = false;
             try {
-                connection = (HttpURLConnection) new URL(item.url).openConnection();
-                connection.setInstanceFollowRedirects(true);
-                connection.setConnectTimeout(ORIGIN_CONNECT_TIMEOUT);
-                connection.setReadTimeout(ORIGIN_READ_TIMEOUT);
-                connection.setUseCaches(false);
-                connection.setRequestProperty("Range", "bytes=" + start + "-" + end);
-                connection.setRequestProperty("Accept", "*/*");
-                String ua = safe(item.userAgent);
-                if (!ua.isEmpty()) connection.setRequestProperty("User-Agent", ua);
-                String referer = safe(item.referer);
-                if (!referer.isEmpty()) connection.setRequestProperty("Referer", referer);
-                String cookie = safe(item.cookieHeader);
-                if (!cookie.isEmpty()) connection.setRequestProperty("Cookie", cookie);
-
+                connection = openOriginRangeConnection(start, cappedEnd);
+                if (connection == null) return false;
                 int code = connection.getResponseCode();
-                if (code != 206) return false; // bukan 206 -> tidak menghormati Range, batalkan
-                long bodyLength = parseContentLength(connection.getHeaderField("Content-Length"));
+                if (code != HttpURLConnection.HTTP_PARTIAL) return false;
+
+                DownloadProtocol.RangeInfo info = DownloadProtocol.parseContentRange(
+                        connection.getHeaderField("Content-Range"));
+                if (info == null || info.start != start || info.end < info.start) return false;
+                if (info.total > 0L && total > 0L && info.total != total) return false;
+
+                long bodyLength = info.end - info.start + 1L;
+                long headerLength = parseContentLength(connection.getHeaderField("Content-Length"));
+                if (headerLength > 0L) bodyLength = Math.min(bodyLength, headerLength);
                 if (bodyLength <= 0L) return false;
-                long serveEnd = Math.min(end, start + bodyLength - 1L);
+                long serveEnd = start + bodyLength - 1L;
 
                 input = connection.getInputStream();
-                started = true;
                 writeMediaHeaders(output, true, start, serveEnd, total, mime);
+                headersWritten = true;
                 byte[] buffer = new byte[STREAM_BUFFER];
                 long remaining = bodyLength;
                 while (remaining > 0L) {
@@ -550,17 +572,79 @@ final class ProgressiveDownloadServer {
                     int read = input.read(buffer, 0, want);
                     if (read < 0) break;
                     output.write(buffer, 0, read);
-                    output.flush();
                     remaining -= read;
                 }
+                output.flush();
                 return true;
             } catch (Exception ignored) {
-                return started; // jika sudah menulis ke player, anggap tertangani (jangan ditimpa 416)
+                return headersWritten; // jangan menulis respons HTTP kedua setelah header 206 terkirim
             } finally {
                 closeQuietly(input);
                 if (connection != null) {
                     try { connection.disconnect(); } catch (Exception ignored) {}
                 }
+            }
+        }
+
+        private HttpURLConnection openOriginRangeConnection(long start, long end) throws IOException {
+            String current = originUrl();
+            if (current.isEmpty()) return null;
+            for (int redirect = 0; redirect < 8; redirect++) {
+                HttpURLConnection connection = (HttpURLConnection) new URL(current).openConnection();
+                connection.setInstanceFollowRedirects(false);
+                connection.setConnectTimeout(ORIGIN_CONNECT_TIMEOUT);
+                connection.setReadTimeout(ORIGIN_READ_TIMEOUT);
+                connection.setUseCaches(false);
+                connection.setRequestProperty("Range", "bytes=" + start + "-" + end);
+                connection.setRequestProperty("Accept", "*/*");
+                connection.setRequestProperty("Accept-Encoding", "identity");
+                connection.setRequestProperty("Connection", "close");
+                String ua = safe(item.userAgent);
+                if (!ua.isEmpty()) connection.setRequestProperty("User-Agent", ua);
+                String referer = safe(item.referer);
+                if (!referer.isEmpty()) {
+                    connection.setRequestProperty("Referer", referer);
+                    String origin = originFrom(referer);
+                    if (!origin.isEmpty()) connection.setRequestProperty("Origin", origin);
+                }
+                String cookie = safe(item.cookieHeader);
+                if (!cookie.isEmpty()) connection.setRequestProperty("Cookie", cookie);
+                if (!safe(item.etag).isEmpty()) connection.setRequestProperty("If-Range", item.etag);
+                else if (!safe(item.lastModified).isEmpty()) {
+                    connection.setRequestProperty("If-Range", item.lastModified);
+                }
+
+                int code = connection.getResponseCode();
+                if (isRedirect(code)) {
+                    String location = connection.getHeaderField("Location");
+                    connection.disconnect();
+                    if (location == null || location.trim().isEmpty()) return null;
+                    current = new URL(new URL(current), location).toString();
+                    continue;
+                }
+                return connection;
+            }
+            return null;
+        }
+
+        private boolean isRedirect(int code) {
+            return code == HttpURLConnection.HTTP_MOVED_PERM
+                    || code == HttpURLConnection.HTTP_MOVED_TEMP
+                    || code == HttpURLConnection.HTTP_SEE_OTHER
+                    || code == 307 || code == 308;
+        }
+
+        private String originFrom(String value) {
+            try {
+                URL url = new URL(value);
+                int port = url.getPort();
+                boolean defaultPort = port < 0
+                        || ("http".equalsIgnoreCase(url.getProtocol()) && port == 80)
+                        || ("https".equalsIgnoreCase(url.getProtocol()) && port == 443);
+                return url.getProtocol() + "://" + url.getHost()
+                        + (defaultPort ? "" : ":" + port);
+            } catch (Exception ignored) {
+                return "";
             }
         }
 
@@ -635,15 +719,23 @@ final class ProgressiveDownloadServer {
         private boolean computePlayable(long total, long prefix) {
             if ("completed".equals(item.status)) return true;
             if (total <= 0L) return false;
+            long startup = ProgressivePlaybackPolicy.minimumStartupBytes(total);
             if (isMp4Like()) {
                 analyzeContainerIfNeeded();
-                if (moovState == 1) return true;                    // faststart: header indeks siap
-                if (canOriginFetch()) return prefix >= 64L * 1024L; // moov bisa diambil dari sumber saat seek
-                if (moovState == 2) return false;                   // moov di akhir & tanpa origin -> belum bisa
-                return prefix >= 1024L * 1024L;                     // belum pasti & tanpa origin: tunggu lebih banyak
+                if (moovState == 1) return prefix >= Math.min(startup, 512L * 1024L);
+                // URL final dapat dipakai sebagai fallback, tetapi jangan mulai hanya dengan 64 KB.
+                // Sebagian MediaPlayer Android menampilkan permukaan hitam jika sampel awal belum cukup.
+                if (canOriginFetch()) return prefix >= startup;
+                if (moovState == 2) return false;
+                return prefix >= startup;
             }
-            if (canOriginFetch()) return prefix >= 64L * 1024L;
-            return prefix >= 512L * 1024L;
+            return prefix >= startup;
+        }
+
+        private boolean preferOriginPlayback() {
+            if (!canOriginFetch() || !isMp4Like()) return false;
+            analyzeContainerIfNeeded();
+            return moovState == 2;
         }
 
         String statusJson() {
@@ -664,6 +756,8 @@ final class ProgressiveDownloadServer {
                     + "\"speedBytesPerSecond\":" + Math.max(0L,
                             (long) Math.max(item.smoothedSpeedBytesPerSecond, item.speedBytesPerSecond)) + ","
                     + "\"playable\":" + playable + ","
+                    + "\"originAvailable\":" + canOriginFetch() + ","
+                    + "\"preferOrigin\":" + preferOriginPlayback() + ","
                     + "\"fileName\":\"" + jsonEscape(safe(item.fileName)) + "\""
                     + "}";
         }

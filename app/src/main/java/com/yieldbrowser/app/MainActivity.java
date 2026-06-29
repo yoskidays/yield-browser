@@ -130,6 +130,27 @@ public class MainActivity extends Activity {
     private static final String EXTRA_CREATE_TAB = "yield.create_tab";
     private static final String EXTRA_OPEN_URL = "yield.open_url";
 
+    /**
+     * Network fallback work must never run on the Android main thread. The finalizer is deliberately
+     * single-threaded so two large completed files cannot saturate storage at the same time.
+     */
+    private static final ExecutorService DOWNLOAD_IO_EXECUTOR = Executors.newCachedThreadPool(runnable ->
+            createBackgroundDownloadThread(runnable, "Yield-Download-IO"));
+    private static final ExecutorService DOWNLOAD_FINALIZE_EXECUTOR = Executors.newSingleThreadExecutor(runnable ->
+            createBackgroundDownloadThread(runnable, "Yield-Download-Finalize"));
+
+    private static Thread createBackgroundDownloadThread(Runnable runnable, String name) {
+        Thread thread = new Thread(() -> {
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            } catch (Exception ignored) {
+            }
+            runnable.run();
+        }, name);
+        thread.setPriority(Math.max(Thread.MIN_PRIORITY, Thread.NORM_PRIORITY - 1));
+        return thread;
+    }
+
     // ===== UI references =====
 
     private EditText addressBar;
@@ -147,6 +168,7 @@ public class MainActivity extends Activity {
     private View bottomNavView;
     private TextView tabsCountText;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final AtomicBoolean downloadUiRefreshPosted = new AtomicBoolean(false);
 
     // ===== History Engine V2 =====
     private static final int HISTORY_PAGE_SIZE = 50;
@@ -215,7 +237,7 @@ public class MainActivity extends Activity {
             if (!downloadUiTickerRunning || activeDownloadDialog == null
                     || !activeDownloadDialog.isShowing()) return;
             renderDownloadList();
-            mainHandler.postDelayed(this, 300L);
+            mainHandler.postDelayed(this, getDownloadUiTickerDelayMs());
         }
     };
     private String activeDownloadCategory = "Semua";
@@ -6106,7 +6128,7 @@ private void showDownloadSettingsPanel() {
         renderDownloadList();
         downloadUiTickerRunning = true;
         mainHandler.removeCallbacks(downloadUiTicker);
-        mainHandler.postDelayed(downloadUiTicker, 300L);
+        mainHandler.postDelayed(downloadUiTicker, getDownloadUiTickerDelayMs());
     }
 
     private TextView downloadSectionTab(String label) {
@@ -6234,13 +6256,19 @@ private void showDownloadSettingsPanel() {
         }
         if (activeDownloadStorageView != null) {
             long now = System.currentTimeMillis();
-            if (now - lastDownloadStorageUiMs >= 2_000L) {
+            boolean finalizing = hasFinalizingDownload();
+            // getTotalSpace/getFreeSpace may block on slow flash while a multi-GB file is copied.
+            // Reuse the cached value until the export finishes instead of querying storage on UI.
+            if (!finalizing && now - lastDownloadStorageUiMs
+                    >= DownloadFinalizationPolicy.STORAGE_QUERY_INTERVAL_MS) {
                 cachedDownloadStorageText = getStorageUsageText();
                 lastDownloadStorageUiMs = now;
             }
             int active = countActiveDownloads();
             int queued = countQueuedDownloads();
-            activeDownloadStorageView.setText(cachedDownloadStorageText
+            String storageText = cachedDownloadStorageText;
+            if (finalizing) storageText += "  •  sedang menyimpan file besar";
+            activeDownloadStorageView.setText(storageText
                     + "  •  aktif " + active + "  •  antri " + queued);
         }
         renderDownloadControlsIfNeeded();
@@ -6699,6 +6727,23 @@ private void showDownloadSettingsPanel() {
         return "running".equals(status) || "verifying".equals(status) || "saving".equals(status);
     }
 
+    private boolean hasFinalizingDownload() {
+        synchronized (downloadItems) {
+            for (DownloadItem item : downloadItems) {
+                if (item != null && ("verifying".equals(item.status) || "saving".equals(item.status))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private long getDownloadUiTickerDelayMs() {
+        return hasFinalizingDownload()
+                ? DownloadFinalizationPolicy.UI_TICK_FINALIZING_MS
+                : DownloadFinalizationPolicy.UI_TICK_NORMAL_MS;
+    }
+
     private int countActiveDownloads() {
         int count = 0;
         synchronized (downloadItems) {
@@ -7017,7 +7062,7 @@ private void showDownloadSettingsPanel() {
                 item.engineInfo = "Memulihkan tahap penyimpanan";
                 refreshDownloadPanel();
                 updateDownloadKeepAliveState();
-                new Thread(() -> completeDownload(item), "yield-finalize-recovery-" + item.id).start();
+                completeDownload(item);
                 return;
             }
 
@@ -7206,6 +7251,17 @@ private void showDownloadSettingsPanel() {
             intent.putExtra(ProgressiveVideoActivity.EXTRA_TITLE, item.fileName);
             intent.putExtra(ProgressiveVideoActivity.EXTRA_PRIVATE_SESSION,
                     dedicatedPrivateProfile || isCurrentPrivateTab());
+            String originUrl = ProgressivePlaybackPolicy.selectOriginUrl(item.resolvedUrl, item.url);
+            String playbackUserAgent = safeText(item.userAgent);
+            if (playbackUserAgent.isEmpty()) {
+                playbackUserAgent = "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 "
+                        + "(KHTML, like Gecko) Chrome/120 Mobile Safari/537.36 YieldBrowser";
+            }
+            intent.putExtra(ProgressiveVideoActivity.EXTRA_ORIGIN_URL, originUrl);
+            intent.putExtra(ProgressiveVideoActivity.EXTRA_ORIGIN_USER_AGENT, playbackUserAgent);
+            intent.putExtra(ProgressiveVideoActivity.EXTRA_ORIGIN_REFERER, safeText(item.referer));
+            intent.putExtra(ProgressiveVideoActivity.EXTRA_ORIGIN_COOKIE,
+                    buildAntiHotlinkCookieHeader(originUrl, item));
             startActivity(intent);
         } catch (Exception e) {
             QuietToast.makeText(this, "Player belum dapat dibuka: " + safeText(e.getMessage()),
@@ -7362,7 +7418,17 @@ private void showDownloadSettingsPanel() {
     }
 
     private void refreshDownloadPanel() {
-        runOnUiThread(() -> renderDownloadList());
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            renderDownloadList();
+            return;
+        }
+        // Coalesce worker progress events so a fast connection or large-file copy cannot flood
+        // the main thread with hundreds of redundant RecyclerView refresh callbacks.
+        if (!downloadUiRefreshPosted.compareAndSet(false, true)) return;
+        mainHandler.post(() -> {
+            downloadUiRefreshPosted.set(false);
+            renderDownloadList();
+        });
     }
 
     private String getCurrentPageForReferer() {
@@ -8026,7 +8092,7 @@ private void showDownloadSettingsPanel() {
         }
         boolean resume = out.exists() && item.downloadedBytes > 0 && "running".equals(item.status);
         if (resume && item.connectionCount == 1) {
-            downloadSingle(item, out);
+            startSingleConnectionDownloadAsync(item, out);
         } else if (resume && item.connectionCount >= 3) {
             startDynamicMultiConnectionDownload(item, out);
         } else if (resume || !downloadDynamic4Connections) {
@@ -8034,6 +8100,16 @@ private void showDownloadSettingsPanel() {
         } else {
             startDynamicMultiConnectionDownload(item, out);
         }
+    }
+
+
+    private void startSingleConnectionDownloadAsync(DownloadItem item, File out) {
+        if (item == null || out == null || "removed".equals(item.status)) return;
+        final int generation = item.runGeneration;
+        DOWNLOAD_IO_EXECUTOR.execute(() -> {
+            if (!isCurrentDownloadRun(item, generation)) return;
+            downloadSingle(item, out);
+        });
     }
 
     private boolean looksLikeHlsDownload(String url, String fileName) {
@@ -9091,54 +9167,89 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private void completeDownload(DownloadItem item) {
-        if (item == null || "removed".equals(item.status)) return;
-        stopActiveDownloadTransports(item);
-        item.pauseRequested = false;
-        resetDownloadSpeedState(item);
-        item.retryCount = 0;
-        item.status = "verifying";
-        item.finalizeProgress = 12;
-        item.engineInfo = "Memverifikasi file";
-        saveDownloadHistory();
+        if (item == null || "removed".equals(item.status) || "completed".equals(item.status)) return;
+        synchronized (item.stateLock) {
+            if (item.finalizationQueued) return;
+            item.finalizationQueued = true;
+            item.pauseRequested = false;
+            item.retryCount = 0;
+            resetDownloadSpeedState(item);
+            item.status = "verifying";
+            item.finalizeProgress = 5;
+            item.finalizeBytes = 0L;
+            item.finalizeTotalBytes = Math.max(1L, item.downloadedBytes);
+            item.engineInfo = "Memverifikasi file";
+        }
         refreshDownloadPanel();
-        updateDownloadKeepAliveState();
         showDownloadNotification(item, "Memverifikasi file…", true);
 
-        File source = item.path == null ? null : new File(item.path);
-        if (source == null || !source.exists() || source.length() <= 0) {
-            failDownload(item, "File hasil download tidak ditemukan");
-            return;
+        try {
+            DOWNLOAD_FINALIZE_EXECUTOR.execute(() -> performCompleteDownload(item));
+        } catch (RuntimeException error) {
+            item.finalizationQueued = false;
+            failDownload(item, "Finalisasi tidak dapat dijalankan: " + safeText(error.getMessage()));
         }
-        if (!item.hlsDownload && item.totalBytes > 0 && source.length() != item.totalBytes) {
-            failDownload(item, "Ukuran file tidak sesuai setelah download");
-            return;
+    }
+
+    /** Performs all file verification and multi-gigabyte export work away from the UI thread. */
+    private void performCompleteDownload(DownloadItem item) {
+        boolean completed = false;
+        try {
+            if (item == null || "removed".equals(item.status)) return;
+            stopActiveDownloadTransports(item);
+            saveDownloadHistory();
+
+            File source = item.path == null ? null : new File(item.path);
+            if (source == null || !source.exists() || source.length() <= 0) {
+                failDownload(item, "File hasil download tidak ditemukan");
+                return;
+            }
+            long sourceLength = source.length();
+            if (!item.hlsDownload && item.totalBytes > 0 && sourceLength != item.totalBytes) {
+                failDownload(item, "Ukuran file tidak sesuai setelah download");
+                return;
+            }
+            if ("removed".equals(item.status)) return;
+
+            synchronized (item.stateLock) {
+                item.status = "saving";
+                item.finalizeProgress = 0;
+                item.finalizeBytes = 0L;
+                item.finalizeTotalBytes = Math.max(1L, sourceLength);
+                item.engineInfo = "Menyimpan ke Downloads";
+            }
+            saveDownloadHistory();
+            refreshDownloadPanel();
+            showDownloadNotification(item, "Menyimpan ke Downloads…", true);
+
+            boolean exported = exportCompletedDownload(item, source);
+            if ("removed".equals(item.status)) return;
+
+            synchronized (item.stateLock) {
+                item.progress = 100;
+                item.finalizeProgress = 100;
+                item.finalizeBytes = Math.max(item.finalizeBytes, sourceLength);
+                item.status = "completed";
+                item.engineInfo = exported
+                        ? getConnectionLabel(item) + " • tersimpan"
+                        : getConnectionLabel(item) + " • tersimpan di aplikasi";
+            }
+            saveDownloadHistory();
+            refreshDownloadPanel();
+            updateDownloadKeepAliveState();
+            showDownloadNotification(item, exported
+                    ? "Unduhan selesai" : "Unduhan selesai • penyimpanan lokal", false);
+            runOnUiThread(() -> QuietToast.makeText(this, "Unduhan selesai: " + item.fileName,
+                    QuietToast.LENGTH_SHORT).show());
+            completed = true;
+        } catch (Throwable error) {
+            if (item != null && !"removed".equals(item.status)) {
+                failDownload(item, "Finalisasi gagal: " + safeText(error.getMessage()));
+            }
+        } finally {
+            if (item != null) item.finalizationQueued = false;
+            if (completed) mainHandler.postDelayed(this::pumpDownloadQueue, 180L);
         }
-
-        item.finalizeProgress = 100;
-        item.status = "saving";
-        item.finalizeBytes = 0;
-        item.finalizeTotalBytes = Math.max(1L, source.length());
-        item.engineInfo = "Menyimpan ke Downloads";
-        saveDownloadHistory();
-        refreshDownloadPanel();
-        showDownloadNotification(item, "Menyimpan ke Downloads…", true);
-
-        boolean exported = exportCompletedDownload(item, source);
-        if ("removed".equals(item.status)) return;
-
-        item.progress = 100;
-        item.finalizeProgress = 100;
-        item.status = "completed";
-        item.engineInfo = exported
-                ? getConnectionLabel(item) + " • tersimpan"
-                : getConnectionLabel(item) + " • tersimpan di aplikasi";
-        saveDownloadHistory();
-        refreshDownloadPanel();
-        updateDownloadKeepAliveState();
-        showDownloadNotification(item, exported ? "Unduhan selesai" : "Unduhan selesai • penyimpanan lokal", false);
-        runOnUiThread(() -> QuietToast.makeText(this, "Unduhan selesai: " + item.fileName,
-                QuietToast.LENGTH_SHORT).show());
-        mainHandler.postDelayed(this::pumpDownloadQueue, 180L);
     }
 
     private boolean exportCompletedDownload(DownloadItem item, File source) {
@@ -9226,9 +9337,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private void copyWithFinalizeProgress(InputStream input, OutputStream output,
                                           long totalBytes, DownloadItem item) throws Exception {
-        byte[] buffer = new byte[256 * 1024];
+        byte[] buffer = new byte[DownloadFinalizationPolicy.COPY_BUFFER_BYTES];
         long copied = 0L;
-        long lastUiUpdate = 0L;
+        long lastProgressUpdateMs = 0L;
+        long lastPersistMs = 0L;
+        long lastNotificationMs = 0L;
+        long lastCooperativePauseBytes = 0L;
         int read;
         while ((read = input.read(buffer)) != -1) {
             if (item != null && (item.pauseRequested || "removed".equals(item.status))) {
@@ -9237,22 +9351,45 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             output.write(buffer, 0, read);
             copied += read;
             long now = System.currentTimeMillis();
-            if (item != null && (now - lastUiUpdate >= 250L || copied >= totalBytes)) {
+
+            if (item != null && DownloadFinalizationPolicy.isUpdateDue(now, lastProgressUpdateMs,
+                    DownloadFinalizationPolicy.PROGRESS_UPDATE_INTERVAL_MS, copied, totalBytes)) {
                 item.finalizeBytes = copied;
                 item.finalizeTotalBytes = Math.max(1L, totalBytes);
-                item.finalizeProgress = (int) Math.min(100L,
-                        copied * 100L / Math.max(1L, totalBytes));
+                item.finalizeProgress = DownloadFinalizationPolicy.progressPercent(copied, totalBytes);
                 refreshDownloadPanel();
-                if (now - item.lastProgressPersistMs >= 1200L || copied >= totalBytes) {
-                    item.lastProgressPersistMs = now;
-                    saveDownloadHistory();
-                    showDownloadNotification(item,
-                            "Menyimpan ke Downloads… " + item.finalizeProgress + "%", true);
-                }
-                lastUiUpdate = now;
+                lastProgressUpdateMs = now;
+            }
+
+            if (item != null && DownloadFinalizationPolicy.isUpdateDue(now, lastPersistMs,
+                    DownloadFinalizationPolicy.HISTORY_PERSIST_INTERVAL_MS, copied, totalBytes)) {
+                item.lastProgressPersistMs = now;
+                saveDownloadHistory();
+                lastPersistMs = now;
+            }
+
+            if (item != null && DownloadFinalizationPolicy.isUpdateDue(now, lastNotificationMs,
+                    DownloadFinalizationPolicy.NOTIFICATION_UPDATE_INTERVAL_MS, copied, totalBytes)) {
+                showDownloadNotification(item,
+                        "Menyimpan ke Downloads… " + item.finalizeProgress + "%", true);
+                lastNotificationMs = now;
+            }
+
+            // A tiny cooperative pause gives the UI and storage provider a chance to run on
+            // devices with slower flash without materially reducing large-file throughput.
+            if (copied - lastCooperativePauseBytes
+                    >= DownloadFinalizationPolicy.COOPERATIVE_PAUSE_EVERY_BYTES) {
+                android.os.SystemClock.sleep(DownloadFinalizationPolicy.COOPERATIVE_PAUSE_MS);
+                lastCooperativePauseBytes = copied;
             }
         }
         output.flush();
+        if (item != null) {
+            item.finalizeBytes = copied;
+            item.finalizeTotalBytes = Math.max(1L, totalBytes);
+            item.finalizeProgress = 100;
+            refreshDownloadPanel();
+        }
     }
 
 

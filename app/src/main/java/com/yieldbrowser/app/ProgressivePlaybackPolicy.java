@@ -4,6 +4,9 @@ import java.util.Locale;
 
 /** Pure policy helpers for progressive video playback and multipart byte availability. */
 final class ProgressivePlaybackPolicy {
+    static final long MIN_STARTUP_BYTES = 2L * 1024L * 1024L;
+    static final long ORIGIN_RANGE_WINDOW_BYTES = 4L * 1024L * 1024L;
+
     private ProgressivePlaybackPolicy() {
     }
 
@@ -46,6 +49,42 @@ final class ProgressivePlaybackPolicy {
             if (position >= start && position < readyEnd) return readyEnd;
         }
         return position;
+    }
+
+    static String selectOriginUrl(String resolvedUrl, String originalUrl) {
+        String resolved = safe(resolvedUrl).trim();
+        if (isHttpUrl(resolved)) return resolved;
+        String original = safe(originalUrl).trim();
+        return isHttpUrl(original) ? original : "";
+    }
+
+    static long minimumStartupBytes(long totalBytes) {
+        if (totalBytes <= 0L) return MIN_STARTUP_BYTES;
+        return Math.min(totalBytes, MIN_STARTUP_BYTES);
+    }
+
+    static long capOriginRangeEnd(long start, long requestedEnd) {
+        if (start < 0L || requestedEnd < start) return requestedEnd;
+        long capped;
+        try {
+            capped = Math.addExact(start, ORIGIN_RANGE_WINDOW_BYTES - 1L);
+        } catch (ArithmeticException overflow) {
+            capped = Long.MAX_VALUE;
+        }
+        return Math.min(requestedEnd, capped);
+    }
+
+    static boolean shouldFallbackToOrigin(boolean alreadyUsingOrigin,
+                                          boolean originAvailable,
+                                          int localErrors,
+                                          boolean preparationTimedOut) {
+        if (alreadyUsingOrigin || !originAvailable) return false;
+        return preparationTimedOut || localErrors >= 1;
+    }
+
+    private static boolean isHttpUrl(String value) {
+        String lower = safe(value).toLowerCase(Locale.US);
+        return lower.startsWith("http://") || lower.startsWith("https://");
     }
 
     private static String safe(String value) {

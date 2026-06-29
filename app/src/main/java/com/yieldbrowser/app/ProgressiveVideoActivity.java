@@ -30,7 +30,9 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 /** Internal player for progressive playback while a Yield download continues in the background. */
 public final class ProgressiveVideoActivity extends Activity {
@@ -39,9 +41,14 @@ public final class ProgressiveVideoActivity extends Activity {
     static final String EXTRA_CLOSE_URL = "yield_close_url";
     static final String EXTRA_TITLE = "yield_video_title";
     static final String EXTRA_PRIVATE_SESSION = "yield_private_video_session";
+    static final String EXTRA_ORIGIN_URL = "yield_origin_url";
+    static final String EXTRA_ORIGIN_USER_AGENT = "yield_origin_user_agent";
+    static final String EXTRA_ORIGIN_REFERER = "yield_origin_referer";
+    static final String EXTRA_ORIGIN_COOKIE = "yield_origin_cookie";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private VideoView videoView;
+    private MediaPlayer activePlayer;
     private ProgressBar loading;
     private ProgressBar downloadProgress;
     private TextView loadingText;
@@ -62,6 +69,13 @@ public final class ProgressiveVideoActivity extends Activity {
     private String mediaUrl = "";
     private String statusUrl = "";
     private String closeUrl = "";
+    private String originUrl = "";
+    private String originUserAgent = "";
+    private String originReferer = "";
+    private String originCookie = "";
+    private boolean usingOrigin;
+    private boolean originAvailable;
+    private boolean firstFrameSeen;
     private boolean preparing;
     private boolean prepared;
     private boolean destroyed;
@@ -90,6 +104,48 @@ public final class ProgressiveVideoActivity extends Activity {
 
     private final Runnable hideControlsRunnable = () -> setControlsVisible(false);
 
+    private final Runnable preparationWatchdog = new Runnable() {
+        @Override
+        public void run() {
+            if (destroyed || !preparing) return;
+            if (ProgressivePlaybackPolicy.shouldFallbackToOrigin(
+                    usingOrigin, !originUrl.isEmpty(), playbackErrors, true)) {
+                switchToOrigin("Player lokal terlalu lama menunggu data");
+            } else {
+                preparing = false;
+                showFatal("Video belum dapat disiapkan. Coba lagi setelah data bertambah.");
+            }
+        }
+    };
+
+    private final Runnable firstFrameWatchdog = new Runnable() {
+        @Override
+        public void run() {
+            if (destroyed || !prepared || firstFrameSeen) return;
+            int position = 0;
+            int videoWidth = 0;
+            int videoHeight = 0;
+            try {
+                position = videoView == null ? 0 : videoView.getCurrentPosition();
+                if (activePlayer != null) {
+                    videoWidth = activePlayer.getVideoWidth();
+                    videoHeight = activePlayer.getVideoHeight();
+                }
+            } catch (Exception ignored) {}
+            if (position > 700 && videoWidth > 0 && videoHeight > 0) return;
+            if (ProgressivePlaybackPolicy.shouldFallbackToOrigin(
+                    usingOrigin, !originUrl.isEmpty(), playbackErrors, true)) {
+                switchToOrigin("Video lokal terbuka tetapi frame tidak tampil");
+            } else if (usingOrigin) {
+                try { if (videoView != null) videoView.stopPlayback(); }
+                catch (Exception ignored) {}
+                prepared = false;
+                activePlayer = null;
+                showFatal("Video terbuka, tetapi perangkat tidak dapat merender frame videonya");
+            }
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -104,6 +160,11 @@ public final class ProgressiveVideoActivity extends Activity {
         mediaUrl = safe(getIntent().getStringExtra(EXTRA_MEDIA_URL));
         statusUrl = safe(getIntent().getStringExtra(EXTRA_STATUS_URL));
         closeUrl = safe(getIntent().getStringExtra(EXTRA_CLOSE_URL));
+        originUrl = safe(getIntent().getStringExtra(EXTRA_ORIGIN_URL));
+        originUserAgent = safe(getIntent().getStringExtra(EXTRA_ORIGIN_USER_AGENT));
+        originReferer = safe(getIntent().getStringExtra(EXTRA_ORIGIN_REFERER));
+        originCookie = safe(getIntent().getStringExtra(EXTRA_ORIGIN_COOKIE));
+        originAvailable = !originUrl.isEmpty();
         String title = safe(getIntent().getStringExtra(EXTRA_TITLE));
         if (title.isEmpty()) title = "Video Yield";
 
@@ -232,30 +293,60 @@ public final class ProgressiveVideoActivity extends Activity {
     }
 
     private void onPrepared(MediaPlayer player) {
+        handler.removeCallbacks(preparationWatchdog);
+        activePlayer = player;
         preparing = false;
         prepared = true;
+        firstFrameSeen = false;
         playbackErrors = 0;
+        try {
+            player.setOnInfoListener((mp, what, extra) -> {
+                if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
+                    firstFrameSeen = true;
+                    handler.removeCallbacks(firstFrameWatchdog);
+                    hideWaiting();
+                    return true;
+                }
+                return false;
+            });
+        } catch (Exception ignored) {
+        }
         if (resumePositionMs > 0) videoView.seekTo(resumePositionMs);
-        hideWaiting();
         videoView.start();
+        // Beberapa perangkat tidak mengirim MEDIA_INFO_VIDEO_RENDERING_START. Overlay tetap
+        // disembunyikan saat prepared, sementara watchdog memastikan layar hitam tidak menetap.
+        hideWaiting();
+        handler.removeCallbacks(firstFrameWatchdog);
+        handler.postDelayed(firstFrameWatchdog, 6000L);
         updatePlayPauseGlyph();
         setControlsVisible(true);
     }
 
     private boolean onPlaybackError() {
+        handler.removeCallbacks(preparationWatchdog);
+        handler.removeCallbacks(firstFrameWatchdog);
         preparing = false;
         prepared = false;
+        firstFrameSeen = false;
+        activePlayer = null;
         playbackErrors++;
         try {
             resumePositionMs = Math.max(0, videoView.getCurrentPosition());
             videoView.stopPlayback();
         } catch (Exception ignored) {
         }
-        showWaiting(statusTerminal
-                ? "Format video belum dapat diputar oleh perangkat ini"
+
+        if (ProgressivePlaybackPolicy.shouldFallbackToOrigin(
+                usingOrigin, !originUrl.isEmpty(), playbackErrors, false)) {
+            switchToOrigin("Data lokal belum cocok dengan player perangkat");
+            return true;
+        }
+
+        showWaiting(statusTerminal || usingOrigin
+                ? "Format atau codec video belum dapat diputar oleh perangkat ini"
                 : "Menunggu bagian video berikutnya…");
-        if (!statusTerminal && playbackErrors <= 4) {
-            handler.postDelayed(() -> startPlayback(true), 1800L);
+        if (!statusTerminal && !usingOrigin && playbackErrors <= 3) {
+            handler.postDelayed(() -> startPlayback(true), 2200L);
         } else {
             loading.setVisibility(View.GONE);
             retryButton.setVisibility(View.VISIBLE);
@@ -267,16 +358,76 @@ public final class ProgressiveVideoActivity extends Activity {
         if (destroyed || preparing || (prepared && !force)) return;
         preparing = true;
         prepared = false;
+        firstFrameSeen = false;
         retryButton.setVisibility(View.GONE);
         loading.setVisibility(View.VISIBLE);
-        showWaiting("Menyiapkan video dari data yang tersedia…");
+        showWaiting(usingOrigin
+                ? "Membuka streaming cadangan sambil download tetap berjalan…"
+                : "Menyiapkan video dari data download yang tersedia…");
         try {
+            handler.removeCallbacks(preparationWatchdog);
+            handler.removeCallbacks(firstFrameWatchdog);
             if (force) videoView.stopPlayback();
-            videoView.setVideoURI(Uri.parse(mediaUrl));
+            if (usingOrigin) {
+                videoView.setVideoURI(Uri.parse(originUrl), buildOriginHeaders());
+            } else {
+                videoView.setVideoURI(Uri.parse(mediaUrl));
+            }
             videoView.requestFocus();
+            handler.postDelayed(preparationWatchdog, usingOrigin ? 18_000L : 10_000L);
         } catch (Exception e) {
             preparing = false;
-            showFatal("Player tidak dapat membuka video");
+            if (!usingOrigin && !originUrl.isEmpty()) switchToOrigin("Player lokal tidak dapat dibuka");
+            else showFatal("Player tidak dapat membuka video");
+        }
+    }
+
+    private void switchToOrigin(String reason) {
+        if (destroyed || usingOrigin || originUrl.isEmpty()) return;
+        handler.removeCallbacks(preparationWatchdog);
+        handler.removeCallbacks(firstFrameWatchdog);
+        try {
+            if (videoView != null) {
+                resumePositionMs = Math.max(resumePositionMs, videoView.getCurrentPosition());
+                videoView.stopPlayback();
+            }
+        } catch (Exception ignored) {
+        }
+        usingOrigin = true;
+        preparing = false;
+        prepared = false;
+        activePlayer = null;
+        firstFrameSeen = false;
+        statusText.setText("Mode streaming cadangan • download tetap berjalan");
+        showWaiting(reason + ". Beralih ke sumber video…");
+        handler.postDelayed(() -> startPlayback(true), 250L);
+    }
+
+    private Map<String, String> buildOriginHeaders() {
+        HashMap<String, String> headers = new HashMap<>();
+        headers.put("Accept", "*/*");
+        headers.put("Accept-Encoding", "identity");
+        if (!originUserAgent.isEmpty()) headers.put("User-Agent", originUserAgent);
+        if (!originReferer.isEmpty()) {
+            headers.put("Referer", originReferer);
+            String origin = originFrom(originReferer);
+            if (!origin.isEmpty()) headers.put("Origin", origin);
+        }
+        if (!originCookie.isEmpty()) headers.put("Cookie", originCookie);
+        return headers;
+    }
+
+    private String originFrom(String value) {
+        try {
+            URL url = new URL(value);
+            int port = url.getPort();
+            boolean defaultPort = port < 0
+                    || ("http".equalsIgnoreCase(url.getProtocol()) && port == 80)
+                    || ("https".equalsIgnoreCase(url.getProtocol()) && port == 443);
+            return url.getProtocol() + "://" + url.getHost()
+                    + (defaultPort ? "" : ":" + port);
+        } catch (Exception ignored) {
+            return "";
         }
     }
 
@@ -303,9 +454,18 @@ public final class ProgressiveVideoActivity extends Activity {
                 int progress = json.optInt("progress", 0);
                 long speed = json.optLong("speedBytesPerSecond", 0L);
                 boolean playable = json.optBoolean("playable", false);
+                boolean serverOriginAvailable = json.optBoolean("originAvailable", originAvailable);
+                boolean preferOrigin = json.optBoolean("preferOrigin", false);
                 statusTerminal = "completed".equals(state) || "failed".equals(state)
                         || "removed".equals(state);
-                runOnUiThread(() -> applyStatus(state, progress, speed, playable));
+                runOnUiThread(() -> {
+                    originAvailable = serverOriginAvailable || !originUrl.isEmpty();
+                    if (preferOrigin && !usingOrigin && !originUrl.isEmpty()
+                            && !preparing && !prepared) {
+                        usingOrigin = true;
+                    }
+                    applyStatus(state, progress, speed, playable);
+                });
             } catch (Exception ignored) {
             } finally {
                 if (connection != null) connection.disconnect();
@@ -337,6 +497,9 @@ public final class ProgressiveVideoActivity extends Activity {
             text = "Download gagal • bagian yang sudah tersedia tetap dapat diputar";
         } else {
             text = "Download tetap berjalan di latar belakang";
+        }
+        if (usingOrigin && !"completed".equals(state)) {
+            text += " • streaming cadangan aktif";
         }
         statusText.setText(text);
         if (playable && !preparing && !prepared) startPlayback(false);
@@ -414,6 +577,7 @@ public final class ProgressiveVideoActivity extends Activity {
         handler.removeCallbacksAndMessages(null);
         try {
             if (videoView != null) videoView.stopPlayback();
+            activePlayer = null;
         } catch (Exception ignored) {
         }
         notifySessionClosed();

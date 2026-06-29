@@ -60,6 +60,8 @@ final class DownloadItem {
     volatile int finalizeProgress;
     volatile long finalizeBytes;
     volatile long finalizeTotalBytes;
+    /** Runtime-only guard that prevents the same payload from being exported twice. */
+    volatile boolean finalizationQueued;
     volatile long lastSpeedTimeMs;
     volatile long lastSpeedBytes;
     volatile long lastActionClickMs;
