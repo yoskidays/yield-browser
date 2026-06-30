@@ -199,7 +199,7 @@ public class MainActivity extends Activity
     private TextView videoModeToggleButton;
     private ImageView videoPlayPauseIcon;
     private View videoPlayPauseButton;
-    private String selectedVideoQuality = "Auto";
+    String selectedVideoQuality = "Auto";
     private boolean videoControlsManualHidden = false;
     private ViewGroup videoControlsOriginalParent;
     private ViewGroup.LayoutParams videoControlsOriginalLayoutParams;
@@ -255,30 +255,30 @@ public class MainActivity extends Activity
 
     // ===== Translation state =====
     private boolean translateEnabled = false;
-    private boolean hideGoogleTranslateBar = true;
+    boolean hideGoogleTranslateBar = true;
     private String lastTranslateOriginalUrl = "";
     private boolean compatibleTranslateActive = false;
     private boolean translateManuallyDisabled = true;
     private int translateSessionToken = 0;
     private long lastCompatibleTranslateStartedAt = 0L;
-    private String translateTargetLang = "id";
-    private String translateTargetLabel = "Indonesia";
+    String translateTargetLang = "id";
+    String translateTargetLabel = "Indonesia";
 
     // ===== Browser settings state =====
-    private boolean speedMode = false;
-    private boolean safeMode = true;
-    private boolean nightMode = true;
-    private String nightModeOption = "ON";
-    private final Set<String> nightModeExceptions = new HashSet<>();
+    boolean speedMode = false;
+    boolean safeMode = true;
+    boolean nightMode = true;
+    String nightModeOption = "ON";
+    final Set<String> nightModeExceptions = new HashSet<>();
     private int nightModeApplyToken = 0;
-    private boolean readerMode = false;
-    private boolean adBlock = true;
-    private boolean adBlockPopupBlocker = true;
-    private boolean adBlockRedirectBlocker = true;
-    private boolean adBlockScriptIframeBlocker = true;
-    private boolean adBlockClickHijackBlocker = true;
-    private boolean adBlockRedirectToTempTab = true;
-    private boolean adBlockAutoCloseAdTabs = true;
+    boolean readerMode = false;
+    boolean adBlock = true;
+    boolean adBlockPopupBlocker = true;
+    boolean adBlockRedirectBlocker = true;
+    boolean adBlockScriptIframeBlocker = true;
+    boolean adBlockClickHijackBlocker = true;
+    boolean adBlockRedirectToTempTab = true;
+    boolean adBlockAutoCloseAdTabs = true;
     // v0.9.99: document-start protection is installed once per WebView and kept silent.
     private final Map<WebView, ScriptHandler> shieldDocumentStartHandlers =
             Collections.synchronizedMap(new WeakHashMap<>());
@@ -288,54 +288,54 @@ public class MainActivity extends Activity
     private boolean userElementFiltersLoaded = false;
     private boolean elementPickerActive = false;
     private AlertDialog elementPickerDialog = null;
-    private boolean dataSaver = false;
+    boolean dataSaver = false;
     // v0.9.98: HTTPS-First tries the secure origin before plain HTTP for public sites.
-    private boolean httpsFirstEnabled = true;
-    private boolean desktopMode = false;
+    boolean httpsFirstEnabled = true;
+    boolean desktopMode = false;
     private int browserModeToken = 0;
-    private int textZoom = 100;
+    int textZoom = 100;
 
     // Home and top-bar customization.
-    private boolean shortcutDownload = true;
-    private boolean shortcutReloadWebsite = true;
-    private boolean shortcutBookmark = false;
-    private boolean shortcutPrivate = true;
-    private boolean shortcutAdBlock = true;
-    private boolean shortcutReader = false;
-    private boolean shortcutNightMode = false;
-    private boolean shortcutQrScan = false;
-    private boolean shortcutHistory = true;
-    private boolean shortcutFindPage = false;
-    private boolean shortcutShare = false;
-    private boolean shortcutFullscreen = false;
+    boolean shortcutDownload = true;
+    boolean shortcutReloadWebsite = true;
+    boolean shortcutBookmark = false;
+    boolean shortcutPrivate = true;
+    boolean shortcutAdBlock = true;
+    boolean shortcutReader = false;
+    boolean shortcutNightMode = false;
+    boolean shortcutQrScan = false;
+    boolean shortcutHistory = true;
+    boolean shortcutFindPage = false;
+    boolean shortcutShare = false;
+    boolean shortcutFullscreen = false;
     // These two site tools are visible by default, but can now be hidden from
     // the main overflow menu through "Sesuaikan menu".
-    private boolean shortcutBlockElement = true;
-    private boolean shortcutSiteFilter = true;
+    boolean shortcutBlockElement = true;
+    boolean shortcutSiteFilter = true;
 
     // Video feature settings.
-    private boolean videoControlsEnabled = true;
-    private boolean videoBufferBooster = true;
-    private boolean hlsSegmentPrefetch = true;
-    private boolean videoFloatingPlayer = true;
-    private boolean videoBackgroundPlay = true;
-    private boolean shortcutVideoControls = false;
-    private float videoSpeed = 1.0f;
+    boolean videoControlsEnabled = true;
+    boolean videoBufferBooster = true;
+    boolean hlsSegmentPrefetch = true;
+    boolean videoFloatingPlayer = true;
+    boolean videoBackgroundPlay = true;
+    boolean shortcutVideoControls = false;
+    float videoSpeed = 1.0f;
 
     // Download feature settings.
-    private String downloadSubfolder = "Download";
-    private String selectedDownloadTreeUri = "";
-    private boolean downloadDynamic4Connections = true;
-    private boolean downloadAutoRetry = true;
-    private boolean downloadHlsEnabled = true;
-    private boolean downloadPlayWhileDownloadingEnabled = true;
-    private int downloadSpeedLimitKBps = 0;
-    private boolean downloadQueueEnabled = true;
-    private int downloadMaxActive = 2;
+    String downloadSubfolder = "Download";
+    String selectedDownloadTreeUri = "";
+    boolean downloadDynamic4Connections = true;
+    boolean downloadAutoRetry = true;
+    boolean downloadHlsEnabled = true;
+    boolean downloadPlayWhileDownloadingEnabled = true;
+    int downloadSpeedLimitKBps = 0;
+    boolean downloadQueueEnabled = true;
+    int downloadMaxActive = 2;
     private boolean downloadQueuePaused = false;
-    private boolean topIconReload = true;
-    private boolean topIconBookmark = true;
-    private boolean topIconTranslate = true;
+    boolean topIconReload = true;
+    boolean topIconBookmark = true;
+    boolean topIconTranslate = true;
 
     // ===== App data collections =====
     private final ArrayList<DownloadItem> downloadItems = new ArrayList<>();
@@ -345,7 +345,7 @@ public class MainActivity extends Activity
     private final ArrayList<TabInfo> tabs = new ArrayList<>();
     private int currentTabIndex = 0;
     private LinearLayout shortcutContainer;
-    private String searchEngine = "Google";
+    String searchEngine = "Google";
     private String lastSafeHttpUrl = "";
     // v0.9.43: cache URL halaman aktif untuk thread shouldInterceptRequest.
     // shouldInterceptRequest berjalan di thread Chromium, jadi dilarang memanggil WebView.getUrl() di sana.
@@ -9265,7 +9265,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         showTranslateOptionsDialog();
     }
 
-    private String translateLanguageLabel(String code) {
+    String translateLanguageLabel(String code) {
         if ("id".equals(code)) return "Indonesia";
         if ("en".equals(code)) return "Inggris";
         if ("ja".equals(code)) return "Jepang";
@@ -11018,7 +11018,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         mainHandler.postDelayed(() -> { if (token == browserModeToken && !desktopMode) applyMobileViewportIfNeeded(); }, 1200);
     }
 
-    private void forceMobileModeAfterUpdateIfNeeded(SharedPreferences p) {
+    void forceMobileModeAfterUpdateIfNeeded(SharedPreferences p) {
         try {
             if (!p.getBoolean("forceMobileModeV0939", false)) {
                 desktopMode = false;
@@ -13809,178 +13809,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private void loadSettings() {
-        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        speedMode = p.getBoolean("speedMode", false);
-        safeMode = p.getBoolean("safeMode", true);
-        nightMode = p.getBoolean("nightMode", true);
-        nightModeOption = p.getString("nightModeOption", nightMode ? "ON" : "OFF");
-        hideGoogleTranslateBar = p.getBoolean("hideGoogleTranslateBar", true);
-        translateTargetLang = p.getString("translateTargetLang", "id");
-        translateTargetLabel = p.getString("translateTargetLabel", translateLanguageLabel(translateTargetLang));
-        nightModeExceptions.clear();
-        nightModeExceptions.addAll(p.getStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>()));
-        readerMode = p.getBoolean("readerMode", false);
-        adBlock = p.getBoolean("adBlock", true);
-        adBlockPopupBlocker = p.getBoolean("adBlockPopupBlocker", true);
-        adBlockRedirectBlocker = p.getBoolean("adBlockRedirectBlocker", true);
-        adBlockScriptIframeBlocker = p.getBoolean("adBlockScriptIframeBlocker", true);
-        adBlockClickHijackBlocker = p.getBoolean("adBlockClickHijackBlocker", true);
-        if (!p.getBoolean("adBlockDefaultOnV095", false)) {
-            adBlock = true;
-            p.edit()
-                    .putBoolean("adBlock", true)
-                    .putBoolean("adBlockDefaultOnV095", true)
-                    .apply();
-        }
-        adBlockRedirectToTempTab = p.getBoolean("adBlockRedirectToTempTab", true);
-        adBlockAutoCloseAdTabs = p.getBoolean("adBlockAutoCloseAdTabs", true);
-        dataSaver = p.getBoolean("dataSaver", false);
-        httpsFirstEnabled = p.getBoolean("httpsFirstEnabled", true);
-        desktopMode = p.getBoolean("desktopMode", false);
-        forceMobileModeAfterUpdateIfNeeded(p);
-        textZoom = p.getInt("textZoom", 100);
-        shortcutDownload = p.getBoolean("shortcutDownload", true);
-        shortcutReloadWebsite = p.getBoolean("shortcutReloadWebsite", true);
-        shortcutBookmark = p.getBoolean("shortcutBookmark", false);
-        shortcutPrivate = p.getBoolean("shortcutPrivate", true);
-        shortcutAdBlock = p.getBoolean("shortcutAdBlock", true);
-        shortcutReader = p.getBoolean("shortcutReader", false);
-        shortcutNightMode = p.getBoolean("shortcutNightMode", false);
-        shortcutQrScan = p.getBoolean("shortcutQrScan", false);
-        shortcutHistory = p.getBoolean("shortcutHistory", true);
-        shortcutFindPage = p.getBoolean("shortcutFindPage", false);
-        shortcutShare = p.getBoolean("shortcutShare", false);
-        shortcutFullscreen = p.getBoolean("shortcutFullscreen", false);
-        shortcutBlockElement = p.getBoolean("shortcutBlockElement", true);
-        shortcutSiteFilter = p.getBoolean("shortcutSiteFilter", true);
-        videoControlsEnabled = p.getBoolean("videoControlsEnabled", true);
-        videoBufferBooster = p.getBoolean("videoBufferBooster", true);
-        hlsSegmentPrefetch = p.getBoolean("hlsSegmentPrefetch", true);
-        videoFloatingPlayer = p.getBoolean("videoFloatingPlayer", false);
-        if (!p.getBoolean("disableAutoPipOnMinimizeV0910", false)) {
-            videoFloatingPlayer = false;
-            p.edit()
-                    .putBoolean("videoFloatingPlayer", false)
-                    .putBoolean("disableAutoPipOnMinimizeV0910", true)
-                    .apply();
-        }
-        videoBackgroundPlay = p.getBoolean("videoBackgroundPlay", true);
-        shortcutVideoControls = p.getBoolean("shortcutVideoControls", false);
-        videoSpeed = p.getFloat("videoSpeed", 1.0f);
-        selectedVideoQuality = p.getString("selectedVideoQuality", "Auto");
-        downloadSubfolder = p.getString("downloadSubfolder", "Download");
-        selectedDownloadTreeUri = p.getString("selectedDownloadTreeUri", "");
-        downloadDynamic4Connections = p.getBoolean("downloadDynamic4Connections", true);
-        downloadAutoRetry = p.getBoolean("downloadAutoRetry", true);
-        downloadHlsEnabled = p.getBoolean("downloadHlsEnabled", true);
-        downloadPlayWhileDownloadingEnabled = p.getBoolean("downloadPlayWhileDownloadingEnabled", true);
-        downloadSpeedLimitKBps = p.getInt("downloadSpeedLimitKBps", 0);
-        downloadQueueEnabled = p.getBoolean("downloadQueueEnabled", true);
-        downloadMaxActive = Math.max(1, Math.min(4, p.getInt("downloadMaxActive", 2)));
-        topIconReload = p.getBoolean("topIconReload", true);
-        topIconBookmark = p.getBoolean("topIconBookmark", true);
-        topIconTranslate = p.getBoolean("topIconTranslate", true);
-        searchEngine = p.getString("searchEngine", "Google");
-
-        if (!p.getBoolean("menuDefaultsV030", false)) {
-            shortcutDownload = true;
-            shortcutReloadWebsite = true;
-            shortcutBookmark = false;
-            shortcutPrivate = true;
-            shortcutAdBlock = true;
-            shortcutReader = false;
-            shortcutNightMode = false;
-            shortcutQrScan = false;
-            shortcutHistory = true;
-            shortcutFindPage = false;
-            shortcutShare = false;
-            shortcutFullscreen = false;
-            shortcutBlockElement = true;
-            shortcutSiteFilter = true;
-            shortcutVideoControls = false;
-
-            p.edit()
-                    .putBoolean("shortcutDownload", shortcutDownload)
-                    .putBoolean("shortcutReloadWebsite", shortcutReloadWebsite)
-                    .putBoolean("shortcutBookmark", shortcutBookmark)
-                    .putBoolean("shortcutPrivate", shortcutPrivate)
-                    .putBoolean("shortcutAdBlock", shortcutAdBlock)
-                    .putBoolean("shortcutReader", shortcutReader)
-                    .putBoolean("shortcutNightMode", shortcutNightMode)
-                    .putBoolean("shortcutQrScan", shortcutQrScan)
-                    .putBoolean("shortcutHistory", shortcutHistory)
-                    .putBoolean("shortcutFindPage", shortcutFindPage)
-                    .putBoolean("shortcutShare", shortcutShare)
-                    .putBoolean("shortcutFullscreen", shortcutFullscreen)
-                    .putBoolean("shortcutBlockElement", shortcutBlockElement)
-                    .putBoolean("shortcutSiteFilter", shortcutSiteFilter)
-                    .putBoolean("shortcutVideoControls", shortcutVideoControls)
-                    .putBoolean("menuDefaultsV030", true)
-                    .apply();
-        }
+        SettingsStore.load(this, getSharedPreferences(PREFS, MODE_PRIVATE));
     }
 
     private void saveSettings() {
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putBoolean("speedMode", speedMode)
-                .putBoolean("safeMode", safeMode)
-                .putBoolean("hideGoogleTranslateBar", hideGoogleTranslateBar)
-                .putString("translateTargetLang", translateTargetLang)
-                .putString("translateTargetLabel", translateTargetLabel)
-                .putBoolean("nightMode", !"OFF".equals(nightModeOption))
-                .putString("nightModeOption", nightModeOption)
-                .putStringSet(KEY_NIGHT_EXCEPTIONS, new HashSet<>(nightModeExceptions))
-                .putBoolean("readerMode", readerMode)
-                .putBoolean("adBlock", adBlock)
-                .putBoolean("adBlockPopupBlocker", adBlockPopupBlocker)
-                .putBoolean("adBlockRedirectBlocker", adBlockRedirectBlocker)
-                .putBoolean("adBlockScriptIframeBlocker", adBlockScriptIframeBlocker)
-                .putBoolean("adBlockClickHijackBlocker", adBlockClickHijackBlocker)
-                .putBoolean("adBlockDefaultOnV095", true)
-                .putBoolean("adBlockRedirectToTempTab", adBlockRedirectToTempTab)
-                .putBoolean("adBlockAutoCloseAdTabs", adBlockAutoCloseAdTabs)
-                .putBoolean("dataSaver", dataSaver)
-                .putBoolean("httpsFirstEnabled", httpsFirstEnabled)
-                .putBoolean("desktopMode", desktopMode)
-                .putInt("textZoom", textZoom)
-                .putBoolean("shortcutDownload", shortcutDownload)
-                .putBoolean("shortcutReloadWebsite", shortcutReloadWebsite)
-                .putBoolean("shortcutBookmark", shortcutBookmark)
-                .putBoolean("shortcutPrivate", shortcutPrivate)
-                .putBoolean("shortcutAdBlock", shortcutAdBlock)
-                .putBoolean("shortcutReader", shortcutReader)
-                .putBoolean("shortcutNightMode", shortcutNightMode)
-                .putBoolean("shortcutQrScan", shortcutQrScan)
-                .putBoolean("shortcutHistory", shortcutHistory)
-                .putBoolean("shortcutFindPage", shortcutFindPage)
-                .putBoolean("shortcutShare", shortcutShare)
-                .putBoolean("shortcutFullscreen", shortcutFullscreen)
-                .putBoolean("shortcutBlockElement", shortcutBlockElement)
-                .putBoolean("shortcutSiteFilter", shortcutSiteFilter)
-                .putBoolean("videoControlsEnabled", videoControlsEnabled)
-                .putBoolean("videoBufferBooster", videoBufferBooster)
-                .putBoolean("hlsSegmentPrefetch", hlsSegmentPrefetch)
-                .putBoolean("videoFloatingPlayer", videoFloatingPlayer)
-                .putBoolean("disableAutoPipOnMinimizeV0910", true)
-                .putBoolean("videoBackgroundPlay", videoBackgroundPlay)
-                .putBoolean("shortcutVideoControls", shortcutVideoControls)
-                .putFloat("videoSpeed", videoSpeed)
-                .putString("selectedVideoQuality", selectedVideoQuality)
-                .putString("downloadSubfolder", downloadSubfolder)
-                .putString("selectedDownloadTreeUri", selectedDownloadTreeUri)
-                .putBoolean("downloadDynamic4Connections", downloadDynamic4Connections)
-                .putBoolean("downloadAutoRetry", downloadAutoRetry)
-                .putBoolean("downloadHlsEnabled", downloadHlsEnabled)
-                .putBoolean("downloadPlayWhileDownloadingEnabled", downloadPlayWhileDownloadingEnabled)
-                .putInt("downloadSpeedLimitKBps", downloadSpeedLimitKBps)
-                .putBoolean("downloadQueueEnabled", downloadQueueEnabled)
-                .putInt("downloadMaxActive", downloadMaxActive)
-                .putBoolean("topIconReload", topIconReload)
-                .putBoolean("topIconBookmark", topIconBookmark)
-                .putBoolean("topIconTranslate", topIconTranslate)
-                .putString("searchEngine", searchEngine)
-                .putBoolean("menuDefaultsV030", true)
-                .apply();
+        SettingsStore.save(this, getSharedPreferences(PREFS, MODE_PRIVATE));
     }
 
     private ImageButton smallTopIcon(int iconRes, String desc, View.OnClickListener listener) {
