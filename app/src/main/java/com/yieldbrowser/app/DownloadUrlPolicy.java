@@ -133,4 +133,14 @@ final class DownloadUrlPolicy {
         for (String b : bad) if (h.contains(b)) return true;
         return false;
     }
+
+    static boolean isStableDownloadHost(String url) {
+        String host = BrowserUtils.getHostLower(url);
+        if (host.isEmpty()) return false;
+        return host.contains("1drv.ms")
+                || host.contains("onedrive.live.com")
+                || host.contains("sharepoint.com")
+                || host.contains("mega.nz")
+                || host.contains("mega.co.nz");
+    }
 }

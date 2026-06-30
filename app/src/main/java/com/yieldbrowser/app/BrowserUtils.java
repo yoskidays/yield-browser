@@ -1,5 +1,6 @@
 package com.yieldbrowser.app;
 
+import android.net.Uri;
 import android.webkit.WebViewClient;
 
 import java.net.HttpURLConnection;
@@ -122,5 +123,17 @@ final class BrowserUtils {
                 || name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".webm")
                 || name.endsWith(".avi") || name.endsWith(".mov") || name.endsWith(".ts")
                 || link.contains(".mp4") || link.contains(".mkv") || link.contains(".webm");
+    }
+
+    // ---- URL / Host -------------------------------------------------------
+
+    static String getHostLower(String value) {
+        try {
+            if (value == null || value.isEmpty()) return "";
+            String host = Uri.parse(value).getHost();
+            return host == null ? "" : host.toLowerCase(Locale.US);
+        } catch (Exception e) {
+            return "";
+        }
     }
 }

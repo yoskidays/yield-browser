@@ -7149,13 +7149,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private String getHostLower(String value) {
-        try {
-            if (value == null || value.isEmpty()) return "";
-            String host = Uri.parse(value).getHost();
-            return host == null ? "" : host.toLowerCase(Locale.US);
-        } catch (Exception e) {
-            return "";
-        }
+        return BrowserUtils.getHostLower(value);
     }
 
     private boolean isGoogleDriveHost(String url) {
@@ -7170,13 +7164,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private boolean isStableDownloadHost(String url) {
-        String host = getHostLower(url);
-        if (host.isEmpty()) return false;
-        return host.contains("1drv.ms")
-                || host.contains("onedrive.live.com")
-                || host.contains("sharepoint.com")
-                || host.contains("mega.nz")
-                || host.contains("mega.co.nz");
+        return DownloadUrlPolicy.isStableDownloadHost(url);
     }
 
     private boolean isTurboFriendlyHost(String url) {
