@@ -3,6 +3,7 @@ package com.yieldbrowser.app;
 import android.net.Uri;
 
 import java.io.File;
+import java.util.Locale;
 
 /**
  * Operasi murni atas sebuah {@link DownloadItem} untuk Yield Browser.
@@ -97,5 +98,48 @@ final class DownloadItemUtils {
             item.lastSpeedTimeMs = now;
             item.lastSpeedBytes = currentBytes;
         }
+    }
+
+    // ---- Kategori ---------------------------------------------------------
+
+    static String normalizeDetectedCategory(String raw) {
+        if (raw == null) return "";
+        raw = raw.trim();
+        if ("Video".equals(raw) || "APK".equals(raw) || "Dokumen".equals(raw)
+                || "Musik".equals(raw) || "Lainnya".equals(raw)) return raw;
+        return "";
+    }
+
+    static String inferDownloadCategoryFromData(String fileName, String url, String mimeType) {
+        String mime = (mimeType == null ? "" : mimeType).toLowerCase(Locale.US);
+        if (mime.startsWith("video/")) return "Video";
+        if (mime.startsWith("audio/")) return "Musik";
+        if (mime.equals("application/vnd.android.package-archive")) return "APK";
+        if (mime.contains("pdf") || mime.contains("word") || mime.contains("excel")
+                || mime.contains("powerpoint") || mime.startsWith("text/")) return "Dokumen";
+
+        String combined = ((fileName == null ? "" : fileName) + " " + (url == null ? "" : url)).toLowerCase(Locale.US);
+        if (combined.contains(".mp4") || combined.contains(".mkv") || combined.contains(".webm")
+                || combined.contains(".avi") || combined.contains(".mov") || combined.contains(".3gp")
+                || combined.contains(".m3u8")) return "Video";
+        if (combined.contains(".apk") || combined.contains(".xapk") || combined.contains(".apks")) return "APK";
+        if (combined.contains(".mp3") || combined.contains(".m4a") || combined.contains(".wav")
+                || combined.contains(".ogg") || combined.contains(".flac")) return "Musik";
+        if (combined.contains(".pdf") || combined.contains(".doc") || combined.contains(".docx")
+                || combined.contains(".xls") || combined.contains(".xlsx") || combined.contains(".ppt")
+                || combined.contains(".pptx") || combined.contains(".txt")) return "Dokumen";
+        return "Lainnya";
+    }
+
+    static String getDownloadCategory(DownloadItem item) {
+        String hinted = normalizeDetectedCategory(item.categoryHint);
+        if (!hinted.isEmpty()) return hinted;
+        String detected = inferDownloadCategoryFromData(item.fileName, item.url, "");
+        item.categoryHint = detected;
+        return detected;
+    }
+
+    static boolean matchesDownloadCategory(DownloadItem item, String category) {
+        return "Semua".equals(category) || category.equals(getDownloadCategory(item));
     }
 }
