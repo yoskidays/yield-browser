@@ -55,7 +55,6 @@ import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.webkit.CookieManager;
-import android.webkit.JavascriptInterface;
 import android.webkit.MimeTypeMap;
 import android.webkit.URLUtil;
 import android.webkit.WebBackForwardList;
@@ -124,7 +123,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 
-public class MainActivity extends Activity {
+public class MainActivity extends Activity
+        implements TranslateBridge.Callback, VideoBridge.Callback, AdBlockBridge.Callback {
 
     private static final String EXTRA_OPEN_TAB_SWITCHER = "yield.open_tab_switcher";
     private static final String EXTRA_CREATE_TAB = "yield.create_tab";
@@ -394,97 +394,95 @@ public class MainActivity extends Activity {
     private String autoCompatibilityRecoveryKey = "";
     private long autoCompatibilityRecoveryUntilMs = 0L;
 
-    // ===== WebView JavaScript bridges =====
-    private class TranslateBridge {
-        @JavascriptInterface
-        public void translateText(int index, String text) {
-            if (text == null) return;
-            final String clean = text.trim();
-            if (clean.length() < 2 || clean.length() > 450) return;
-            final int token = translateSessionToken;
-            if (!isCompatibleTranslateAllowed(token)) return;
+    // ===== WebView JavaScript bridge callbacks =====
+    // The JS bridges (TranslateBridge, VideoBridge, AdBlockBridge) are now top-level forwarding
+    // shells; MainActivity implements their callback interfaces. The bodies below are unchanged from
+    // the former inner-class implementations, so behavior is identical.
 
-            new Thread(() -> {
-                String translated = translateTextViaGoogle(clean);
-                if (translated == null || translated.trim().length() == 0) return;
-                runOnUiThread(() -> {
-                    if (isCompatibleTranslateAllowed(token)) applyCompatibleTranslation(index, translated);
-                });
-            }).start();
-        }
+    @Override
+    public void translateText(int index, String text) {
+        if (text == null) return;
+        final String clean = text.trim();
+        if (clean.length() < 2 || clean.length() > 450) return;
+        final int token = translateSessionToken;
+        if (!isCompatibleTranslateAllowed(token)) return;
 
-        @JavascriptInterface
-        public void onCollected(int count) {
-            final int token = translateSessionToken;
+        new Thread(() -> {
+            String translated = translateTextViaGoogle(clean);
+            if (translated == null || translated.trim().length() == 0) return;
             runOnUiThread(() -> {
-                if (isCompatibleTranslateAllowed(token)) {
-                    QuietToast.makeText(MainActivity.this, "Translate kompatibel berjalan: " + count + " teks", QuietToast.LENGTH_SHORT).show();
-                }
+                if (isCompatibleTranslateAllowed(token)) applyCompatibleTranslation(index, translated);
             });
-        }
+        }).start();
     }
 
-    private class VideoBridge {
-        @JavascriptInterface
-        public void onVideoPlaying() {
-            runOnUiThread(() -> {
-                updateVideoPlayPauseButtonState(true);
-                showVideoControlsIfAllowed();
-            });
-        }
-
-        @JavascriptInterface
-        public void onVideoTapped() {
-            runOnUiThread(() -> {
-                videoControlsManualHidden = false;
-                showVideoControlsIfAllowed();
-            });
-        }
-
-        @JavascriptInterface
-        public void onVideoStopped() {
-            runOnUiThread(() -> {
-                // Jangan sembunyikan kontrol saat user menekan Pause.
-                // Tombol Play/Pause cukup berubah ikon agar kontrol tetap bisa dipakai lagi.
-                updateVideoPlayPauseButtonState(false);
-                if (videoControlsBar != null && videoControlsEnabled && webView != null && webView.getVisibility() == View.VISIBLE) {
-                    videoControlsBar.setVisibility(View.VISIBLE);
-                }
-            });
-        }
-
-        @JavascriptInterface
-        public void tapAtRatio(double xRatio, double yRatio) {
-            runOnUiThread(() -> nativeTapWebViewAtRatio(xRatio, yRatio));
-        }
+    @Override
+    public void onCollected(int count) {
+        final int token = translateSessionToken;
+        runOnUiThread(() -> {
+            if (isCompatibleTranslateAllowed(token)) {
+                QuietToast.makeText(this, "Translate kompatibel berjalan: " + count + " teks", QuietToast.LENGTH_SHORT).show();
+            }
+        });
     }
 
-    private class AdBlockBridge {
-        @JavascriptInterface
-        public void onAdRedirect(String url) {
-            runOnUiThread(() -> captureAdRedirectToTempTab(url));
-        }
+    @Override
+    public void onVideoPlaying() {
+        runOnUiThread(() -> {
+            updateVideoPlayPauseButtonState(true);
+            showVideoControlsIfAllowed();
+        });
+    }
 
-        @JavascriptInterface
-        public void onElementPicked(String selector, String preview) {
-            runOnUiThread(() -> onPickerElementSelected(selector, preview, -1, ""));
-        }
+    @Override
+    public void onVideoTapped() {
+        runOnUiThread(() -> {
+            videoControlsManualHidden = false;
+            showVideoControlsIfAllowed();
+        });
+    }
 
-        @JavascriptInterface
-        public void onElementPickedV2(String selector, String preview, int matchCount, String tagName) {
-            runOnUiThread(() -> onPickerElementSelected(selector, preview, matchCount, tagName));
-        }
+    @Override
+    public void onVideoStopped() {
+        runOnUiThread(() -> {
+            // Jangan sembunyikan kontrol saat user menekan Pause.
+            // Tombol Play/Pause cukup berubah ikon agar kontrol tetap bisa dipakai lagi.
+            updateVideoPlayPauseButtonState(false);
+            if (videoControlsBar != null && videoControlsEnabled && webView != null && webView.getVisibility() == View.VISIBLE) {
+                videoControlsBar.setVisibility(View.VISIBLE);
+            }
+        });
+    }
 
-        @JavascriptInterface
-        public void onPickerExited() {
-            runOnUiThread(() -> {
-                elementPickerActive = false;
-                if (elementPickerDialog != null) {
-                    try { elementPickerDialog.dismiss(); } catch (Exception ignored) {}
-                    elementPickerDialog = null;
-                }
-            });
-        }
+    @Override
+    public void tapAtRatio(double xRatio, double yRatio) {
+        runOnUiThread(() -> nativeTapWebViewAtRatio(xRatio, yRatio));
+    }
+
+    @Override
+    public void onAdRedirect(String url) {
+        runOnUiThread(() -> captureAdRedirectToTempTab(url));
+    }
+
+    @Override
+    public void onElementPicked(String selector, String preview) {
+        runOnUiThread(() -> onPickerElementSelected(selector, preview, -1, ""));
+    }
+
+    @Override
+    public void onElementPickedV2(String selector, String preview, int matchCount, String tagName) {
+        runOnUiThread(() -> onPickerElementSelected(selector, preview, matchCount, tagName));
+    }
+
+    @Override
+    public void onPickerExited() {
+        runOnUiThread(() -> {
+            elementPickerActive = false;
+            if (elementPickerDialog != null) {
+                try { elementPickerDialog.dismiss(); } catch (Exception ignored) {}
+                elementPickerDialog = null;
+            }
+        });
     }
 
 
@@ -10475,9 +10473,9 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
         applyBrowserSettings();
-        webView.addJavascriptInterface(new VideoBridge(), "YieldVideoBridge");
-        webView.addJavascriptInterface(new AdBlockBridge(), "YieldAdBlockBridge");
-        webView.addJavascriptInterface(new TranslateBridge(), "YieldTranslateBridge");
+        webView.addJavascriptInterface(new VideoBridge(this), "YieldVideoBridge");
+        webView.addJavascriptInterface(new AdBlockBridge(this), "YieldAdBlockBridge");
+        webView.addJavascriptInterface(new TranslateBridge(this), "YieldTranslateBridge");
         installShieldDocumentStartScript(webView);
         applyProfileCookiePolicy(webView);
         webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
