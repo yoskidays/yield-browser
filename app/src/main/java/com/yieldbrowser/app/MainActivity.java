@@ -3645,38 +3645,12 @@ private void showDownloadSettingsPanel() {
     }
 
     private View videoTextButton(String text, String label, View.OnClickListener listener) {
-        TextView button = new TextView(this);
-        button.setText(text);
-        button.setTextColor(Color.WHITE);
-        button.setTextSize(11);
-        button.setTypeface(Typeface.DEFAULT_BOLD);
-        button.setGravity(Gravity.CENTER);
-        button.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
-        button.setOnClickListener(listener);
-        button.setContentDescription(label);
-
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(48));
-        params.setMargins(dp(3), 0, dp(3), 0);
-        button.setLayoutParams(params);
-        return button;
+        return VideoUi.videoTextButton(this, text, label, listener);
     }
 
     private View videoButton(int iconRes, String label, View.OnClickListener listener) {
-        LinearLayout wrap = new LinearLayout(this);
-        wrap.setGravity(Gravity.CENTER);
-        wrap.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
-        wrap.setOnClickListener(listener);
-        wrap.setContentDescription(label);
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
-        icon.setColorFilter(Color.WHITE);
-        wrap.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
-        if ("Play/Pause".equals(label)) videoPlayPauseIcon = icon;
-
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(48));
-        params.setMargins(dp(3), 0, dp(3), 0);
-        wrap.setLayoutParams(params);
+        LinearLayout wrap = VideoUi.videoButton(this, iconRes, label, listener);
+        if ("Play/Pause".equals(label)) videoPlayPauseIcon = (ImageView) wrap.getChildAt(0);
         return wrap;
     }
 
@@ -4294,12 +4268,7 @@ private void showDownloadSettingsPanel() {
         }
     }
     private String formatVideoSpeed(float speed) {
-        if (Math.abs(speed - 1.0f) < 0.01f) return "1x";
-        if (Math.abs(speed - 2.0f) < 0.01f) return "2x";
-        if (Math.abs(speed - 0.5f) < 0.01f) return "0.5x";
-        if (Math.abs(speed - 1.25f) < 0.01f) return "1.25x";
-        if (Math.abs(speed - 1.5f) < 0.01f) return "1.5x";
-        return speed + "x";
+        return VideoUi.formatVideoSpeed(speed);
     }
 
     private void showHistoryPanel() {
