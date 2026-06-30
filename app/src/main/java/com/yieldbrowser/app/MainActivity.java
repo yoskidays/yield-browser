@@ -5000,8 +5000,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private boolean sameDay(java.util.Calendar a, java.util.Calendar b) {
-        return a.get(java.util.Calendar.YEAR) == b.get(java.util.Calendar.YEAR)
-                && a.get(java.util.Calendar.DAY_OF_YEAR) == b.get(java.util.Calendar.DAY_OF_YEAR);
+        return BrowserUtils.sameDay(a, b);
     }
 
     private void showFindInPageDialog() {
@@ -6256,14 +6255,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private String readableSpeed(double bytesPerSecond) {
-        if (bytesPerSecond <= 0) return "0 KB/s";
-        if (bytesPerSecond >= 1024 * 1024) {
-            return String.format(java.util.Locale.US, "%.2f MB/s", bytesPerSecond / (1024.0 * 1024.0)).replace(".00", "");
-        }
-        if (bytesPerSecond >= 1024) {
-            return String.format(java.util.Locale.US, "%.1f KB/s", bytesPerSecond / 1024.0).replace(".0", "");
-        }
-        return String.format(java.util.Locale.US, "%.0f B/s", bytesPerSecond);
+        return BrowserUtils.readableSpeed(bytesPerSecond);
     }
 
     private String readableFileSize(long size) {
@@ -6344,7 +6336,7 @@ private void showDownloadSettingsPanel() {
 
     // ===== Download queue manager =====
     private boolean isActiveDownloadStatus(String status) {
-        return "running".equals(status) || "verifying".equals(status) || "saving".equals(status);
+        return BrowserUtils.isActiveDownloadStatus(status);
     }
 
     private boolean hasFinalizingDownload() {
@@ -7321,11 +7313,7 @@ private void showDownloadSettingsPanel() {
     // jumlah operasi I/O ke flash sehingga throughput naik; untuk file kecil tetap kecil agar hemat
     // RAM (buffer dialokasikan per koneksi; maksimum 512KB x 4 koneksi = 2MB per unduhan).
     private int chooseDownloadBufferSize(long totalBytes) {
-        if (totalBytes <= 0L) return 256 * 1024;                            // ukuran belum diketahui
-        if (totalBytes < 4L * 1024L * 1024L) return 64 * 1024;             // file kecil
-        if (totalBytes < 64L * 1024L * 1024L) return DOWNLOAD_BUFFER_SIZE;  // 128KB (default lama)
-        if (totalBytes < 512L * 1024L * 1024L) return 256 * 1024;          // file besar
-        return 512 * 1024;                                                  // file sangat besar
+        return BrowserUtils.chooseDownloadBufferSize(totalBytes);
     }
 
     private int chooseSmartDownloadConnections(DownloadItem item, long totalBytes, String contentType) {
@@ -7614,10 +7602,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private boolean isRedirectCode(int code) {
-        return code == HttpURLConnection.HTTP_MOVED_PERM
-                || code == HttpURLConnection.HTTP_MOVED_TEMP
-                || code == HttpURLConnection.HTTP_SEE_OTHER
-                || code == 307 || code == 308;
+        return BrowserUtils.isRedirectCode(code);
     }
 
     private void validateDownloadResponse(HttpURLConnection connection) throws Exception {
@@ -7772,24 +7757,15 @@ private void showDownloadSettingsPanel() {
     }
 
     private long getDynamicPartStart(DownloadItem item, int part) {
-        if (part == 1) return item.part1Start;
-        if (part == 2) return item.part2Start;
-        if (part == 3) return item.part3Start;
-        return item.part4Start;
+        return BrowserUtils.getDynamicPartStart(item, part);
     }
 
     private long getDynamicPartEnd(DownloadItem item, int part) {
-        if (part == 1) return item.part1End;
-        if (part == 2) return item.part2End;
-        if (part == 3) return item.part3End;
-        return item.part4End;
+        return BrowserUtils.getDynamicPartEnd(item, part);
     }
 
     private long getDynamicPartDone(DownloadItem item, int part) {
-        if (part == 1) return item.part1Done;
-        if (part == 2) return item.part2Done;
-        if (part == 3) return item.part3Done;
-        return item.part4Done;
+        return BrowserUtils.getDynamicPartDone(item, part);
     }
 
     private void addDynamicPartDone(DownloadItem item, int part, long delta) {
@@ -11160,11 +11136,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private String getMobileUserAgent() {
-        return "Mozilla/5.0 (Linux; Android 11; RMX1971) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+        return BrowserUtils.getMobileUserAgent();
     }
 
     private String getDesktopUserAgent() {
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+        return BrowserUtils.getDesktopUserAgent();
     }
 
     private String hostOfUrl(String url) {
@@ -12106,10 +12082,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean isHttpsFallbackEligibleError(int errorCode) {
-        return errorCode == WebViewClient.ERROR_HOST_LOOKUP
-                || errorCode == WebViewClient.ERROR_CONNECT
-                || errorCode == WebViewClient.ERROR_TIMEOUT
-                || errorCode == WebViewClient.ERROR_IO;
+        return BrowserUtils.isHttpsFallbackEligibleError(errorCode);
     }
 
     private boolean handleHttpsFirstMainFrameFailure(WebView view, String failedUrl, int errorCode) {
@@ -12579,15 +12552,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     // Memakai token-match [class~='...'] (mencocokkan kata utuh, bukan substring) + selector
     // kelas iklan spesifik + iframe iklan berdasarkan src.
     private String buildAdBlockCosmeticCss() {
-        return ".adsbygoogle,ins.adsbygoogle,"
-                + "[class~='advertisement'],[class~='advert'],[class~='sponsored'],"
-                + "[id^='div-gpt-ad'],[id^='google_ads'],"
-                + "iframe[id^='google_ads_'],iframe[id^='aswift_'],"
-                + "iframe[src*='doubleclick.net'],iframe[src*='googlesyndication'],iframe[src*='googleadservices'],iframe[src*='adservice.'],iframe[src*='/ads/'],iframe[src*='/adserver'],iframe[src*='onclickads'],iframe[src*='clickadu'],iframe[src*='popads'],iframe[src*='popcash'],iframe[src*='propellerads'],iframe[src*='adsterra'],iframe[src*='hilltopads'],iframe[src*='exoclick'],iframe[src*='juicyads'],iframe[src*='trafficjunky'],"
-                + ".ad-banner,.ad-container,.ad-wrapper,.ad-slot,.ad-box,.ad-unit,.ad-area,.ad-frame,.ad-label,.ad-placeholder,.ad-leaderboard,.ad-sidebar,.ad-rail,.ad-billboard,.ads-container,.ads-wrapper,"
-                + ".banner-ad,.sidebar-ad,.footer-ad,.header-ad,.in-article-ad,.inline-ad,.native-ad,.sponsored-post,.sponsored-content,.promoted-content,"
-                + ".GoogleActiveViewElement"
-                + "{display:none!important;visibility:hidden!important;opacity:0!important;max-height:0!important;min-height:0!important;height:0!important;overflow:hidden!important;pointer-events:none!important;}";
+        return BrowserUtils.buildAdBlockCosmeticCss();
     }
 
     // Injektor stylesheet idempoten: membuat sekali, lalu hanya memperbarui isi jika berubah.
