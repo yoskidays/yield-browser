@@ -3422,13 +3422,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private TextView queueChoiceChip(String label, int value, Runnable refresh) {
-        TextView chip = new TextView(this);
-        chip.setText(label + " file aktif");
-        chip.setGravity(Gravity.CENTER);
-        chip.setTextSize(14);
-        chip.setTypeface(Typeface.DEFAULT_BOLD);
-        chip.setSingleLine(true);
-        chip.setOnClickListener(v -> {
+        TextView chip = SettingsUi.queueChoiceChip(this, label, v -> {
             downloadMaxActive = value;
             downloadQueueEnabled = true;
             downloadQueuePaused = false;
@@ -5808,12 +5802,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private TextView downloadSectionTab(String label) {
-        TextView tab = new TextView(this);
-        tab.setText(label);
-        tab.setTextSize(14);
-        tab.setTypeface(Typeface.DEFAULT_BOLD);
-        tab.setGravity(Gravity.CENTER);
-        tab.setOnClickListener(v -> {
+        return SettingsUi.downloadSectionTab(this, label, v -> {
             if (label.equals(activeDownloadSection)) return;
             activeDownloadSection = label;
             downloadSelectMode = false;
@@ -5822,7 +5811,6 @@ private void showDownloadSettingsPanel() {
             renderDownloadSectionTabs();
             renderDownloadList();
         });
-        return tab;
     }
 
     private void renderDownloadSectionTabs() {
@@ -5845,17 +5833,8 @@ private void showDownloadSettingsPanel() {
     }
 
     private TextView downloadCategoryChip(String label) {
-        TextView chip = new TextView(this);
         boolean selected = label.equals(activeDownloadCategory);
-        chip.setText(label);
-        chip.setTextColor(selected ? Color.parseColor("#111111") : Color.WHITE);
-        chip.setTextSize(13);
-        chip.setTypeface(Typeface.DEFAULT_BOLD);
-        chip.setGravity(Gravity.CENTER);
-        chip.setPadding(dp(14), 0, dp(14), 0);
-        chip.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20232A"),
-                dp(18), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
-        chip.setOnClickListener(v -> {
+        return SettingsUi.downloadCategoryChip(this, label, selected, v -> {
             activeDownloadCategory = label;
             selectedDownloadIds.clear();
             downloadSelectMode = false;
@@ -5863,10 +5842,6 @@ private void showDownloadSettingsPanel() {
             renderDownloadCategoryChips();
             renderDownloadList();
         });
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, dp(36));
-        params.setMargins(0, 0, dp(8), 0);
-        chip.setLayoutParams(params);
-        return chip;
     }
 
     private void showDownloadSearchDialog() {

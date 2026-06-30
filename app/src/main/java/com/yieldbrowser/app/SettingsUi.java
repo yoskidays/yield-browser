@@ -479,4 +479,51 @@ final class SettingsUi {
         chip.setBackground(YieldUi.roundRect(fill, YieldUi.dp(context, 16), 0, Color.TRANSPARENT));
         return chip;
     }
+
+    /**
+     * Builds the bare "max active downloads" chip. The caller supplies the click action and is
+     * responsible for applying selected-state styling afterwards (e.g. updateQueueChoiceChip).
+     */
+    static TextView queueChoiceChip(Context context, String label, View.OnClickListener listener) {
+        TextView chip = new TextView(context);
+        chip.setText(label + " file aktif");
+        chip.setGravity(Gravity.CENTER);
+        chip.setTextSize(14);
+        chip.setTypeface(Typeface.DEFAULT_BOLD);
+        chip.setSingleLine(true);
+        chip.setOnClickListener(listener);
+        return chip;
+    }
+
+    /** Builds a download-section tab. The caller supplies the click action. */
+    static TextView downloadSectionTab(Context context, String label, View.OnClickListener listener) {
+        TextView tab = new TextView(context);
+        tab.setText(label);
+        tab.setTextSize(14);
+        tab.setTypeface(Typeface.DEFAULT_BOLD);
+        tab.setGravity(Gravity.CENTER);
+        tab.setOnClickListener(listener);
+        return tab;
+    }
+
+    /**
+     * Builds a download-category chip. The caller computes {@code selected} from current state and
+     * supplies the click action.
+     */
+    static TextView downloadCategoryChip(Context context, String label, boolean selected, View.OnClickListener listener) {
+        TextView chip = new TextView(context);
+        chip.setText(label);
+        chip.setTextColor(selected ? Color.parseColor("#111111") : Color.WHITE);
+        chip.setTextSize(13);
+        chip.setTypeface(Typeface.DEFAULT_BOLD);
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(YieldUi.dp(context, 14), 0, YieldUi.dp(context, 14), 0);
+        chip.setBackground(YieldUi.roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20232A"),
+                YieldUi.dp(context, 18), YieldUi.dp(context, 1), selected ? COLOR_ACCENT : COLOR_BORDER));
+        chip.setOnClickListener(listener);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, YieldUi.dp(context, 36));
+        params.setMargins(0, 0, YieldUi.dp(context, 8), 0);
+        chip.setLayoutParams(params);
+        return chip;
+    }
 }
