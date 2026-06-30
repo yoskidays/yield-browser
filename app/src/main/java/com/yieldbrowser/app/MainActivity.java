@@ -7724,13 +7724,7 @@ private void showDownloadSettingsPanel() {
     }
 
     private boolean looksLikeVideoDownload(String url, String fileName, String contentType) {
-        String link = (url == null ? "" : url).toLowerCase(Locale.US);
-        String name = (fileName == null ? "" : fileName).toLowerCase(Locale.US);
-        String type = (contentType == null ? "" : contentType).toLowerCase(Locale.US);
-        return type.startsWith("video/") || type.contains("mpegurl") || link.contains(".m3u8")
-                || name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".webm")
-                || name.endsWith(".avi") || name.endsWith(".mov") || name.endsWith(".ts")
-                || link.contains(".mp4") || link.contains(".mkv") || link.contains(".webm");
+        return BrowserUtils.looksLikeVideoDownload(url, fileName, contentType);
     }
 
     private String autoRenameDownloadFile(String fileName, String url, String contentType) {

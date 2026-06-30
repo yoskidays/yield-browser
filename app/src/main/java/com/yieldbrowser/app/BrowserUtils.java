@@ -3,6 +3,7 @@ package com.yieldbrowser.app;
 import android.webkit.WebViewClient;
 
 import java.net.HttpURLConnection;
+import java.util.Locale;
 
 /**
  * Kumpulan fungsi murni (pure functions) untuk Yield Browser.
@@ -109,5 +110,17 @@ final class BrowserUtils {
     static boolean sameDay(java.util.Calendar a, java.util.Calendar b) {
         return a.get(java.util.Calendar.YEAR) == b.get(java.util.Calendar.YEAR)
                 && a.get(java.util.Calendar.DAY_OF_YEAR) == b.get(java.util.Calendar.DAY_OF_YEAR);
+    }
+
+    // ---- Video ------------------------------------------------------------
+
+    static boolean looksLikeVideoDownload(String url, String fileName, String contentType) {
+        String link = (url == null ? "" : url).toLowerCase(Locale.US);
+        String name = (fileName == null ? "" : fileName).toLowerCase(Locale.US);
+        String type = (contentType == null ? "" : contentType).toLowerCase(Locale.US);
+        return type.startsWith("video/") || type.contains("mpegurl") || link.contains(".m3u8")
+                || name.endsWith(".mp4") || name.endsWith(".mkv") || name.endsWith(".webm")
+                || name.endsWith(".avi") || name.endsWith(".mov") || name.endsWith(".ts")
+                || link.contains(".mp4") || link.contains(".mkv") || link.contains(".webm");
     }
 }
