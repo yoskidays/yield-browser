@@ -2461,20 +2461,9 @@ content.addView(space(dp(36)));
         return count;
     }
 
+
     private TextView profileSpaceChip(String label, boolean selected, boolean privateSpace) {
-        TextView chip = new TextView(this);
-        chip.setText(label);
-        chip.setTextSize(14);
-        chip.setTypeface(Typeface.DEFAULT_BOLD);
-        chip.setGravity(Gravity.CENTER);
-        chip.setTextColor(selected
-                ? (privateSpace ? Color.WHITE : Color.parseColor("#111111"))
-                : Color.parseColor("#B6BBC5"));
-        int fill = selected
-                ? (privateSpace ? Color.parseColor("#6D28D9") : COLOR_ACCENT)
-                : Color.TRANSPARENT;
-        chip.setBackground(roundRect(fill, dp(16), 0, Color.TRANSPARENT));
-        return chip;
+        return SettingsUi.profileSpaceChip(this, label, selected, privateSpace);
     }
 
 
@@ -2766,29 +2755,9 @@ content.addView(space(dp(36)));
         }
     }
 
+
     private View aboutInfoCard(String heading, String value) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(18), dp(16), dp(18), dp(16));
-        card.setBackground(roundRect(Color.parseColor("#2A2D33"), dp(20), dp(1), Color.parseColor("#343841")));
-
-        TextView t1 = new TextView(this);
-        t1.setText(heading);
-        t1.setTextColor(Color.parseColor("#E9E9EC"));
-        t1.setTextSize(18);
-        t1.setTypeface(Typeface.DEFAULT_BOLD);
-        card.addView(t1);
-
-        TextView t2 = new TextView(this);
-        t2.setText(value);
-        t2.setTextColor(Color.parseColor("#BFC2C9"));
-        t2.setTextSize(15);
-        t2.setLineSpacing(0f, 1.1f);
-        LinearLayout.LayoutParams t2lp = new LinearLayout.LayoutParams(-1, -2);
-        t2lp.setMargins(0, dp(6), 0, 0);
-        card.addView(t2, t2lp);
-
-        return card;
+        return SettingsUi.aboutInfoCard(this, heading, value);
     }
 
     private void showSettingsPanel() {
@@ -3032,57 +3001,9 @@ content.addView(space(dp(36)));
         }
     }
 
+
     private View adBlockSwitchRow(String title, String desc, boolean enabled, View.OnClickListener listener) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        row.setBackground(roundRect(Color.parseColor("#30333A"), dp(18), dp(1), Color.parseColor("#3A3D45")));
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
-        rowLp.setMargins(0, 0, 0, dp(8));
-        row.setLayoutParams(rowLp);
-
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-
-        TextView t = new TextView(this);
-        t.setText(title);
-        t.setTextColor(Color.parseColor("#F5F6F8"));
-        t.setTextSize(15);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setIncludeFontPadding(false);
-        texts.addView(t);
-
-        TextView d = new TextView(this);
-        d.setText(desc);
-        d.setTextColor(Color.parseColor("#AEB4BF"));
-        d.setTextSize(12);
-        d.setLineSpacing(0, 1.03f);
-        d.setPadding(0, dp(6), dp(8), 0);
-        texts.addView(d);
-
-        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
-
-        TextView status = new TextView(this);
-        final boolean[] current = new boolean[]{enabled};
-        status.setText(current[0] ? "ON" : "OFF");
-        status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
-        status.setTypeface(Typeface.DEFAULT_BOLD);
-        status.setTextSize(12);
-        status.setGravity(Gravity.CENTER);
-        status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
-        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(dp(58), dp(32));
-        statusLp.setMargins(dp(12), 0, 0, 0);
-        row.addView(status, statusLp);
-
-        row.setOnClickListener(v -> {
-            if (listener != null) listener.onClick(v);
-            current[0] = !current[0];
-            status.setText(current[0] ? "ON" : "OFF");
-            status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
-            status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
-        });
-        return row;
+        return SettingsUi.adBlockSwitchRow(this, title, desc, enabled, listener);
     }
 
     private void openQrScanner() {
@@ -3617,88 +3538,14 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+
     private View advancedSwitchRow(String title, String desc, boolean enabled, View.OnClickListener listener) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        row.setBackground(roundRect(Color.parseColor("#30333A"), dp(18), dp(1), Color.parseColor("#3A3D45")));
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
-        rowLp.setMargins(0, 0, 0, dp(8));
-        row.setLayoutParams(rowLp);
-
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-
-        TextView t = new TextView(this);
-        t.setText(title);
-        t.setTextColor(Color.parseColor("#F5F6F8"));
-        t.setTextSize(15);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setIncludeFontPadding(false);
-        texts.addView(t);
-
-        TextView d = new TextView(this);
-        d.setText(desc);
-        d.setTextColor(Color.parseColor("#AEB4BF"));
-        d.setTextSize(12);
-        d.setLineSpacing(0, 1.03f);
-        d.setPadding(0, dp(6), dp(8), 0);
-        texts.addView(d);
-
-        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
-
-        TextView status = new TextView(this);
-        final boolean[] current = new boolean[]{enabled};
-        status.setText(current[0] ? "ON" : "OFF");
-        status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
-        status.setTypeface(Typeface.DEFAULT_BOLD);
-        status.setTextSize(12);
-        status.setGravity(Gravity.CENTER);
-        status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
-        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(dp(58), dp(32));
-        statusLp.setMargins(dp(12), 0, 0, 0);
-        row.addView(status, statusLp);
-
-        row.setOnClickListener(v -> {
-            if (listener != null) listener.onClick(v);
-            current[0] = !current[0];
-            status.setText(current[0] ? "ON" : "OFF");
-            status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
-            status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
-        });
-        return row;
+        return SettingsUi.advancedSwitchRow(this, title, desc, enabled, listener);
     }
 
+
     private View advancedInfoRow(String title) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        row.setBackground(roundRect(Color.parseColor("#2C2F36"), dp(16), dp(1), Color.parseColor("#373B43")));
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, dp(52));
-        rowLp.setMargins(0, 0, 0, dp(8));
-        row.setLayoutParams(rowLp);
-
-        TextView check = new TextView(this);
-        check.setText("✓");
-        check.setTextColor(Color.parseColor("#65D889"));
-        check.setTextSize(16);
-        check.setTypeface(Typeface.DEFAULT_BOLD);
-        check.setGravity(Gravity.CENTER);
-        check.setBackground(roundRect(Color.parseColor("#173A25"), dp(14), 0, Color.TRANSPARENT));
-        row.addView(check, new LinearLayout.LayoutParams(dp(30), dp(30)));
-
-        TextView t = new TextView(this);
-        t.setText(title);
-        t.setTextColor(Color.parseColor("#F5F6F8"));
-        t.setTextSize(15);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setIncludeFontPadding(false);
-        LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(0, -2, 1);
-        tLp.setMargins(dp(12), 0, 0, 0);
-        row.addView(t, tLp);
-        return row;
+        return SettingsUi.advancedInfoRow(this, title);
     }
 
 
@@ -4244,83 +4091,14 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+
     private View videoOptSwitchRow(String title, String desc, boolean enabled, View.OnClickListener listener) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        row.setBackground(roundRect(Color.parseColor("#30333A"), dp(18), dp(1), Color.parseColor("#3A3D45")));
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
-        rowLp.setMargins(0, 0, 0, dp(8));
-        row.setLayoutParams(rowLp);
-
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-
-        TextView t = new TextView(this);
-        t.setText(title);
-        t.setTextColor(Color.parseColor("#F5F6F8"));
-        t.setTextSize(15);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setIncludeFontPadding(false);
-        texts.addView(t);
-
-        TextView d = new TextView(this);
-        d.setText(desc);
-        d.setTextColor(Color.parseColor("#AEB4BF"));
-        d.setTextSize(12);
-        d.setLineSpacing(0, 1.03f);
-        d.setPadding(0, dp(6), dp(8), 0);
-        texts.addView(d);
-
-        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
-
-        TextView status = new TextView(this);
-        final boolean[] current = new boolean[]{enabled};
-        status.setText(current[0] ? "ON" : "OFF");
-        status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
-        status.setTypeface(Typeface.DEFAULT_BOLD);
-        status.setTextSize(12);
-        status.setGravity(Gravity.CENTER);
-        status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
-        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(dp(58), dp(32));
-        statusLp.setMargins(dp(12), 0, 0, 0);
-        row.addView(status, statusLp);
-
-        row.setOnClickListener(v -> {
-            if (listener != null) listener.onClick(v);
-            current[0] = !current[0];
-            status.setText(current[0] ? "ON" : "OFF");
-            status.setTextColor(current[0] ? Color.parseColor("#65D889") : COLOR_SUBTEXT);
-            status.setBackground(roundRect(current[0] ? Color.parseColor("#173A25") : Color.parseColor("#3A3D45"), dp(16), dp(1), current[0] ? Color.parseColor("#20B35A") : Color.parseColor("#4A4D55")));
-        });
-        return row;
+        return SettingsUi.videoOptSwitchRow(this, title, desc, enabled, listener);
     }
 
+
     private View videoOptInfoRow(String title, String desc) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        row.setBackground(roundRect(Color.parseColor("#2C2F36"), dp(16), dp(1), Color.parseColor("#373B43")));
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
-        rowLp.setMargins(0, 0, 0, dp(8));
-        row.setLayoutParams(rowLp);
-
-        TextView t = new TextView(this);
-        t.setText(title);
-        t.setTextColor(Color.parseColor("#F5F6F8"));
-        t.setTextSize(15);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setIncludeFontPadding(false);
-        row.addView(t);
-
-        TextView d = new TextView(this);
-        d.setText(desc);
-        d.setTextColor(Color.parseColor("#AEB4BF"));
-        d.setTextSize(12);
-        d.setPadding(0, dp(6), 0, 0);
-        row.addView(d);
-        return row;
+        return SettingsUi.videoOptInfoRow(this, title, desc);
     }
 
     private void detectVideoQualities() {
@@ -5822,156 +5600,39 @@ private void showDownloadSettingsPanel() {
         }
     }
 
+
     private TextView sectionTitle(String text) {
-        TextView title = new TextView(this);
-        title.setText(text);
-        title.setTextColor(COLOR_SUBTEXT);
-        title.setTextSize(14);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setPadding(dp(8), dp(14), 0, dp(8));
-        return title;
+        return SettingsUi.sectionTitle(this, text);
     }
+
 
     private View menuDivider() {
-        View divider = new View(this);
-        divider.setBackgroundColor(Color.parseColor("#2D333D"));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(1));
-        params.setMargins(dp(12), dp(8), dp(12), dp(8));
-        divider.setLayoutParams(params);
-        return divider;
+        return SettingsUi.menuDivider(this);
     }
+
 
     private View customizeToggleRow(int iconRes, String label, boolean enabled, View.OnClickListener listener) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        row.setBackground(roundRect(Color.parseColor("#383A3E"), dp(10), 0, Color.TRANSPARENT));
-        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, dp(70));
-        rowParams.setMargins(0, 0, 0, dp(6));
-        row.setLayoutParams(rowParams);
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
-        icon.setColorFilter(Color.parseColor("#E7E8EA"));
-        row.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
-
-        TextView text = new TextView(this);
-        text.setText(label);
-        text.setTextColor(Color.WHITE);
-        text.setTextSize(16);
-        text.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(0, -2, 1);
-        textParams.setMargins(dp(14), 0, dp(8), 0);
-        row.addView(text, textParams);
-
-        TextView status = new TextView(this);
-        final boolean[] current = new boolean[]{enabled};
-        status.setText(current[0] ? "ON" : "OFF");
-        status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
-        status.setTypeface(Typeface.DEFAULT_BOLD);
-        status.setTextSize(12);
-        status.setGravity(Gravity.CENTER);
-        status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
-        row.addView(status, new LinearLayout.LayoutParams(dp(46), dp(28)));
-
-        row.setOnClickListener(v -> {
-            if (listener != null) listener.onClick(v);
-            current[0] = !current[0];
-            status.setText(current[0] ? "ON" : "OFF");
-            status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
-            status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
-        });
-        return row;
+        return SettingsUi.customizeToggleRow(this, iconRes, label, enabled, listener);
     }
+
 
     private View settingRow(int iconRes, String title, String desc, boolean enabled, View.OnClickListener listener) {
-        LinearLayout row = baseSettingsRow(iconRes, title, desc, null);
-        TextView status = new TextView(this);
-        final boolean[] current = new boolean[]{enabled};
-        status.setText(current[0] ? "ON" : "OFF");
-        status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
-        status.setTypeface(Typeface.DEFAULT_BOLD);
-        status.setTextSize(12);
-        status.setGravity(Gravity.CENTER);
-        status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
-        row.addView(status, new LinearLayout.LayoutParams(dp(46), dp(28)));
-
-        row.setOnClickListener(v -> {
-            if (listener != null) listener.onClick(v);
-            current[0] = !current[0];
-            status.setText(current[0] ? "ON" : "OFF");
-            status.setTextColor(current[0] ? COLOR_ON : COLOR_SUBTEXT);
-            status.setBackground(roundRect(current[0] ? Color.parseColor("#15351F") : Color.parseColor("#343740"), dp(12), dp(1), current[0] ? COLOR_ON : COLOR_BORDER));
-        });
-        return row;
+        return SettingsUi.settingRow(this, iconRes, title, desc, enabled, listener);
     }
+
 
     private View actionRow(int iconRes, String title, String desc, View.OnClickListener listener) {
-        LinearLayout row = baseSettingsRow(iconRes, title, desc, listener);
-        ImageView arrow = new ImageView(this);
-        arrow.setImageResource(R.drawable.ic_forward);
-        arrow.setColorFilter(COLOR_SUBTEXT);
-        row.addView(arrow, new LinearLayout.LayoutParams(dp(20), dp(20)));
-        return row;
+        return SettingsUi.actionRow(this, iconRes, title, desc, listener);
     }
+
 
     private LinearLayout baseSettingsRow(int iconRes, String title, String desc, View.OnClickListener listener) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(10), dp(11), dp(10), dp(11));
-        row.setOnClickListener(listener);
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
-        icon.setColorFilter(Color.parseColor("#F3F5F8"));
-        row.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
-
-        LinearLayout textBox = new LinearLayout(this);
-        textBox.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams textBoxParams = new LinearLayout.LayoutParams(0, -2, 1);
-        textBoxParams.setMargins(dp(14), 0, dp(8), 0);
-
-        TextView titleView = new TextView(this);
-        titleView.setText(title);
-        titleView.setTextColor(Color.WHITE);
-        titleView.setTextSize(16);
-        titleView.setTypeface(Typeface.DEFAULT_BOLD);
-        textBox.addView(titleView);
-
-        TextView descView = new TextView(this);
-        descView.setText(desc);
-        descView.setTextColor(COLOR_SUBTEXT);
-        descView.setTextSize(12);
-        LinearLayout.LayoutParams descParams = new LinearLayout.LayoutParams(-1, -2);
-        descParams.setMargins(0, dp(3), 0, 0);
-        textBox.addView(descView, descParams);
-
-        row.addView(textBox, textBoxParams);
-        return row;
+        return SettingsUi.baseSettingsRow(this, iconRes, title, desc, listener);
     }
 
+
     private View menuRow(int iconRes, String label, View.OnClickListener listener) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(14), dp(14), dp(14));
-        row.setOnClickListener(listener);
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
-        icon.setColorFilter(Color.parseColor("#F3F5F8"));
-        row.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
-
-        TextView text = new TextView(this);
-        text.setText(label);
-        text.setTextColor(Color.WHITE);
-        text.setTextSize(17);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
-        textParams.setMargins(dp(18), 0, 0, 0);
-        row.addView(text, textParams);
-        return row;
+        return SettingsUi.menuRow(this, iconRes, label, listener);
     }
 
 
@@ -11269,50 +10930,9 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
     }
 
+
     private View nightChoiceRow(String label, boolean checked, View.OnClickListener listener) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(4), dp(12), dp(4), dp(12));
-
-        TextView radio = new TextView(this);
-        radio.setText(checked ? "◉" : "○");
-        radio.setTextColor(checked ? COLOR_ACCENT : COLOR_SUBTEXT);
-        radio.setTextSize(24);
-        radio.setGravity(Gravity.CENTER);
-        row.addView(radio, new LinearLayout.LayoutParams(dp(42), dp(42)));
-
-        TextView text = new TextView(this);
-        text.setText(label);
-        text.setTextColor(Color.WHITE);
-        text.setTextSize(18);
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1);
-        tp.setMargins(dp(10), 0, 0, 0);
-        row.addView(text, tp);
-
-        row.setOnClickListener(v -> {
-            if (listener != null) listener.onClick(v);
-            View parent = (View) row.getParent();
-            if (parent instanceof LinearLayout) {
-                LinearLayout list = (LinearLayout) parent;
-                for (int i = 0; i < list.getChildCount(); i++) {
-                    View child = list.getChildAt(i);
-                    if (child instanceof LinearLayout) {
-                        LinearLayout childRow = (LinearLayout) child;
-                        if (childRow.getChildCount() > 0 && childRow.getChildAt(0) instanceof TextView) {
-                            TextView r = (TextView) childRow.getChildAt(0);
-                            if ("◉".contentEquals(r.getText()) || "○".contentEquals(r.getText())) {
-                                r.setText("○");
-                                r.setTextColor(COLOR_SUBTEXT);
-                            }
-                        }
-                    }
-                }
-            }
-            radio.setText("◉");
-            radio.setTextColor(COLOR_ACCENT);
-        });
-        return row;
+        return SettingsUi.nightChoiceRow(this, label, checked, listener);
     }
 
     private TextView dialogTextButton(String text) {
