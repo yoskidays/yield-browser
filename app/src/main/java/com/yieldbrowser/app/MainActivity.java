@@ -9564,13 +9564,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             return true;
         }
 
-        // v0.9.97: professional silent quarantine. If automatic closing is enabled,
-        // suppress the ad navigation without ever adding a visible tab that flashes and
-        // disappears. Users who disable auto-close can still inspect the temporary ad tab.
-        if (adBlockAutoCloseAdTabs) {
-            return true;
-        }
-
+        // v0.10.18: quarantine must still create an isolated ad tab even when auto-close is on.
+        // The protected tab remains selected, while the ad tab is marked and closed silently.
         synchronized (tabs) {
             for (TabInfo tab : tabs) {
                 if (tab != null && tab.adTab && safeUrl.equals(tab.url)) {
@@ -9678,7 +9673,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
             if (changed) {
                 updateTabsCountUi();
-                QuietToast.makeText(this, "Tab iklan otomatis ditutup", QuietToast.LENGTH_SHORT).show();
             }
         } catch (RuntimeException ignored) {
             // A stale WebView/tab must not interrupt browsing in the remaining tabs.
@@ -9827,7 +9821,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 || isSiteCompatibilityModeActiveForUrl(url)
                 || isReloadLoopGuardActiveForUrl(url)
                 || ReaderCompatibilityPolicy.hasReaderPathHint(url)
-                || ShieldEngineV2.isReaderOrContentPage(url);
+                || ShieldEngineV2.isReaderOrContentPage(url)
+                || ShieldEngineV2.isPopupIsolationContentPage(url);
     }
 
     private boolean shouldShieldBlockMainFrame(String targetUrl, String sourceUrl,
@@ -11593,7 +11588,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             // to leave the reader for a suspicious cross-site destination.
             boolean compatibilitySource = isStrictSiteCompatibilityUrl(currentUrl)
                     || isSiteCompatibilityModeActiveForUrl(currentUrl)
-                    || isReloadLoopGuardActiveForUrl(currentUrl);
+                    || isReloadLoopGuardActiveForUrl(currentUrl)
+                    || ShieldEngineV2.isPopupIsolationContentPage(currentUrl);
             if (compatibilitySource) return false;
 
             return hasGesture && currentHost.length() > 0;
@@ -11614,6 +11610,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         // A gesture on a reader image can be stolen by a direct-link script. Do not promote an
         // unknown cross-site destination to trusted navigation merely because hasGesture is true.
         if (ShieldEngineV2.isReaderOrContentPage(currentUrl)
+                || ShieldEngineV2.isPopupIsolationContentPage(currentUrl)
                 || ReaderCompatibilityPolicy.hasReaderPathHint(currentUrl)) return false;
         return hasGesture && !isKnownPopupHost(targetUrl) && !isAdUrl(targetUrl) && !isLikelyAdClickUrl(targetUrl);
     }
@@ -12817,7 +12814,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         if (!(isStrictSiteCompatibilityUrl(pageUrl)
                 || isSiteCompatibilityModeActiveForUrl(pageUrl)
                 || isReloadLoopGuardActiveForUrl(pageUrl)
-                || ReaderCompatibilityPolicy.hasReaderPathHint(pageUrl))) return;
+                || ReaderCompatibilityPolicy.hasReaderPathHint(pageUrl)
+                || ShieldEngineV2.isPopupIsolationContentPage(pageUrl))) return;
         injectShieldEngineV2Fallback();
     }
 

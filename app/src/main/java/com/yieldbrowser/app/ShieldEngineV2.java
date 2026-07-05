@@ -21,6 +21,14 @@ final class ShieldEngineV2 {
             "(?:^|[/_-])(?:manga|manhwa|manhua|comic|komik|chapter|chapitre|capitulo|episode|reader|read(?:-online)?|reading|baca|novel)(?:[/_-]|$)",
             Pattern.CASE_INSENSITIVE);
 
+    private static final Pattern POPUP_ISOLATED_VIDEO_PATH = Pattern.compile(
+            "(?:^|[/_-])(?:video|videos|watch|movie|movies|film|stream|player|embed|play)(?:[/_-]|$)",
+            Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern TRUSTED_VIDEO_HOST = Pattern.compile(
+            "(?:^|\\.)(?:youtube\\.[a-z.]+|youtu\\.be|googlevideo\\.com|ytimg\\.com|ggpht\\.com|vimeo\\.com|dailymotion\\.com)$",
+            Pattern.CASE_INSENSITIVE);
+
     private static final Pattern SEARCH_PATH_HINT = Pattern.compile(
             "(?:^|/)(?:search|search-results?|results?|web|html|find|s)(?:/|$|\\.)",
             Pattern.CASE_INSENSITIVE);
@@ -91,7 +99,7 @@ final class ShieldEngineV2 {
         // Popunder/direct-link scripts inherit hasGesture from the user's image tap, so gesture is
         // not sufficient consent here. Explicit address-bar/search/download flows are handled by
         // the explicitlyTrusted allow-lane above. Direct image/media assets were already allowed.
-        if (compatibilityOrReaderContext && isReaderOrContentPage(sourceUrl)) {
+        if (compatibilityOrReaderContext && isPopupIsolationContentPage(sourceUrl)) {
             return true;
         }
 
@@ -216,6 +224,15 @@ final class ShieldEngineV2 {
         return SAFE_CONTENT_PATH.matcher(path).find() || ReaderCompatibilityPolicy.hasReaderPathHint(url);
     }
 
+    static boolean isPopupIsolationContentPage(String url) {
+        if (!isHttpOrHttps(url) || isSearchResultsPage(url)) return false;
+        String host = hostOf(url);
+        if (host.isEmpty()) return false;
+        if (TRUSTED_VIDEO_HOST.matcher(host).find()) return false;
+        if (isReaderOrContentPage(url)) return true;
+        return POPUP_ISOLATED_VIDEO_PATH.matcher(pathOf(url)).find();
+    }
+
     /**
      * The legacy premium click guard predates Shield Engine V2 and has no DOM-aware reader
      * recovery. Running both guards on a chapter page can consume the same touch twice, so
@@ -223,7 +240,7 @@ final class ShieldEngineV2 {
      * additional compatibility layer.
      */
     static boolean shouldUseLegacyClickGuard(String pageUrl, boolean clickHijackEnabled) {
-        return clickHijackEnabled && !isReaderOrContentPage(pageUrl);
+        return clickHijackEnabled && !isPopupIsolationContentPage(pageUrl);
     }
 
     private static boolean hasRedirectParameter(String url) {
@@ -340,8 +357,11 @@ final class ShieldPageScript {
                 + "function same(a,b){return !!a&&!!b&&(a===b||a.endsWith('.'+b)||b.endsWith('.'+a));}"
                 + "function asset(u){return /\\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|woff2?|ttf|otf|mp4|m4v|mov|webm|mkv|m3u8|mpd|m4s|ts|mp3|aac|wav|ogg|pdf|zip|rar|7z)(?:$|[?#])/i.test(String(u||''));}"
                 + "function contentPath(p){return /(?:^|[\\/_-])(?:manga|manhwa|manhua|comic|komik|chapter|chapitre|capitulo|episode|reader|read(?:-online)?|reading|baca|novel)(?:[\\/_-]|$)/i.test(p||'');}"
+                + "function videoPath(p){return /(?:^|[\\/_-])(?:video|videos|watch|movie|movies|film|stream|player|embed|play)(?:[\\/_-]|$)/i.test(p||'');}"
+                + "function trustedVideoHost(h){return /(?:^|\\.)(?:youtube\\.[a-z.]+|youtu\\.be|googlevideo\\.com|ytimg\\.com|ggpht\\.com|vimeo\\.com|dailymotion\\.com)$/i.test(h||'');}"
                 + "function searchPage(){try{var h=host(location.href),p=path(location.href),q=low(location.search||'');var known=/(?:^|\\.)(?:google\\.[a-z.]+|bing\\.com|duckduckgo\\.com|yahoo\\.[a-z.]+|yandex\\.[a-z.]+|baidu\\.com|brave\\.com|startpage\\.com|ecosia\\.org|qwant\\.com|mojeek\\.com|kagi\\.com|naver\\.com|aol\\.com|ask\\.com|swisscows\\.com|metager\\.[a-z.]+)$/i.test(h);var qp=/(?:^|[?&])(?:q|query|p|text|wd|keyword|keywords|search|search_query|term)=/i.test(q);var pp=/(?:^|\\/)(?:search|search-results?|results?|web|html|find|s)(?:\\/|$|\\.)/i.test(p);return (known&&(qp||pp))||(pp&&qp);}catch(e){return false;}}"
                 + "function reader(){if(searchPage())return false;var p=location.pathname||'';if(contentPath(p))return true;try{return D.querySelectorAll('img[data-src],img[data-lazy-src],img[data-original],picture source[data-srcset]').length>=3;}catch(e){return false;}}"
+                + "function isolated(){if(searchPage())return false;var h=host(location.href),p=location.pathname||'';return reader()||(!trustedVideoHost(h)&&videoPath(p));}"
                 + "function relay(u){var p=path(u);return /(?:^|\\/)(?:r|go|out|away|jump|visit|redirect|redir|click|link|external|open|track|tracking|offer|offers|promo|ads?|interstitial)(?:\\/|$)/i.test(p);}"
                 + "function redirParam(u){return /[?&](?:url|u|to|target|dest|destination|redirect|redirect_url|redirect_uri|redir|r|go|out|link|click|next|continue|return|return_to|return_url|navigate_url)=/i.test(dec(u));}"
                 + "function hardToken(u){return /(?:adclick|ad_click|adurl|clickunder|onclickads|popunder|popupads|interstitial|affiliate|aff_sub|af_click|click_id|campaign_id|tracking_id|utm_medium=affiliates|deep_and_deferred|navigate_url|reactpath)/i.test(dec(u));}"
@@ -351,8 +371,8 @@ final class ShieldPageScript {
                 + "function navControl(node){return /(?:^|[ _-])(next|prev|previous|chapter|chapters|episode|bab|lanjut|selanjut|berikut|sebelum|daftar[ _-]*chapter)(?:[ _-]|$)/i.test(navMeta(node));}"
                 + "function safeReaderNav(u,node){var a=abs(u),h=host(a),c=host(location.href),p=path(a);if(!h||!c||!same(h,c)||asset(a)||relay(a)||hardToken(a))return false;if(contentPath(p))return true;return reader()&&navControl(node)&&!redirParam(a);}"
                 + "function sameRelay(u,node){var a=abs(u),h=host(a),c=host(location.href),p=path(a);if(!h||!c||!same(h,c)||asset(a)||safeReaderNav(a,node)||contentPath(p))return false;var n=0;if(relay(a))n+=3;if(redirParam(a))n+=2;if(hardToken(a))n+=2;if(/(?:^|\\/)[a-z0-9_-]{16,}(?:\\/|$)/i.test(p))n+=1;if(reader())n+=2;return n>=4;}"
-                + "function bad(u,node){if(!S.config.enabled||!u)return false;var a=abs(u),l=low(a);if(/^(intent|market|shopeeid|lazada|tokopedia):/.test(l))return true;if(!/^https?:/i.test(a)||asset(a))return false;var h=host(a),c=host(location.href);if(same(h,c)){if(safeReaderNav(a,node))return false;return S.config.redirect&&sameRelay(a,node);}if(adHost(h)||hardToken(a))return true;return reader()&&cheap(h)&&(redirParam(a)||/(?:^|\\/)[a-z0-9_-]{16,}(?:\\/|$)/i.test(path(a)));}"
-                + "function badNav(u,node){if(bad(u,node))return true;var a=abs(u);if(!/^https?:/i.test(a)||asset(a))return false;var h=host(a),c=host(location.href);return reader()&&!!h&&!!c&&!same(h,c);}"
+                + "function bad(u,node){if(!S.config.enabled||!u)return false;var a=abs(u),l=low(a);if(/^(intent|market|shopeeid|lazada|tokopedia):/.test(l))return true;if(!/^https?:/i.test(a)||asset(a))return false;var h=host(a),c=host(location.href);if(same(h,c)){if(safeReaderNav(a,node))return false;return S.config.redirect&&sameRelay(a,node);}if(adHost(h)||hardToken(a))return true;if(isolated())return true;return cheap(h)&&(redirParam(a)||/(?:^|\\/)[a-z0-9_-]{16,}(?:\\/|$)/i.test(path(a)));}"
+                + "function badNav(u,node){if(bad(u,node))return true;var a=abs(u);if(!/^https?:/i.test(a)||asset(a))return false;var h=host(a),c=host(location.href);return isolated()&&!!h&&!!c&&!same(h,c);}"
                 + "function report(u){try{var k=String(u||''),n=Date.now();if(k&&S.lastBlockedUrl===k&&n-(S.lastBlockedAt||0)<800)return;S.lastBlockedUrl=k;S.lastBlockedAt=n;if(W.YieldAdBlockBridge&&YieldAdBlockBridge.onAdRedirect)YieldAdBlockBridge.onAdRedirect(k);}catch(e){}}"
                 + "function cancelEvent(e){try{if(e){e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();}}catch(x){}return false;}"
                 + "function deny(e,u){try{if(u)report(u);}catch(x){}return cancelEvent(e);}"
