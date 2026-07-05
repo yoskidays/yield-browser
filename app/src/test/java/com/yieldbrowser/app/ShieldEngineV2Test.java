@@ -135,4 +135,30 @@ public class ShieldEngineV2Test {
                 READER, true, true, false, false));
     }
 
+    @Test
+    public void videoPagesUsePopupIsolationBoundary() {
+        String video = "https://javtiful.com/id/video/61787/mdsr-0006-2";
+
+        assertTrue(ShieldEngineV2.isPopupIsolationContentPage(video));
+        assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://unknown-clean-ad-domain.example/landing",
+                video, true, true, false, false));
+    }
+
+    @Test
+    public void trustedVideoHostsDoNotUsePopupIsolationBoundary() {
+        String youtube = "https://www.youtube.com/watch?v=abc123";
+
+        assertFalse(ShieldEngineV2.isPopupIsolationContentPage(youtube));
+        assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://accounts.google.com/ServiceLogin",
+                youtube, true, false, false, false));
+    }
+
+    @Test
+    public void videoPagesDisableLegacyDuplicateClickGuard() {
+        assertFalse(ShieldEngineV2.shouldUseLegacyClickGuard(
+                "https://javtiful.com/id/video/61787/mdsr-0006-2", true));
+    }
+
 }
