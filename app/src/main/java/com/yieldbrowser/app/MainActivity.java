@@ -9990,17 +9990,17 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                                 MainActivity.this::scheduleNightModeSyncForPage);
                 if (pageCommit.inactiveView) return;
                 String finalUrl = pageCommit.finalUrl;
-                boolean compatibilityPage = isStrictSiteCompatibilityUrl(finalUrl)
-                        || isSiteCompatibilityModeActiveForUrl(finalUrl);
-                syncShieldRuntimeState();
-                if (adBlock) injectShieldEngineV2Fallback();
-                if (adBlock && !compatibilityPage) {
-                    injectAdBlockCssEarly();
-                } else if (compatibilityPage) {
-                    if (adBlock) injectCompatibilityAdShield();
-                    scheduleUniversalReaderCompatibilityRepair(finalUrl);
-                }
-                if (hasUserFiltersForCurrentHost()) applyUserFiltersForCurrentPage();
+                BrowserPageCommitCoordinator.applyEffects(
+                        finalUrl, adBlock,
+                        MainActivity.this::isStrictSiteCompatibilityUrl,
+                        MainActivity.this::isSiteCompatibilityModeActiveForUrl,
+                        MainActivity.this::syncShieldRuntimeState,
+                        MainActivity.this::injectShieldEngineV2Fallback,
+                        MainActivity.this::injectAdBlockCssEarly,
+                        MainActivity.this::injectCompatibilityAdShield,
+                        MainActivity.this::scheduleUniversalReaderCompatibilityRepair,
+                        MainActivity.this::hasUserFiltersForCurrentHost,
+                        MainActivity.this::applyUserFiltersForCurrentPage);
             }
 
             @Override

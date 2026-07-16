@@ -28,6 +28,14 @@ final class BrowserPageCommitCoordinator {
         void accept(String url);
     }
 
+    interface UrlPredicate {
+        boolean test(String url);
+    }
+
+    interface BooleanSupplier {
+        boolean get();
+    }
+
     static final class Result {
         final boolean inactiveView;
         final TabInfo owner;
@@ -83,5 +91,55 @@ final class BrowserPageCommitCoordinator {
             nightModePageScheduler.accept(finalUrl);
         }
         return new Result(false, owner, finalUrl);
+    }
+
+    static void applyEffects(String finalUrl,
+                             boolean adBlockEnabled,
+                             UrlPredicate strictCompatibilityPredicate,
+                             UrlPredicate siteCompatibilityPredicate,
+                             Runnable syncShieldRuntime,
+                             Runnable injectShieldFallback,
+                             Runnable injectStandardCss,
+                             Runnable injectCompatibilityShield,
+                             UrlConsumer scheduleCompatibilityRepair,
+                             BooleanSupplier userFiltersAvailable,
+                             Runnable applyUserFilters) {
+        boolean strictCompatibility = test(
+                strictCompatibilityPredicate, finalUrl);
+        boolean siteCompatibility = !strictCompatibility
+                && test(siteCompatibilityPredicate, finalUrl);
+        BrowserPageCommitPolicy.EffectPlan plan =
+                BrowserPageCommitPolicy.effectPlan(
+                        strictCompatibility,
+                        siteCompatibility,
+                        adBlockEnabled);
+
+        run(syncShieldRuntime);
+        if (plan.injectShieldFallback) run(injectShieldFallback);
+        if (plan.injectStandardCss) {
+            run(injectStandardCss);
+        } else if (plan.compatibilityPage) {
+            if (plan.injectCompatibilityShield) {
+                run(injectCompatibilityShield);
+            }
+            if (plan.scheduleCompatibilityRepair
+                    && scheduleCompatibilityRepair != null) {
+                scheduleCompatibilityRepair.accept(finalUrl);
+            }
+        }
+
+        boolean filtersAvailable = userFiltersAvailable != null
+                && userFiltersAvailable.get();
+        if (BrowserPageCommitPolicy.shouldApplyUserFilters(filtersAvailable)) {
+            run(applyUserFilters);
+        }
+    }
+
+    private static boolean test(UrlPredicate predicate, String url) {
+        return predicate != null && predicate.test(url);
+    }
+
+    private static void run(Runnable runnable) {
+        if (runnable != null) runnable.run();
     }
 }
