@@ -1,4 +1,4 @@
-name: Safe Stage 1 YouTube Guard
+name: Safe Staged Browser Refactor
 
 on:
   pull_request:
@@ -6,14 +6,20 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   validate:
-    name: Test and build YouTube guard
+    name: Test YouTube guard and staged download refactor
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout source branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -29,14 +35,194 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
-      - name: Run unit tests
+      - name: Apply safe download list policy extraction
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          main_path = Path('app/src/main/java/com/yieldbrowser/app/MainActivity.java')
+          text = main_path.read_text(encoding='utf-8')
+          policy_path = Path('app/src/main/java/com/yieldbrowser/app/DownloadListPolicy.java')
+          test_path = Path('app/src/test/java/com/yieldbrowser/app/DownloadListPolicyTest.java')
+
+          if 'DownloadListPolicy.filterAndSort(' not in text:
+              start_marker = '    private ArrayList<DownloadItem> getFilteredDownloadItems() {'
+              end_marker = '    private String getDownloadCategory(DownloadItem item) {'
+              if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+                  raise SystemExit('MainActivity download-list markers changed; refusing unsafe patch')
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              replacement = '''    private ArrayList<DownloadItem> getFilteredDownloadItems() {
+                  synchronized (downloadItems) {
+                      return DownloadListPolicy.filterAndSort(
+                              downloadItems,
+                              activeDownloadSection,
+                              activeDownloadCategory,
+                              activeDownloadSearchQuery,
+                              activeDownloadSort);
+                  }
+              }
+
+'''
+              main_path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+
+          policy = r'''package com.yieldbrowser.app;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * Pure filtering and sorting policy for the Download Manager list.
+ *
+ * This module is independent from Activity lifecycle, WebView, storage writes, and download
+ * transports, so list behavior can be tested without constructing MainActivity.
+ */
+final class DownloadListPolicy {
+    private DownloadListPolicy() {
+    }
+
+    static ArrayList<DownloadItem> filterAndSort(List<DownloadItem> source,
+                                                 String section,
+                                                 String category,
+                                                 String query,
+                                                 String sort) {
+        ArrayList<DownloadItem> result = new ArrayList<>();
+        if (source == null || source.isEmpty()) return result;
+
+        for (DownloadItem item : new ArrayList<>(source)) {
+            if (!matchesSection(item, section)) continue;
+            if (!DownloadItemUtils.matchesDownloadCategory(item, category)) continue;
+            if (!matchesSearch(item, query)) continue;
+            result.add(item);
+        }
+
+        if ("Antrian".equals(sort)) return result;
+        Collections.sort(result, (a, b) -> {
+            if ("Nama".equals(sort)) {
+                return safeText(a.fileName).compareToIgnoreCase(safeText(b.fileName));
+            }
+            if ("Ukuran".equals(sort)) {
+                return Long.compare(
+                        DownloadItemUtils.getDownloadSize(b),
+                        DownloadItemUtils.getDownloadSize(a));
+            }
+            return Integer.compare(b.id, a.id);
+        });
+        return result;
+    }
+
+    static boolean matchesSection(DownloadItem item, String section) {
+        if (item == null) return false;
+        boolean completed = "completed".equals(item.status);
+        return "Selesai".equals(section) ? completed : !completed;
+    }
+
+    static boolean matchesSearch(DownloadItem item, String query) {
+        if (item == null) return false;
+        String normalized = safeText(query).trim().toLowerCase(Locale.US);
+        if (normalized.isEmpty()) return true;
+        return safeText(item.fileName).toLowerCase(Locale.US).contains(normalized)
+                || safeText(item.url).toLowerCase(Locale.US).contains(normalized)
+                || DownloadItemUtils.getDownloadHost(item)
+                .toLowerCase(Locale.US).contains(normalized);
+    }
+
+    private static String safeText(String value) {
+        return value == null ? "" : value;
+    }
+}
+'''
+          policy_path.write_text(policy, encoding='utf-8')
+
+          test = r'''package com.yieldbrowser.app;
+
+import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+public class DownloadListPolicyTest {
+    @Test
+    public void separatesCompletedHistoryFromActiveDownloads() {
+        DownloadItem completed = item(30, "completed", "Movie.mp4", "https://cdn.example/movie.mp4", "Video", 300);
+        DownloadItem running = item(20, "running", "App.apk", "https://cdn.example/app.apk", "APK", 200);
+
+        assertTrue(DownloadListPolicy.matchesSection(completed, "Selesai"));
+        assertFalse(DownloadListPolicy.matchesSection(running, "Selesai"));
+        assertTrue(DownloadListPolicy.matchesSection(running, "Mengunduh"));
+    }
+
+    @Test
+    public void filtersByCategoryAndSearchWithoutChangingSource() {
+        DownloadItem movie = item(30, "completed", "Holiday Movie.mp4", "https://media.example/movie.mp4", "Video", 300);
+        DownloadItem document = item(20, "completed", "Invoice.pdf", "https://files.example/invoice.pdf", "Dokumen", 200);
+        ArrayList<DownloadItem> source = new ArrayList<>(Arrays.asList(movie, document));
+
+        ArrayList<DownloadItem> filtered = DownloadListPolicy.filterAndSort(
+                source, "Selesai", "Video", "holiday", "Tanggal");
+
+        assertEquals(1, filtered.size());
+        assertEquals(movie.id, filtered.get(0).id);
+        assertEquals(2, source.size());
+    }
+
+    @Test
+    public void supportsNameSizeDateAndQueueOrdering() {
+        DownloadItem alpha = item(10, "completed", "Alpha.mp4", "https://a.example/a.mp4", "Video", 100);
+        DownloadItem beta = item(30, "completed", "Beta.mp4", "https://b.example/b.mp4", "Video", 500);
+        DownloadItem gamma = item(20, "completed", "Gamma.mp4", "https://c.example/c.mp4", "Video", 300);
+        ArrayList<DownloadItem> source = new ArrayList<>(Arrays.asList(gamma, beta, alpha));
+
+        assertEquals(alpha.id, DownloadListPolicy.filterAndSort(source, "Selesai", "Semua", "", "Nama").get(0).id);
+        assertEquals(beta.id, DownloadListPolicy.filterAndSort(source, "Selesai", "Semua", "", "Ukuran").get(0).id);
+        assertEquals(beta.id, DownloadListPolicy.filterAndSort(source, "Selesai", "Semua", "", "Tanggal").get(0).id);
+        assertEquals(gamma.id, DownloadListPolicy.filterAndSort(source, "Selesai", "Semua", "", "Antrian").get(0).id);
+    }
+
+    private static DownloadItem item(int id, String status, String name, String url,
+                                     String category, long size) {
+        DownloadItem item = new DownloadItem(id, url, name, "/tmp/" + name, status, 0);
+        item.categoryHint = category;
+        item.totalBytes = size;
+        item.downloadedBytes = size;
+        return item;
+    }
+}
+'''
+          test_path.write_text(test, encoding='utf-8')
+          PY
+
+      - name: Run all unit tests
         run: gradle testDebugUnitTest --stacktrace
 
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 
-      - name: Upload stage 1 APK
+      - name: Commit validated refactor to source branch
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/yieldbrowser/app/MainActivity.java \
+                  app/src/main/java/com/yieldbrowser/app/DownloadListPolicy.java \
+                  app/src/test/java/com/yieldbrowser/app/DownloadListPolicyTest.java
+          if git diff --cached --quiet; then
+            echo "Refactor already present; validation only."
+          else
+            git commit -m "Extract download list filtering policy"
+            git push origin HEAD:${HEAD_BRANCH}
+          fi
+
+      - name: Upload validated APK
         uses: actions/upload-artifact@v4
         with:
-          name: YieldBrowser-stage1-youtube-debug-apk
+          name: YieldBrowser-staged-refactor-apk
           path: app/build/outputs/apk/debug/*.apk
