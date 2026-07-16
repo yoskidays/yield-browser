@@ -96,4 +96,15 @@ public class BrowserPageFinishPolicyTest {
         assertArrayEquals(new long[0],
                 BrowserPageFinishPolicy.userFilterRetryDelays(false));
     }
+
+    @Test
+    public void historyIsAddedOnlyForRecordablePublicTabs() {
+        TabInfo publicTab = new TabInfo("Public", "", false);
+        TabInfo privateTab = new TabInfo("Private", "", true);
+
+        assertTrue(BrowserPageFinishPolicy.shouldAddHistory(true, publicTab));
+        assertFalse(BrowserPageFinishPolicy.shouldAddHistory(true, privateTab));
+        assertFalse(BrowserPageFinishPolicy.shouldAddHistory(true, null));
+        assertFalse(BrowserPageFinishPolicy.shouldAddHistory(false, publicTab));
+    }
 }

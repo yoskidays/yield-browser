@@ -54,6 +54,10 @@ final class BrowserPageFinishCoordinator {
         void schedule(long delayMs);
     }
 
+    interface HistoryRecorder {
+        void record(String title, String url);
+    }
+
     static final class Result {
         final TabInfo owner;
         final String finalUrl;
@@ -301,6 +305,41 @@ final class BrowserPageFinishCoordinator {
             }
         }
         return true;
+    }
+
+    static TabInfo finalizeHistory(
+            WebView view,
+            TabInfo owner,
+            TabSupplier currentTabSupplier,
+            String finalUrl,
+            UrlPredicate historyPredicate,
+            HistoryRecorder historyRecorder,
+            TitleLookup titleLookup,
+            TabCommitter tabCommitter,
+            Runnable saveTabsSession) {
+        TabInfo currentOwner = owner == null && currentTabSupplier != null
+                ? currentTabSupplier.get()
+                : null;
+        TabInfo resolvedOwner = BrowserPageFinishPolicy.chooseOwner(
+                owner, currentOwner);
+
+        boolean recordableForHistory = test(historyPredicate, finalUrl);
+        if (BrowserPageFinishPolicy.shouldAddHistory(
+                recordableForHistory, resolvedOwner)
+                && historyRecorder != null) {
+            String title = titleLookup == null ? null : titleLookup.get(view);
+            historyRecorder.record(title, finalUrl);
+        }
+
+        boolean recordableForSession = test(historyPredicate, finalUrl);
+        if (recordableForSession) {
+            String title = titleLookup == null ? null : titleLookup.get(view);
+            if (tabCommitter != null) {
+                tabCommitter.commit(resolvedOwner, finalUrl, title);
+            }
+            run(saveTabsSession);
+        }
+        return resolvedOwner;
     }
 
     private static boolean test(UrlPredicate predicate, String url) {

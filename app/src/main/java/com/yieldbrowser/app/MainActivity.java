@@ -10077,15 +10077,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         MainActivity.this::applyUserFiltersForCurrentPage,
                         delay -> mainHandler.postDelayed(
                                 MainActivity.this::applyUserFiltersForCurrentPage, delay));
-                if (currentTab == null) currentTab = getCurrentTab();
-                if (shouldRecordHistoryUrl(finalUrl) && currentTab != null && !currentTab.privateTab) {
-                    addBrowserHistory(view.getTitle(), finalUrl);
-                }
-                if (shouldRecordHistoryUrl(finalUrl)) {
-                    commitTabUrlIfSafe(currentTab, finalUrl, view.getTitle());
-                    saveTabsSession();
-                    // Histori sudah dicatat di atas agar tersimpan lebih cepat.
-                }
+                currentTab = BrowserPageFinishCoordinator.finalizeHistory(
+                        view, currentTab, MainActivity.this::getCurrentTab, finalUrl,
+                        MainActivity.this::shouldRecordHistoryUrl,
+                        MainActivity.this::addBrowserHistory,
+                        BrowserPageFinishCoordinator::getTitle,
+                        MainActivity.this::commitTabUrlIfSafe,
+                        MainActivity.this::saveTabsSession);
                 if (!pageReloadGuarded) {
                     videoControlsManualHidden = false;
                     injectVideoPlaybackWatcher();

@@ -74,4 +74,9 @@ final class BrowserPageFinishPolicy {
     static long[] userFilterRetryDelays(boolean hasUserFilters) {
         return hasUserFilters ? new long[]{350L, 1400L} : new long[0];
     }
+
+    static boolean shouldAddHistory(boolean recordableHistoryUrl,
+                                    TabInfo owner) {
+        return recordableHistoryUrl && owner != null && !owner.privateTab;
+    }
 }
