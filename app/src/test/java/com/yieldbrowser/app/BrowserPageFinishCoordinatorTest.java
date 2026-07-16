@@ -378,4 +378,96 @@ public class BrowserPageFinishCoordinatorTest {
 
         assertEquals(0, calls[0]);
     }
+
+    @Test
+    public void publicOwnerAddsHistoryBeforeCommitAndSessionSave() {
+        TabInfo owner = new TabInfo("Public", "", false);
+        StringBuilder calls = new StringBuilder();
+
+        TabInfo result = BrowserPageFinishCoordinator.finalizeHistory(
+                null,
+                owner,
+                () -> {
+                    throw new AssertionError("current tab fallback must not run");
+                },
+                "https://example.com/page",
+                url -> {
+                    calls.append("record?>");
+                    return true;
+                },
+                (title, url) -> calls.append("add>"),
+                view -> {
+                    calls.append("title>");
+                    return "Example";
+                },
+                (tab, url, title) -> {
+                    assertSame(owner, tab);
+                    calls.append("commit>");
+                },
+                () -> calls.append("save"));
+
+        assertSame(owner, result);
+        assertEquals(
+                "record?>title>add>record?>title>commit>save",
+                calls.toString());
+    }
+
+    @Test
+    public void privateFallbackSkipsHistoryButStillCommitsSession() {
+        TabInfo privateTab = new TabInfo("Private", "", true);
+        StringBuilder calls = new StringBuilder();
+
+        TabInfo result = BrowserPageFinishCoordinator.finalizeHistory(
+                null,
+                null,
+                () -> {
+                    calls.append("current>");
+                    return privateTab;
+                },
+                "https://example.com/private",
+                url -> {
+                    calls.append("record?>");
+                    return true;
+                },
+                (title, url) -> calls.append("add>"),
+                view -> {
+                    calls.append("title>");
+                    return "Private";
+                },
+                (tab, url, title) -> {
+                    assertSame(privateTab, tab);
+                    calls.append("commit>");
+                },
+                () -> calls.append("save"));
+
+        assertSame(privateTab, result);
+        assertEquals(
+                "current>record?>record?>title>commit>save",
+                calls.toString());
+    }
+
+    @Test
+    public void unrecordableUrlKeepsBothHistoryChecksWithoutMutation() {
+        TabInfo owner = new TabInfo("Public", "", false);
+        StringBuilder calls = new StringBuilder();
+
+        assertSame(owner, BrowserPageFinishCoordinator.finalizeHistory(
+                null,
+                owner,
+                () -> null,
+                "about:blank",
+                url -> {
+                    calls.append("record?>");
+                    return false;
+                },
+                (title, url) -> calls.append("add>"),
+                view -> {
+                    calls.append("title>");
+                    return "Blank";
+                },
+                (tab, url, title) -> calls.append("commit>"),
+                () -> calls.append("save>")));
+
+        assertEquals("record?>record?>", calls.toString());
+    }
 }
