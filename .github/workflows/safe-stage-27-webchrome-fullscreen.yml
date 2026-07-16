@@ -1,0 +1,67 @@
+name: Safe Stage 27 WebChrome Fullscreen
+
+on:
+  push:
+    branches:
+      - refactor/webchrome-fullscreen
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Test and build WebChrome fullscreen extraction
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Apply guarded MainActivity fullscreen delegation
+        run: python3 scripts/apply_webchrome_fullscreen_refactor.py
+
+      - name: Run all unit tests
+        run: gradle testDebugUnitTest --stacktrace
+
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Commit validated MainActivity delegation
+        if: github.event_name == 'push'
+        env:
+          HEAD_BRANCH: refactor/webchrome-fullscreen
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/yieldbrowser/app/MainActivity.java
+          if git diff --cached --quiet; then
+            echo "WebChrome fullscreen delegation already committed."
+          else
+            git commit -m "Stage 27: delegate WebChrome fullscreen lifecycle"
+            git push origin HEAD:${HEAD_BRANCH}
+          fi
+
+      - name: Upload validated APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: YieldBrowser-webchrome-fullscreen-apk
+          path: app/build/outputs/apk/debug/*.apk
