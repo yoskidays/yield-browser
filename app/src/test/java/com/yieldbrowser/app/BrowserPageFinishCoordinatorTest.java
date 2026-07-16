@@ -656,4 +656,30 @@ public class BrowserPageFinishCoordinatorTest {
 
         assertEquals(0, calls[0]);
     }
+
+    @Test
+    public void finalEffectsScheduleTransitionBeforeCloseAndTopActions() {
+        StringBuilder calls = new StringBuilder();
+
+        BrowserPageFinishCoordinator.applyFinalEffects(
+                true,
+                delay -> calls.append("transition").append(delay).append('>'),
+                () -> calls.append("close>"),
+                () -> calls.append("top"));
+
+        assertEquals("transition220>close>top", calls.toString());
+    }
+
+    @Test
+    public void finalEffectsAlwaysCloseAdTabsAndUpdateTopActions() {
+        StringBuilder calls = new StringBuilder();
+
+        BrowserPageFinishCoordinator.applyFinalEffects(
+                false,
+                delay -> calls.append("transition>"),
+                () -> calls.append("close>"),
+                () -> calls.append("top"));
+
+        assertEquals("close>top", calls.toString());
+    }
 }

@@ -131,4 +131,12 @@ public class BrowserPageFinishPolicyTest {
         assertArrayEquals(new long[0],
                 BrowserPageFinishPolicy.keyboardHideRetryDelays(false));
     }
+
+    @Test
+    public void smoothTransitionFinishScheduleRemainsStable() {
+        assertArrayEquals(new long[]{220L},
+                BrowserPageFinishPolicy.smoothTransitionFinishDelays(true));
+        assertArrayEquals(new long[0],
+                BrowserPageFinishPolicy.smoothTransitionFinishDelays(false));
+    }
 }
