@@ -4384,9 +4384,13 @@ private void showDownloadSettingsPanel() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
                 super.onScrolled(rv, dx, dy);
-                if (dy <= 0 || activeHistoryLoading || activeHistoryEndReached) return;
                 int last = layoutManager.findLastVisibleItemPosition();
-                if (last >= Math.max(0, adapter.getItemCount() - 8)) {
+                if (HistoryPanelPresentation.shouldLoadNextPage(
+                        dy,
+                        activeHistoryLoading,
+                        activeHistoryEndReached,
+                        last,
+                        adapter.getItemCount())) {
                     loadNextHistoryPage();
                 }
             }
@@ -4400,9 +4404,11 @@ private void showDownloadSettingsPanel() {
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 if (pendingHistorySearch != null) mainHandler.removeCallbacks(pendingHistorySearch);
-                String query = s == null ? "" : s.toString().trim();
+                String query = HistoryPanelPresentation.normalizeQuery(
+                        s == null ? "" : s.toString());
                 pendingHistorySearch = () -> resetActiveHistoryQuery(query);
-                mainHandler.postDelayed(pendingHistorySearch, 220L);
+                mainHandler.postDelayed(pendingHistorySearch,
+                        HistoryPanelPresentation.SEARCH_DEBOUNCE_MS);
             }
 
             @Override
@@ -4450,7 +4456,7 @@ private void showDownloadSettingsPanel() {
     private void resetActiveHistoryQuery(String query) {
         if (activeHistoryDialog == null || !activeHistoryDialog.isShowing()) return;
         activeHistoryGeneration++;
-        activeHistoryQuery = query == null ? "" : query.trim();
+        activeHistoryQuery = HistoryPanelPresentation.normalizeQuery(query);
         activeHistoryBeforeTime = Long.MAX_VALUE;
         activeHistoryBeforeId = Long.MAX_VALUE;
         activeHistoryEndReached = false;
@@ -4488,7 +4494,8 @@ private void showDownloadSettingsPanel() {
                     HistoryItemData last = page.get(page.size() - 1);
                     activeHistoryBeforeTime = last.time;
                     activeHistoryBeforeId = last.id;
-                    activeHistoryEndReached = page.size() < HISTORY_PAGE_SIZE;
+                    activeHistoryEndReached = HistoryPanelPresentation.isEndReached(
+                            page.size(), HISTORY_PAGE_SIZE);
                     updateActiveHistoryEmptyState();
                 }
         );
@@ -4496,16 +4503,19 @@ private void showDownloadSettingsPanel() {
 
     private void setActiveHistoryLoading(boolean loading) {
         if (activeHistoryProgress == null) return;
-        boolean initial = activeHistoryAdapter == null || activeHistoryAdapter.isEmpty();
-        activeHistoryProgress.setVisibility(loading && initial ? View.VISIBLE : View.GONE);
+        boolean adapterEmpty = activeHistoryAdapter == null || activeHistoryAdapter.isEmpty();
+        activeHistoryProgress.setVisibility(
+                HistoryPanelPresentation.shouldShowInitialLoading(loading, adapterEmpty)
+                        ? View.VISIBLE : View.GONE);
     }
 
     private void updateActiveHistoryEmptyState() {
         if (activeHistoryEmptyView == null || activeHistoryAdapter == null) return;
-        boolean show = !activeHistoryLoading && activeHistoryAdapter.isEmpty();
-        activeHistoryEmptyView.setText(activeHistoryQuery == null || activeHistoryQuery.isEmpty()
-                ? "Riwayat masih kosong."
-                : "Tidak ada riwayat yang cocok.");
+        boolean adapterEmpty = activeHistoryAdapter.isEmpty();
+        boolean show = HistoryPanelPresentation.shouldShowEmpty(
+                activeHistoryLoading, adapterEmpty);
+        activeHistoryEmptyView.setText(
+                HistoryPanelPresentation.emptyMessage(activeHistoryQuery));
         activeHistoryEmptyView.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
