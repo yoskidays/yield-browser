@@ -1518,8 +1518,8 @@ content.addView(space(dp(36)));
         if (tabs.isEmpty()) {
             tabs.add(createProfileTab("Tab utama", "Tab privat", "", false));
         }
-        currentTabIndex = Math.max(0, Math.min(currentTabIndex, tabs.size() - 1));
-        tabCount = tabs.size();
+        currentTabIndex = TabNavigationPolicy.clampIndex(currentTabIndex, tabs.size());
+        tabCount = TabNavigationPolicy.countForUi(tabs.size());
     }
 
     private TabInfo getCurrentTab() {
@@ -1532,8 +1532,8 @@ content.addView(space(dp(36)));
     }
     private boolean isCurrentTabInfo(TabInfo tab) {
         try {
-            return tab != null && !tab.closed && !tabs.isEmpty() && currentTabIndex >= 0
-                    && currentTabIndex < tabs.size() && tabs.get(currentTabIndex) == tab;
+            return TabNavigationPolicy.isCurrentTab(
+                    tabs, currentTabIndex, tab, tab != null && tab.closed);
         } catch (Exception e) {
             return false;
         }
@@ -1932,7 +1932,7 @@ content.addView(space(dp(36)));
     }
 
     private void updateTabsCountUi() {
-        tabCount = Math.max(1, tabs.size());
+        tabCount = TabNavigationPolicy.countForUi(tabs.size());
         if (tabsCountText != null) {
             tabsCountText.setText(String.valueOf(tabCount));
         }
@@ -2093,10 +2093,11 @@ content.addView(space(dp(36)));
     }
 
     private void switchToTab(int index) {
-        if (index < 0 || index >= tabs.size()) return;
-        boolean changingTab = index != currentTabIndex;
+        if (!TabNavigationPolicy.isValidIndex(index, tabs.size())) return;
+        boolean changingTab = TabNavigationPolicy.changesTab(index, currentTabIndex);
         if (changingTab && elementPickerActive) finishElementPicker(false);
-        boolean saveBeforeSwitch = !skipNextSwitchTabStateSave;
+        boolean saveBeforeSwitch = TabNavigationPolicy.shouldSaveBeforeSwitch(
+                skipNextSwitchTabStateSave);
         skipNextSwitchTabStateSave = false;
         if (saveBeforeSwitch) saveCurrentTabState();
         if (changingTab) invalidateTabScopedAsyncWork();
@@ -2225,16 +2226,17 @@ content.addView(space(dp(36)));
             showHome();
         } else {
             int replacementIndex = tabs.indexOf(replacement);
-            currentTabIndex = replacementIndex >= 0
-                    ? replacementIndex : Math.max(0, Math.min(index, tabs.size() - 1));
+            currentTabIndex = TabNavigationPolicy.indexAfterClosingCurrent(
+                    index, replacementIndex, tabs.size());
             if (closingCurrent) {
                 skipNextSwitchTabStateSave = true;
                 switchToTab(currentTabIndex);
             } else {
                 TabInfo active = getCurrentTab();
                 activateNavigationContextForTab(active);
-                boolean showPage = active.url != null && !active.url.isEmpty()
-                        && homeScroll != null && homeScroll.getVisibility() != View.VISIBLE;
+                boolean showPage = TabNavigationPolicy.shouldShowPage(
+                        active.url,
+                        homeScroll != null && homeScroll.getVisibility() == View.VISIBLE);
                 activateTabWebView(active, showPage);
             }
         }
@@ -9477,10 +9479,9 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 skipNextShowHomeTabSave = true;
                 showHome();
             } else {
-                if (currentTabIndex > index) currentTabIndex--;
-                if (currentTabIndex >= tabs.size()) currentTabIndex = tabs.size() - 1;
+                currentTabIndex = TabNavigationPolicy.indexAfterClosingAdTab(
+                        currentTabIndex, index, fallbackIndex, tabs.size(), closingCurrent);
                 if (closingCurrent) {
-                    currentTabIndex = Math.max(0, Math.min(fallbackIndex, tabs.size() - 1));
                     skipNextSwitchTabStateSave = true;
                     switchToTab(currentTabIndex);
                 }
@@ -9512,11 +9513,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 tabs.remove(i);
                 changed = true;
 
-                if (closingCurrent) {
-                    currentTabIndex = Math.max(0, Math.min(currentTabIndex - 1, tabs.size() - 1));
-                } else if (currentTabIndex > i) {
-                    currentTabIndex--;
-                }
+                currentTabIndex = TabNavigationPolicy.indexAfterDetectedAdRemoval(
+                        currentTabIndex, i, tabs.size(), closingCurrent);
             }
 
             if (tabs.isEmpty()) {
@@ -9527,8 +9525,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 activateTabWebView(getCurrentTab(), false);
                 skipNextShowHomeTabSave = true;
                 showHome();
-            } else if (currentTabIndex < 0 || currentTabIndex >= tabs.size()) {
-                currentTabIndex = Math.max(0, Math.min(currentTabIndex, tabs.size() - 1));
+            } else if (!TabNavigationPolicy.isValidIndex(currentTabIndex, tabs.size())) {
+                currentTabIndex = TabNavigationPolicy.clampIndex(currentTabIndex, tabs.size());
             }
 
             if (changed && !tabs.isEmpty()) {
@@ -13093,35 +13091,40 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private void navigateSwipeBack() {
         try {
-            if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) {
+            boolean homeVisible = homeScroll != null
+                    && homeScroll.getVisibility() == View.VISIBLE;
+            boolean webVisible = webView != null
+                    && webView.getVisibility() == View.VISIBLE;
+            boolean canGoBack = webView != null && webView.canGoBack();
+            TabNavigationPolicy.BackAction action = TabNavigationPolicy.backAction(
+                    homeVisible, webVisible, canGoBack);
+            if (action == TabNavigationPolicy.BackAction.RESTORE_PAGE) {
                 restoreHiddenWebPage();
-                return;
-            }
-
-            if (webView != null && webView.getVisibility() == View.VISIBLE && webView.canGoBack()) {
+            } else if (action == TabNavigationPolicy.BackAction.WEB_BACK) {
                 webView.goBack();
-                return;
+            } else {
+                showHome();
             }
-
-            showHome();
         } catch (Exception ignored) {
         }
     }
 
     private void navigateSwipeForward() {
         try {
-            if (webView != null && webView.getVisibility() == View.VISIBLE && webView.canGoForward()) {
+            boolean homeVisible = homeScroll != null
+                    && homeScroll.getVisibility() == View.VISIBLE;
+            boolean webVisible = webView != null
+                    && webView.getVisibility() == View.VISIBLE;
+            boolean canGoForward = webView != null && webView.canGoForward();
+            TabNavigationPolicy.ForwardAction action = TabNavigationPolicy.forwardAction(
+                    homeVisible, webVisible, canGoForward);
+            if (action == TabNavigationPolicy.ForwardAction.WEB_FORWARD) {
                 webView.goForward();
-                return;
-            }
-
-            if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE) {
-                if (webView != null && webView.canGoForward()) {
-                    restoreHiddenWebPage();
-                    webView.goForward();
-                } else {
-                    restoreHiddenWebPage();
-                }
+            } else if (action == TabNavigationPolicy.ForwardAction.RESTORE_AND_FORWARD) {
+                restoreHiddenWebPage();
+                webView.goForward();
+            } else if (action == TabNavigationPolicy.ForwardAction.RESTORE_PAGE) {
+                restoreHiddenWebPage();
             }
         } catch (Exception ignored) {
         }
