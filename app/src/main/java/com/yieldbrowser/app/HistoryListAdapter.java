@@ -18,12 +18,9 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /** Recycler-backed, paged history list. Only visible rows are materialized. */
@@ -38,11 +35,9 @@ final class HistoryListAdapter extends RecyclerView.Adapter<HistoryListAdapter.H
 
     private final Context context;
     private final Listener listener;
+    private final HistoryItemPresentation presentation = HistoryItemPresentation.createDefault();
     private final ArrayList<HistoryItemData> items = new ArrayList<>();
     private final Set<Long> knownIds = new HashSet<>();
-    private final SimpleDateFormat dayKey = new SimpleDateFormat("yyyyMMdd", Locale.getDefault());
-    private final SimpleDateFormat fullDay = new SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault());
-    private final SimpleDateFormat clock = new SimpleDateFormat("HH:mm", Locale.getDefault());
 
     HistoryListAdapter(Context context, Listener listener) {
         this.context = context;
@@ -134,24 +129,19 @@ final class HistoryListAdapter extends RecyclerView.Adapter<HistoryListAdapter.H
     @Override
     public void onBindViewHolder(@NonNull Holder holder, int position) {
         HistoryItemData item = items.get(position);
-        String currentDay = dayKey.format(item.time);
-        String previousDay = position > 0 ? dayKey.format(items.get(position - 1).time) : "";
-        if (position == 0 || !currentDay.equals(previousDay)) {
+        HistoryItemData previous = position > 0 ? items.get(position - 1) : null;
+        if (presentation.shouldShowDayHeader(item, previous)) {
             holder.section.setVisibility(View.VISIBLE);
-            holder.section.setText(dayLabel(item.time));
+            holder.section.setText(presentation.dayLabel(item.time, System.currentTimeMillis()));
         } else {
             holder.section.setVisibility(View.GONE);
             holder.section.setText("");
         }
 
-        String safeTitle = item.title == null || item.title.trim().isEmpty() ? item.url : item.title;
-        holder.title.setText(safeTitle);
-        String host = item.host == null || item.host.isEmpty() ? shortHost(item.url) : item.host;
-        StringBuilder subtitle = new StringBuilder(host).append(" • ").append(clock.format(item.time));
-        if (item.visitCount > 1) subtitle.append(" • ").append(item.visitCount).append(" kunjungan");
-        holder.subtitle.setText(subtitle.toString());
+        holder.title.setText(presentation.title(item));
+        holder.subtitle.setText(presentation.subtitle(item));
 
-        holder.fallback.setText(initialFor(item));
+        holder.fallback.setText(presentation.fallbackInitial(item));
         holder.fallback.setVisibility(View.VISIBLE);
         holder.favicon.setImageDrawable(null);
         holder.favicon.setVisibility(View.GONE);
@@ -206,7 +196,6 @@ final class HistoryListAdapter extends RecyclerView.Adapter<HistoryListAdapter.H
                 items.remove(i);
                 knownIds.remove(id);
                 notifyItemRemoved(i);
-                // The next row may need a newly-visible date header.
                 if (i < items.size()) notifyItemChanged(i);
                 return i;
             }
@@ -227,40 +216,6 @@ final class HistoryListAdapter extends RecyclerView.Adapter<HistoryListAdapter.H
 
     boolean isEmpty() {
         return items.isEmpty();
-    }
-
-    private String dayLabel(long time) {
-        Calendar item = Calendar.getInstance();
-        item.setTimeInMillis(time);
-        Calendar today = Calendar.getInstance();
-        if (sameDay(item, today)) return "Hari ini";
-        today.add(Calendar.DAY_OF_YEAR, -1);
-        if (sameDay(item, today)) return "Kemarin";
-        return fullDay.format(time);
-    }
-
-    private static boolean sameDay(Calendar a, Calendar b) {
-        return a.get(Calendar.ERA) == b.get(Calendar.ERA)
-                && a.get(Calendar.YEAR) == b.get(Calendar.YEAR)
-                && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR);
-    }
-
-    private String initialFor(HistoryItemData item) {
-        String text = item == null ? "" : item.title;
-        if (text == null || text.trim().isEmpty()) text = item == null ? "" : item.host;
-        if (text == null || text.trim().isEmpty()) return "?";
-        return text.trim().substring(0, 1).toUpperCase(Locale.getDefault());
-    }
-
-    private String shortHost(String url) {
-        try {
-            java.net.URI uri = java.net.URI.create(url);
-            String host = uri.getHost();
-            if (host == null) return url == null ? "" : url;
-            return host.startsWith("www.") ? host.substring(4) : host;
-        } catch (Exception ignored) {
-            return url == null ? "" : url;
-        }
     }
 
     private GradientDrawable roundRect(int color, int radius) {
