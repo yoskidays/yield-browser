@@ -10005,18 +10005,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                if (view != webView) {
-                    TabInfo owner = findTabByWebView(view);
-                    if (owner != null) {
-                        String inactiveUrl = extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url;
-                        String inactiveTitle = view != null ? view.getTitle() : null;
-                        commitTabUrlIfSafe(owner, inactiveUrl, inactiveTitle);
-                        try {
-                            Bundle state = new Bundle();
-                            WebBackForwardList saved = view.saveState(state);
-                            if (saved != null && saved.getSize() > 0) owner.webState = state;
-                        } catch (Exception ignored) {}
-                    }
+                if (BrowserPageFinishCoordinator.handleInactive(
+                        view != webView, view, url,
+                        MainActivity.this::findTabByWebView,
+                        MainActivity.this::extractOriginalUrl,
+                        MainActivity.this::commitTabUrlIfSafe,
+                        BrowserPageFinishCoordinator::getTitle,
+                        BrowserPageFinishCoordinator::saveWebState)) {
                     super.onPageFinished(view, url);
                     return;
                 }
