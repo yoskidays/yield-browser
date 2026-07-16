@@ -74,4 +74,78 @@ public class BrowserPageFinishCoordinatorTest {
 
         assertEquals("commit>state", calls.toString());
     }
+
+    @Test
+    public void activeStateUpdatesKeepOriginalOrderAndFallbackOwner() {
+        TabInfo currentOwner = new TabInfo("Current", "", false);
+        StringBuilder calls = new StringBuilder();
+
+        BrowserPageFinishCoordinator.Result result =
+                BrowserPageFinishCoordinator.handleActive(
+                        null,
+                        "https://proxy.example/page",
+                        url -> "https://original.example/page",
+                        view -> null,
+                        () -> currentOwner,
+                        (tab, url) -> calls.append("https>"),
+                        url -> calls.append("current>"),
+                        url -> calls.append("gesture>"),
+                        url -> {
+                            calls.append("history>");
+                            return true;
+                        },
+                        (tab, url) -> {
+                            calls.append("safe>");
+                            return true;
+                        },
+                        url -> calls.append("lastSafe>"),
+                        () -> {
+                            calls.append("visible>");
+                            return true;
+                        },
+                        url -> calls.append("address>"),
+                        () -> calls.append("progress"));
+
+        assertSame(currentOwner, result.owner);
+        assertEquals("https://original.example/page", result.finalUrl);
+        assertEquals("https://original.example/page",
+                currentOwner.currentPageUrlForRequest);
+        assertEquals(
+                "https>current>gesture>history>safe>lastSafe>visible>address>progress",
+                calls.toString());
+    }
+
+    @Test
+    public void nonRecordableInvisiblePageSkipsSafeAndAddressUpdates() {
+        TabInfo viewOwner = new TabInfo("View", "", false);
+        int[] currentTabLookups = {0};
+        StringBuilder calls = new StringBuilder();
+
+        BrowserPageFinishCoordinator.Result result =
+                BrowserPageFinishCoordinator.handleActive(
+                        null,
+                        "https://example.com/page",
+                        url -> null,
+                        view -> viewOwner,
+                        () -> {
+                            currentTabLookups[0]++;
+                            return null;
+                        },
+                        null,
+                        null,
+                        null,
+                        url -> false,
+                        (tab, url) -> {
+                            calls.append("safe>");
+                            return true;
+                        },
+                        url -> calls.append("lastSafe>"),
+                        () -> false,
+                        url -> calls.append("address>"),
+                        () -> calls.append("progress"));
+
+        assertSame(viewOwner, result.owner);
+        assertEquals(0, currentTabLookups[0]);
+        assertEquals("progress", calls.toString());
+    }
 }

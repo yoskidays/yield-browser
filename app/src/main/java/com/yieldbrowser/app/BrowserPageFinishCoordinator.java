@@ -26,6 +26,40 @@ final class BrowserPageFinishCoordinator {
         void save(TabInfo tab, WebView view);
     }
 
+    interface TabSupplier {
+        TabInfo get();
+    }
+
+    interface NavigationSuccessHandler {
+        void handle(TabInfo tab, String url);
+    }
+
+    interface UrlConsumer {
+        void accept(String url);
+    }
+
+    interface UrlPredicate {
+        boolean test(String url);
+    }
+
+    interface TabUrlPredicate {
+        boolean test(TabInfo tab, String url);
+    }
+
+    interface BooleanSupplier {
+        boolean get();
+    }
+
+    static final class Result {
+        final TabInfo owner;
+        final String finalUrl;
+
+        private Result(TabInfo owner, String finalUrl) {
+            this.owner = owner;
+            this.finalUrl = finalUrl;
+        }
+    }
+
     private BrowserPageFinishCoordinator() {
     }
 
@@ -71,5 +105,61 @@ final class BrowserPageFinishCoordinator {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    static Result handleActive(WebView view,
+                               String rawUrl,
+                               UrlMapper originalUrlMapper,
+                               TabLookup tabLookup,
+                               TabSupplier currentTabSupplier,
+                               NavigationSuccessHandler navigationSuccessHandler,
+                               UrlConsumer currentUrlUpdater,
+                               UrlConsumer horizontalGestureScheduler,
+                               UrlPredicate historyPredicate,
+                               TabUrlPredicate safeCommitPredicate,
+                               UrlConsumer lastSafeUrlUpdater,
+                               BooleanSupplier activePageVisible,
+                               UrlConsumer addressBarUpdater,
+                               Runnable hideProgress) {
+        String extractedUrl = originalUrlMapper == null
+                ? null
+                : originalUrlMapper.map(rawUrl);
+        String finalUrl = BrowserPageFinishPolicy.chooseFinalUrl(
+                extractedUrl, rawUrl);
+        TabInfo viewOwner = tabLookup == null ? null : tabLookup.find(view);
+        TabInfo currentOwner = viewOwner == null && currentTabSupplier != null
+                ? currentTabSupplier.get()
+                : null;
+        TabInfo owner = BrowserPageFinishPolicy.chooseOwner(
+                viewOwner, currentOwner);
+
+        if (navigationSuccessHandler != null) {
+            navigationSuccessHandler.handle(owner, finalUrl);
+        }
+        if (currentUrlUpdater != null) currentUrlUpdater.accept(finalUrl);
+        if (owner != null) owner.currentPageUrlForRequest = finalUrl;
+        if (horizontalGestureScheduler != null) {
+            horizontalGestureScheduler.accept(finalUrl);
+        }
+
+        boolean recordableHistoryUrl = historyPredicate != null
+                && historyPredicate.test(finalUrl);
+        boolean safeToCommit = recordableHistoryUrl
+                && safeCommitPredicate != null
+                && safeCommitPredicate.test(owner, finalUrl);
+        if (BrowserPageFinishPolicy.shouldUpdateLastSafeUrl(
+                recordableHistoryUrl, safeToCommit)
+                && lastSafeUrlUpdater != null) {
+            lastSafeUrlUpdater.accept(finalUrl);
+        }
+
+        boolean pageVisible = activePageVisible != null
+                && activePageVisible.get();
+        if (BrowserPageFinishPolicy.shouldUpdateAddressBar(pageVisible)
+                && addressBarUpdater != null) {
+            addressBarUpdater.accept(finalUrl);
+        }
+        if (hideProgress != null) hideProgress.run();
+        return new Result(owner, finalUrl);
     }
 }

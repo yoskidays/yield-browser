@@ -10015,21 +10015,21 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     super.onPageFinished(view, url);
                     return;
                 }
-                String shownUrl = extractOriginalUrl(url);
-                String finalUrl = shownUrl != null ? shownUrl : url;
-                TabInfo currentTab = findTabByWebView(view);
-                if (currentTab == null) currentTab = getCurrentTab();
-                handleHttpsFirstNavigationSuccess(currentTab, finalUrl);
-                currentPageUrlForRequest = finalUrl;
-                if (currentTab != null) currentTab.currentPageUrlForRequest = finalUrl;
-                scheduleHorizontalGestureGuardCheck(finalUrl);
-                if (shouldRecordHistoryUrl(finalUrl) && canCommitUrlToTab(currentTab, finalUrl)) {
-                    lastSafeHttpUrl = finalUrl;
-                }
-                if (webView != null && webView.getVisibility() == View.VISIBLE) {
-                    addressBar.setText(finalUrl);
-                }
-                progressBar.setVisibility(View.GONE);
+                BrowserPageFinishCoordinator.Result pageFinish =
+                        BrowserPageFinishCoordinator.handleActive(
+                                view, url, MainActivity.this::extractOriginalUrl,
+                                MainActivity.this::findTabByWebView, MainActivity.this::getCurrentTab,
+                                MainActivity.this::handleHttpsFirstNavigationSuccess,
+                                finalUrl -> currentPageUrlForRequest = finalUrl,
+                                MainActivity.this::scheduleHorizontalGestureGuardCheck,
+                                MainActivity.this::shouldRecordHistoryUrl,
+                                MainActivity.this::canCommitUrlToTab,
+                                finalUrl -> lastSafeHttpUrl = finalUrl,
+                                () -> webView != null && webView.getVisibility() == View.VISIBLE,
+                                finalUrl -> addressBar.setText(finalUrl),
+                                () -> progressBar.setVisibility(View.GONE));
+                String finalUrl = pageFinish.finalUrl;
+                TabInfo currentTab = pageFinish.owner;
                 boolean pageReloadGuarded = isStrictSiteCompatibilityUrl(finalUrl) || isReloadLoopGuardActiveForUrl(finalUrl) || isSiteCompatibilityModeActiveForUrl(finalUrl);
                 if (isStrictSiteCompatibilityUrl(finalUrl)) {
                     applyPlainCompatibilitySettings();
