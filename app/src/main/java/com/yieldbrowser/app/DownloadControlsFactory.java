@@ -12,8 +12,8 @@ import android.widget.TextView;
 
 /** Creates Download Manager control rows without owning Activity state. */
 final class DownloadControlsFactory {
-    private static final int COLOR_BUTTON = Color.parseColor("#20232A");
-    private static final int COLOR_DANGER = Color.parseColor("#E5484D");
+    private static final int COLOR_BUTTON = 0xFF20232A;
+    private static final int COLOR_DANGER = 0xFFE5484D;
 
     private DownloadControlsFactory() {
     }
