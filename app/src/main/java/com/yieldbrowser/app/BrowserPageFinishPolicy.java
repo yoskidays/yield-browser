@@ -70,4 +70,8 @@ final class BrowserPageFinishPolicy {
     static long[] normalAdBlockRetryDelays(boolean adBlockEnabled) {
         return adBlockEnabled ? new long[]{1800L, 5200L} : new long[0];
     }
+
+    static long[] userFilterRetryDelays(boolean hasUserFilters) {
+        return hasUserFilters ? new long[]{350L, 1400L} : new long[0];
+    }
 }

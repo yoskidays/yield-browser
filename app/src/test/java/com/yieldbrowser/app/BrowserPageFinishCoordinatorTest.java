@@ -354,4 +354,28 @@ public class BrowserPageFinishCoordinatorTest {
                 () -> calls[0]++));
         assertEquals(0, calls[0]);
     }
+
+    @Test
+    public void userFiltersRunImmediatelyAndAtBothRetryDelays() {
+        StringBuilder calls = new StringBuilder();
+
+        assertTrue(BrowserPageFinishCoordinator.applyUserFilterEffects(
+                true,
+                () -> calls.append("apply>"),
+                delay -> calls.append(delay).append('>')));
+
+        assertEquals("apply>350>1400>", calls.toString());
+    }
+
+    @Test
+    public void absentUserFiltersDoNotRunEffects() {
+        int[] calls = {0};
+
+        assertFalse(BrowserPageFinishCoordinator.applyUserFilterEffects(
+                false,
+                () -> calls[0]++,
+                delay -> calls[0]++));
+
+        assertEquals(0, calls[0]);
+    }
 }

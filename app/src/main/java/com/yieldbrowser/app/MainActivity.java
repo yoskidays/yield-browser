@@ -10072,11 +10072,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         MainActivity.this::scheduleUniversalBlankCompatibilityRecovery,
                         MainActivity.this::scheduleUniversalReaderCompatibilityRepair,
                         MainActivity.this::updateVideoControlsVisibility);
-                if (hasUserFiltersForCurrentHost()) {
-                    applyUserFiltersForCurrentPage();
-                    mainHandler.postDelayed(MainActivity.this::applyUserFiltersForCurrentPage, 350);
-                    mainHandler.postDelayed(MainActivity.this::applyUserFiltersForCurrentPage, 1400);
-                }
+                BrowserPageFinishCoordinator.applyUserFilterEffects(
+                        hasUserFiltersForCurrentHost(),
+                        MainActivity.this::applyUserFiltersForCurrentPage,
+                        delay -> mainHandler.postDelayed(
+                                MainActivity.this::applyUserFiltersForCurrentPage, delay));
                 if (currentTab == null) currentTab = getCurrentTab();
                 if (shouldRecordHistoryUrl(finalUrl) && currentTab != null && !currentTab.privateTab) {
                     addBrowserHistory(view.getTitle(), finalUrl);

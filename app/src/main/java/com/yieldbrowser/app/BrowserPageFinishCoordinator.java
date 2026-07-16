@@ -287,6 +287,22 @@ final class BrowserPageFinishCoordinator {
         return true;
     }
 
+    static boolean applyUserFilterEffects(
+            boolean hasUserFilters,
+            Runnable applyUserFilters,
+            DelayScheduler userFilterScheduler) {
+        if (!hasUserFilters) return false;
+
+        run(applyUserFilters);
+        if (userFilterScheduler != null) {
+            for (long delay : BrowserPageFinishPolicy
+                    .userFilterRetryDelays(true)) {
+                userFilterScheduler.schedule(delay);
+            }
+        }
+        return true;
+    }
+
     private static boolean test(UrlPredicate predicate, String url) {
         return predicate != null && predicate.test(url);
     }
