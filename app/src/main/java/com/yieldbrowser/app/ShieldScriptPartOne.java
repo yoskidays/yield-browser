@@ -11,7 +11,7 @@ final class ShieldScriptPartOne {
                 + "function host(u){try{return(new URL(abs(u))).hostname.replace(/^www\\./,'').toLowerCase();}catch(e){return'';}}"
                 + "function path(u){try{return(new URL(abs(u))).pathname.toLowerCase();}catch(e){return'';}}"
                 + "function same(a,b){return !!a&&!!b&&(a===b||a.endsWith('.'+b)||b.endsWith('.'+a));}"
-                + "function asset(u){return /\\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|woff2?|ttf|otf|mp4|m4v|mov|webm|mkv|m3u8|mpd|m4s|ts|mp3|aac|wav|ogg|pdf|zip|rar|7z)(?:$|[?#])/i.test(String(u||''));}"
+                + "function asset(u){return /\\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|woff2?|ttf|otf|mp4|m4v|mov|webm|mkv|m3u8|mpd|m4s|ts|mp3|aac|wav|ogg|pdf|zip|rar|7z)$/i.test(path(u));}"
                 + "function contentPath(p){return /(?:^|[\\/_-])(?:manga|manhwa|manhua|comic|komik|chapter|chapitre|capitulo|episode|reader|read(?:-online)?|reading|baca|novel)(?:[\\/_-]|$)/i.test(p||'');}"
                 + "function downloadPath(p){return /(?:^|[\\/_-])(?:download(?:er|ing)?|unduh|get-file|file-download|download-file|episode-download|download-episode|download-drama)(?:[\\/_-]|$)/i.test(p||'');}"
                 + "function downloadTarget(u){return /(?:^|[\\/_.?&=\\-])(?:download|unduh|get-file|file|files|media|mirror|server|dl)(?:[\\/_.?&=\\-]|$)/i.test(dec(abs(u)));}"
