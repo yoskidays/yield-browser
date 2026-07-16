@@ -9977,20 +9977,19 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             @Override
             public void onPageCommitVisible(WebView view, String url) {
                 super.onPageCommitVisible(view, url);
-                if (view != webView) {
-                    TabInfo owner = findTabByWebView(view);
-                    if (owner != null) commitTabUrlIfSafe(owner, extractOriginalUrl(url) != null ? extractOriginalUrl(url) : url, owner.title);
-                    return;
-                }
-                String shownUrl = extractOriginalUrl(url);
-                String finalUrl = shownUrl != null ? shownUrl : url;
-                TabInfo commitOwner = findTabByWebView(view);
-                if (commitOwner == null) commitOwner = getCurrentTab();
-                handleHttpsFirstNavigationSuccess(commitOwner, finalUrl);
-                currentPageUrlForRequest = finalUrl;
-                if (commitOwner != null) commitOwner.currentPageUrlForRequest = finalUrl;
-                syncNightModeWebSettingsForUrl(finalUrl);
-                scheduleNightModeSyncForPage(finalUrl);
+                BrowserPageCommitCoordinator.Result pageCommit =
+                        BrowserPageCommitCoordinator.handle(
+                                view == webView, view, url,
+                                MainActivity.this::extractOriginalUrl,
+                                MainActivity.this::findTabByWebView,
+                                MainActivity.this::getCurrentTab,
+                                MainActivity.this::commitTabUrlIfSafe,
+                                MainActivity.this::handleHttpsFirstNavigationSuccess,
+                                finalUrl -> currentPageUrlForRequest = finalUrl,
+                                MainActivity.this::syncNightModeWebSettingsForUrl,
+                                MainActivity.this::scheduleNightModeSyncForPage);
+                if (pageCommit.inactiveView) return;
+                String finalUrl = pageCommit.finalUrl;
                 boolean compatibilityPage = isStrictSiteCompatibilityUrl(finalUrl)
                         || isSiteCompatibilityModeActiveForUrl(finalUrl);
                 syncShieldRuntimeState();
