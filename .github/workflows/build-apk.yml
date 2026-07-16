@@ -7,6 +7,10 @@ on:
       - main
       - master
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   build:
     name: Test and Build Debug APK
@@ -31,12 +35,55 @@ jobs:
           gradle-version: "8.10.2"
 
       - name: Run unit tests
+        id: unit_tests
+        continue-on-error: true
         run: gradle testDebugUnitTest --stacktrace
 
+      - name: Publish concise test failure
+        if: steps.unit_tests.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import glob
+          import os
+          import xml.etree.ElementTree as ET
+
+          failures = []
+          for path in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception:
+                  continue
+              for case in root.findall('.//testcase'):
+                  failure = case.find('failure')
+                  error = case.find('error')
+                  node = failure if failure is not None else error
+                  if node is None:
+                      continue
+                  name = f"{case.get('classname', '')}.{case.get('name', '')}".strip('.')
+                  message = (node.get('message') or (node.text or '').strip().split('\n')[0])[:1000]
+                  failures.append((name, message))
+
+          with open('ci-failure.md', 'w', encoding='utf-8') as out:
+              out.write(f"Automated diagnostic for commit `{os.environ.get('GITHUB_SHA', '')}`.\n\n")
+              if failures:
+                  for name, message in failures:
+                      out.write(f"- `{name}`: {message}\n")
+              else:
+                  out.write('Unit tests failed before JUnit produced an XML report. Check the workflow log.\n')
+          PY
+          gh issue create \
+            --title "CI diagnostic ${GITHUB_SHA}" \
+            --body-file ci-failure.md
+          exit 1
+
       - name: Build Debug APK
+        if: steps.unit_tests.outcome == 'success'
         run: gradle assembleDebug --stacktrace
 
       - name: Upload APK
+        if: steps.unit_tests.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: YieldBrowser-debug-apk
