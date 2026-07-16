@@ -10090,13 +10090,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         MainActivity.this::injectVideoPlaybackWatcher,
                         MainActivity.this::scheduleNightModeSyncForPage,
                         MainActivity.this::detectTranslateProxyBlocked);
-                if (!pageReloadGuarded && hideGoogleTranslateBar && isGoogleTranslatedUrl(url)) {
-                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 250);
-                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 800);
-                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 1800);
-                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 3500);
-                    mainHandler.postDelayed(() -> hideGoogleTranslateToolbar(), 6000);
-                }
+                BrowserPageFinishCoordinator.applyTranslateToolbarEffects(
+                        pageFinishProfile, hideGoogleTranslateBar, url,
+                        MainActivity.this::isGoogleTranslatedUrl,
+                        delay -> mainHandler.postDelayed(
+                                MainActivity.this::hideGoogleTranslateToolbar, delay));
                 if (!pageReloadGuarded && translateEnabled && compatibleTranslateActive && !translateManuallyDisabled && !isGoogleTranslatedUrl(url)) {
                     final int token = translateSessionToken;
                     mainHandler.postDelayed(() -> translatePageCompatible(token), 600);
