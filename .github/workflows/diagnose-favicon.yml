@@ -1,4 +1,4 @@
-name: Diagnose History Favicon Pipeline
+name: Safe Stage 4 History Favicon Pipeline
 
 on:
   push:
@@ -8,65 +8,82 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+  issues: write
+
 jobs:
-  inspect:
+  validate:
+    name: Test and build history favicon extraction
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Capture favicon fields and method
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Apply guarded MainActivity favicon delegation
+        run: python3 scripts/apply_history_favicon_refactor.py
+
+      - name: Run all unit tests
+        run: gradle testDebugUnitTest --stacktrace
+
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Commit validated MainActivity delegation
+        id: commit
+        if: github.event_name == 'push'
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/yieldbrowser/app/MainActivity.java
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Favicon delegation already committed."
+          else
+            git commit -m "Delegate history favicon pipeline from MainActivity"
+            git push origin HEAD:refactor/history-favicon-pipeline
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "feature_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          fi
 
-          path = Path('app/src/main/java/com/yieldbrowser/app/MainActivity.java')
-          text = path.read_text(encoding='utf-8')
-          lines = text.splitlines()
-          output = ['=== FAVICON REFERENCES ===']
-          for number, line in enumerate(lines, 1):
-              if 'favicon' in line.lower():
-                  output.append(f'{number}: {line}')
-
-          def extract_method(signature):
-              start = text.find(signature)
-              if start < 0:
-                  raise SystemExit(f'Method not found: {signature}')
-              brace = text.find('{', start)
-              depth = 0
-              in_string = False
-              escaped = False
-              quote = ''
-              for i in range(brace, len(text)):
-                  ch = text[i]
-                  if in_string:
-                      if escaped:
-                          escaped = False
-                      elif ch == '\\':
-                          escaped = True
-                      elif ch == quote:
-                          in_string = False
-                      continue
-                  if ch in ('\"', "'"):
-                      in_string = True
-                      quote = ch
-                  elif ch == '{':
-                      depth += 1
-                  elif ch == '}':
-                      depth -= 1
-                      if depth == 0:
-                          return text[start:i + 1]
-              raise SystemExit(f'Unclosed method: {signature}')
-
-          output.append('=== LOAD FAVICON METHOD ===')
-          output.append(extract_method('    private void loadFavicon('))
-          diagnostic = '\n'.join(output) + '\n'
-          Path('favicon-diagnostic.txt').write_text(diagnostic, encoding='utf-8')
-          print(diagnostic)
-          PY
-
-      - name: Upload favicon diagnostic
+      - name: Upload validated APK
         uses: actions/upload-artifact@v4
         with:
-          name: favicon-pipeline-diagnostic
-          path: favicon-diagnostic.txt
+          name: YieldBrowser-history-favicon-refactor-apk
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Publish successful checkpoint
+        if: success() && github.event_name == 'push' && steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEATURE_SHA: ${{ steps.commit.outputs.feature_sha }}
+        run: |
+          gh issue create \
+            --title "History favicon refactor verified ${GITHUB_RUN_ID}" \
+            --body "Feature commit: ${FEATURE_SHA}\nBranch: refactor/history-favicon-pipeline\nRun ID: ${GITHUB_RUN_ID}\nArtifact: YieldBrowser-history-favicon-refactor-apk"
+
+      - name: Publish failed checkpoint
+        if: failure() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "History favicon refactor failed ${GITHUB_RUN_ID}" \
+            --body "Run ID: ${GITHUB_RUN_ID}. MainActivity was not committed because validation failed."
