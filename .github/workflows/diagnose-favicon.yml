@@ -1,0 +1,60 @@
+name: Diagnose History Favicon Pipeline
+
+on:
+  push:
+    branches:
+      - refactor/history-favicon-pipeline
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Print favicon fields and methods
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/com/yieldbrowser/app/MainActivity.java')
+          text = path.read_text(encoding='utf-8')
+          lines = text.splitlines()
+          print('=== FAVICON REFERENCES ===')
+          for number, line in enumerate(lines, 1):
+              if 'favicon' in line.lower():
+                  print(f'{number}: {line}')
+
+          def extract_method(signature):
+              start = text.find(signature)
+              if start < 0:
+                  raise SystemExit(f'Method not found: {signature}')
+              brace = text.find('{', start)
+              depth = 0
+              in_string = False
+              escaped = False
+              quote = ''
+              for i in range(brace, len(text)):
+                  ch = text[i]
+                  if in_string:
+                      if escaped:
+                          escaped = False
+                      elif ch == '\\':
+                          escaped = True
+                      elif ch == quote:
+                          in_string = False
+                      continue
+                  if ch in ('\"', "'"):
+                      in_string = True
+                      quote = ch
+                  elif ch == '{':
+                      depth += 1
+                  elif ch == '}':
+                      depth -= 1
+                      if depth == 0:
+                          return text[start:i + 1]
+              raise SystemExit(f'Unclosed method: {signature}')
+
+          print('=== LOAD FAVICON METHOD ===')
+          print(extract_method('    private void loadFavicon('))
+          PY
