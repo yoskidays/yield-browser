@@ -89,4 +89,8 @@ final class BrowserPageFinishPolicy {
     static long[] compatibleTranslateRetryDelays(boolean shouldTranslate) {
         return shouldTranslate ? new long[]{600L, 2200L} : new long[0];
     }
+
+    static long[] keyboardHideRetryDelays(boolean pendingHide) {
+        return pendingHide ? new long[]{250L, 900L} : new long[0];
+    }
 }
