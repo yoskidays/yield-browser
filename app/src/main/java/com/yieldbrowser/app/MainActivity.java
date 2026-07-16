@@ -9864,40 +9864,26 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (view != webView) {
-                    super.onReceivedError(view, request, error);
+                if (BrowserWebErrorHandler.handle(
+                        webView,
+                        view,
+                        request,
+                        error,
+                        adBlock,
+                        lastSafeHttpUrl,
+                        MainActivity.this::handleHttpsFirstMainFrameFailure,
+                        MainActivity.this::isSiteCompatibilityModeActiveForUrl,
+                        MainActivity.this::isExternalSchemeUrl,
+                        MainActivity.this::isTrustedMainFrameNavigation,
+                        MainActivity.this::isKnownPopupHost,
+                        MainActivity.this::isLikelyAdClickUrl,
+                        MainActivity.this::isAdUrl,
+                        MainActivity.this::isSuspiciousPopupNavigation,
+                        MainActivity.this::restoreAfterBlockedNavigation,
+                        () -> smoothSearchTransitionActive,
+                        MainActivity.this::finishSmoothSearchTransition)) {
                     return;
                 }
-                try {
-                    String failedUrl = request != null && request.getUrl() != null ? request.getUrl().toString() : "";
-                    int errorCode = Build.VERSION.SDK_INT >= 23 && error != null ? error.getErrorCode() : 0;
-                    String errorText = error != null && error.getDescription() != null
-                            ? String.valueOf(error.getDescription()).toLowerCase(Locale.US)
-                            : "";
-                    if (request != null && request.isForMainFrame()
-                            && handleHttpsFirstMainFrameFailure(view, failedUrl, errorCode)) {
-                        return;
-                    }
-                    if (request != null && request.isForMainFrame()
-                            && isSiteCompatibilityModeActiveForUrl(failedUrl)) {
-                        // Compatibility mode: biarkan WebView menampilkan hasil/error asli situs,
-                        // jangan restore/goBack karena itu bisa memicu loop ke home.
-                        return;
-                    }
-                    if (request != null && request.isForMainFrame()
-                            && (isExternalSchemeUrl(failedUrl)
-                            || errorCode == WebViewClient.ERROR_UNSUPPORTED_SCHEME
-                            || errorText.contains("unknown_url_scheme")
-                            || (adBlock && !isTrustedMainFrameNavigation(failedUrl) && (isKnownPopupHost(failedUrl)
-                            || isLikelyAdClickUrl(failedUrl)
-                            || isAdUrl(failedUrl)
-                            || isSuspiciousPopupNavigation(failedUrl, lastSafeHttpUrl))))) {
-                        restoreAfterBlockedNavigation(view, failedUrl);
-                        return;
-                    }
-                } catch (Exception ignored) {
-                }
-                if (smoothSearchTransitionActive) finishSmoothSearchTransition();
                 super.onReceivedError(view, request, error);
             }
 
