@@ -3,8 +3,9 @@ package com.yieldbrowser.app;
 import android.webkit.WebView;
 
 /**
- * Prepares the stable, early portion of WebViewClient#onPageStarted while the
- * activity keeps history, navigation and Shield side effects that run later.
+ * Prepares the stable, early portion of WebViewClient#onPageStarted and handles
+ * its history and navigation-guard continuation while MainActivity supplies
+ * browser-specific callbacks.
  */
 final class BrowserPageStartCoordinator {
     interface TabLookup {
@@ -46,6 +47,14 @@ final class BrowserPageStartCoordinator {
 
     interface DelayScheduler {
         void schedule(long delayMs);
+    }
+
+    interface StringSupplier {
+        String get();
+    }
+
+    interface HistoryRecorder {
+        void record(String title, String url);
     }
 
     static final class Preparation {
@@ -184,6 +193,106 @@ final class BrowserPageStartCoordinator {
         }
     }
 
+    static boolean handleNavigation(WebView view,
+                                    String rawUrl,
+                                    TabInfo owner,
+                                    String safeReferenceUrl,
+                                    boolean adBlockEnabled,
+                                    boolean redirectBlockerEnabled,
+                                    Runnable showNavigationOverlay,
+                                    UrlPredicate historyPredicate,
+                                    Runnable historyUnlock,
+                                    HistoryRecorder historyRecorder,
+                                    StringSupplier currentUrlSupplier,
+                                    TabUrlLookup tabUrlLookup,
+                                    UrlPairPredicate compatibilityFlowPredicate,
+                                    UrlPredicate trustedNavigationPredicate,
+                                    UrlPairPredicate directImagePredicate,
+                                    UrlPredicate externalSchemePredicate,
+                                    UrlPairPredicate searchResultPredicate,
+                                    UrlPairPredicate suspiciousPopupPredicate,
+                                    UrlPredicate likelyAdClickPredicate,
+                                    RestoreCallback restoreCallback) {
+        try {
+            run(showNavigationOverlay);
+            if (test(historyPredicate, rawUrl)) {
+                run(historyUnlock);
+                if (historyRecorder != null) {
+                    historyRecorder.record(rawUrl, rawUrl);
+                }
+            }
+
+            String currentUrl = currentUrlSupplier == null
+                    ? ""
+                    : currentUrlSupplier.get();
+            String tabReference = "";
+            if ((safeReferenceUrl == null || safeReferenceUrl.length() == 0)
+                    && tabUrlLookup != null) {
+                tabReference = tabUrlLookup.get(owner);
+            }
+            String directImageReference =
+                    BrowserPageStartPolicy.chooseNavigationReference(
+                            safeReferenceUrl, tabReference, currentUrl);
+            boolean referenceCompatibilityFlow = test(
+                    compatibilityFlowPredicate, rawUrl, directImageReference);
+            boolean currentCompatibilityFlow = !referenceCompatibilityFlow
+                    && test(compatibilityFlowPredicate, rawUrl, currentUrl);
+            boolean compatibilityFlow = BrowserPageStartPolicy.isCompatibilityFlow(
+                    referenceCompatibilityFlow, currentCompatibilityFlow);
+
+            boolean trustedNavigation = false;
+            if (!compatibilityFlow) {
+                trustedNavigation = test(trustedNavigationPredicate, rawUrl);
+                boolean directImageNavigation = !trustedNavigation
+                        && test(directImagePredicate, rawUrl, directImageReference);
+                if (BrowserPageStartPolicy.shouldRestoreDirectImage(
+                        compatibilityFlow,
+                        trustedNavigation,
+                        directImageNavigation)) {
+                    restore(restoreCallback, view, rawUrl);
+                    return true;
+                }
+            }
+
+            if (BrowserPageStartPolicy.shouldRestoreExternalScheme(
+                    test(externalSchemePredicate, rawUrl))) {
+                restore(restoreCallback, view, rawUrl);
+                return true;
+            }
+
+            boolean searchResultNavigation = false;
+            boolean suspiciousPopupNavigation = false;
+            boolean likelyAdClick = false;
+            if (!compatibilityFlow
+                    && adBlockEnabled
+                    && redirectBlockerEnabled
+                    && !trustedNavigation) {
+                searchResultNavigation = test(
+                        searchResultPredicate, rawUrl, currentUrl);
+                if (!searchResultNavigation) {
+                    suspiciousPopupNavigation = test(
+                            suspiciousPopupPredicate, rawUrl, currentUrl);
+                    if (!suspiciousPopupNavigation) {
+                        likelyAdClick = test(likelyAdClickPredicate, rawUrl);
+                    }
+                }
+            }
+            if (BrowserPageStartPolicy.shouldRestoreRedirect(
+                    compatibilityFlow,
+                    adBlockEnabled,
+                    redirectBlockerEnabled,
+                    trustedNavigation,
+                    searchResultNavigation,
+                    suspiciousPopupNavigation,
+                    likelyAdClick)) {
+                restore(restoreCallback, view, rawUrl);
+                return true;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
     private static boolean test(UrlPredicate predicate, String url) {
         return predicate != null && predicate.test(url);
     }
@@ -196,5 +305,11 @@ final class BrowserPageStartCoordinator {
 
     private static void run(Runnable runnable) {
         if (runnable != null) runnable.run();
+    }
+
+    private static void restore(RestoreCallback callback,
+                                WebView view,
+                                String url) {
+        if (callback != null) callback.restore(view, url);
     }
 }
