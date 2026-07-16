@@ -10102,14 +10102,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         () -> translateSessionToken,
                         (token, delay) -> mainHandler.postDelayed(
                                 () -> translatePageCompatible(token), delay));
-                if (pendingHideKeyboardAfterNavigation) {
-                    blurWebInputsAndHideKeyboard();
-                    mainHandler.postDelayed(() -> blurWebInputsAndHideKeyboard(), 250);
-                    mainHandler.postDelayed(() -> {
-                        blurWebInputsAndHideKeyboard();
-                        pendingHideKeyboardAfterNavigation = false;
-                    }, 900);
-                }
+                BrowserPageFinishCoordinator.applyKeyboardEffects(
+                        pendingHideKeyboardAfterNavigation,
+                        MainActivity.this::blurWebInputsAndHideKeyboard,
+                        () -> pendingHideKeyboardAfterNavigation = false,
+                        (action, delay) -> mainHandler.postDelayed(action, delay));
                 if (smoothSearchTransitionActive) {
                     mainHandler.postDelayed(() -> finishSmoothSearchTransition(), 220);
                 }

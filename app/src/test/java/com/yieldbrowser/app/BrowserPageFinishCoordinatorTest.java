@@ -625,4 +625,35 @@ public class BrowserPageFinishCoordinatorTest {
 
         assertEquals(0, tokenCalls[0]);
     }
+
+    @Test
+    public void keyboardPendingFlagClearsOnlyAfterFinalBlurRetry() {
+        StringBuilder calls = new StringBuilder();
+
+        assertTrue(BrowserPageFinishCoordinator.applyKeyboardEffects(
+                true,
+                () -> calls.append("blur>"),
+                () -> calls.append("clear>"),
+                (action, delay) -> {
+                    calls.append("schedule").append(delay).append('>');
+                    action.run();
+                }));
+
+        assertEquals(
+                "blur>schedule250>blur>schedule900>blur>clear>",
+                calls.toString());
+    }
+
+    @Test
+    public void noPendingKeyboardHideSkipsAllEffects() {
+        int[] calls = {0};
+
+        assertFalse(BrowserPageFinishCoordinator.applyKeyboardEffects(
+                false,
+                () -> calls[0]++,
+                () -> calls[0]++,
+                (action, delay) -> calls[0]++));
+
+        assertEquals(0, calls[0]);
+    }
 }

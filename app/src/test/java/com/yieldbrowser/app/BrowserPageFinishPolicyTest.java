@@ -123,4 +123,12 @@ public class BrowserPageFinishPolicyTest {
         assertArrayEquals(new long[0],
                 BrowserPageFinishPolicy.compatibleTranslateRetryDelays(false));
     }
+
+    @Test
+    public void keyboardHideRetryScheduleRemainsStable() {
+        assertArrayEquals(new long[]{250L, 900L},
+                BrowserPageFinishPolicy.keyboardHideRetryDelays(true));
+        assertArrayEquals(new long[0],
+                BrowserPageFinishPolicy.keyboardHideRetryDelays(false));
+    }
 }

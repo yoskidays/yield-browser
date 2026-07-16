@@ -66,6 +66,10 @@ final class BrowserPageFinishCoordinator {
         void schedule(int token, long delayMs);
     }
 
+    interface RunnableDelayScheduler {
+        void schedule(Runnable action, long delayMs);
+    }
+
     static final class Result {
         final TabInfo owner;
         final String finalUrl;
@@ -416,6 +420,28 @@ final class BrowserPageFinishCoordinator {
             for (long delay : BrowserPageFinishPolicy
                     .compatibleTranslateRetryDelays(true)) {
                 translateScheduler.schedule(token, delay);
+            }
+        }
+        return true;
+    }
+
+    static boolean applyKeyboardEffects(
+            boolean pendingHideKeyboard,
+            Runnable blurAndHideKeyboard,
+            Runnable clearPendingHide,
+            RunnableDelayScheduler keyboardScheduler) {
+        if (!pendingHideKeyboard) return false;
+
+        run(blurAndHideKeyboard);
+        if (keyboardScheduler != null) {
+            long[] delays = BrowserPageFinishPolicy
+                    .keyboardHideRetryDelays(true);
+            for (int index = 0; index < delays.length; index++) {
+                boolean clearAfterRun = index == delays.length - 1;
+                keyboardScheduler.schedule(() -> {
+                    run(blurAndHideKeyboard);
+                    if (clearAfterRun) run(clearPendingHide);
+                }, delays[index]);
             }
         }
         return true;
