@@ -93,4 +93,8 @@ final class BrowserPageFinishPolicy {
     static long[] keyboardHideRetryDelays(boolean pendingHide) {
         return pendingHide ? new long[]{250L, 900L} : new long[0];
     }
+
+    static long[] smoothTransitionFinishDelays(boolean transitionActive) {
+        return transitionActive ? new long[]{220L} : new long[0];
+    }
 }

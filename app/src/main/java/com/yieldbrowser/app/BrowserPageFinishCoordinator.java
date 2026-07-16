@@ -447,6 +447,21 @@ final class BrowserPageFinishCoordinator {
         return true;
     }
 
+    static void applyFinalEffects(
+            boolean smoothTransitionActive,
+            DelayScheduler finishTransitionScheduler,
+            Runnable scheduleCloseDetectedAdTabs,
+            Runnable updateTopActionStates) {
+        if (finishTransitionScheduler != null) {
+            for (long delay : BrowserPageFinishPolicy
+                    .smoothTransitionFinishDelays(smoothTransitionActive)) {
+                finishTransitionScheduler.schedule(delay);
+            }
+        }
+        run(scheduleCloseDetectedAdTabs);
+        run(updateTopActionStates);
+    }
+
     private static boolean test(UrlPredicate predicate, String url) {
         return predicate != null && predicate.test(url);
     }
