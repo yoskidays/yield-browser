@@ -40,7 +40,9 @@ jobs:
         run: python3 scripts/apply_download_controls_factory.py
 
       - name: Run unit tests
-        run: gradle testDebugUnitTest --stacktrace
+        run: |
+          set -o pipefail
+          gradle testDebugUnitTest --stacktrace 2>&1 | tee /tmp/unit-test.log
 
       - name: Build Debug APK
         run: gradle assembleDebug --stacktrace
@@ -82,6 +84,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          {
+            echo "Run ID: ${GITHUB_RUN_ID}. MainActivity was not changed because validation failed."
+            echo
+            echo '```text'
+            if [ -f /tmp/unit-test.log ]; then
+              tail -n 120 /tmp/unit-test.log
+            else
+              echo "Unit-test log was not created."
+            fi
+            echo '```'
+          } > /tmp/failure-body.md
           gh issue create \
-            --title "Download controls refactor failed ${GITHUB_RUN_ID}" \
-            --body "Run ID: ${GITHUB_RUN_ID}. MainActivity was not changed because validation failed."
+            --title "Download controls diagnostic ${GITHUB_RUN_ID}" \
+            --body-file /tmp/failure-body.md
