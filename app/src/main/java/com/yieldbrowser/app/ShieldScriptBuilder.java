@@ -22,7 +22,8 @@ final class ShieldScriptBuilder {
                 + ShieldScriptPartOne.value()
                 + ShieldScriptPartTwo.value()
                 + ShieldScriptPartThree.value()
-                + "}catch(e){}})();";
+                + "}catch(e){}})();"
+                + YouTubeAdGuardScript.script();
     }
 
     static String runtimeConfig(boolean enabled,
