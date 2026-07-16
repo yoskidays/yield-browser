@@ -5862,16 +5862,13 @@ private void showDownloadSettingsPanel() {
         if (activeDownloadEmptyView != null) {
             boolean empty = snapshots.isEmpty();
             activeDownloadEmptyView.setVisibility(empty ? View.VISIBLE : View.GONE);
-            activeDownloadEmptyView.setText(activeDownloadSearchQuery == null || activeDownloadSearchQuery.isEmpty()
-                    ? ("Selesai".equals(activeDownloadSection)
-                        ? "Belum ada file yang selesai diunduh."
-                        : "Belum ada unduhan aktif atau tertunda.")
-                    : "Tidak ada unduhan yang cocok dengan pencarian.");
+            activeDownloadEmptyView.setText(DownloadPanelPresentation.emptyMessage(
+                    activeDownloadSection, activeDownloadSearchQuery));
         }
 
         if (activeDownloadTitleView != null) {
-            activeDownloadTitleView.setText(downloadSelectMode
-                    ? selectedDownloadIds.size() + " dipilih" : "Unduhan");
+            activeDownloadTitleView.setText(DownloadPanelPresentation.title(
+                    downloadSelectMode, selectedDownloadIds.size()));
         }
         if (activeDownloadStorageView != null) {
             long now = System.currentTimeMillis();
@@ -5885,21 +5882,24 @@ private void showDownloadSettingsPanel() {
             }
             int active = countActiveDownloads();
             int queued = countQueuedDownloads();
-            String storageText = cachedDownloadStorageText;
-            if (finalizing) storageText += "  •  sedang menyimpan file besar";
-            activeDownloadStorageView.setText(storageText
-                    + "  •  aktif " + active + "  •  antri " + queued);
+            activeDownloadStorageView.setText(DownloadPanelPresentation.storageSummary(
+                    cachedDownloadStorageText, finalizing, active, queued));
         }
         renderDownloadControlsIfNeeded();
     }
 
     private void renderDownloadControlsIfNeeded() {
         if (activeDownloadControlsPanel == null) return;
-        String signature = activeDownloadSection + "|" + activeDownloadSort + "|"
-                + downloadSelectMode + "|" + selectedDownloadIds.size() + "|"
-                + countActiveDownloads() + "|" + countQueuedDownloads() + "|"
-                + downloadQueuePaused + "|" + downloadMaxActive + "|"
-                + countCompletedDownloadHistory();
+        String signature = DownloadPanelPresentation.controlsSignature(
+                activeDownloadSection,
+                activeDownloadSort,
+                downloadSelectMode,
+                selectedDownloadIds.size(),
+                countActiveDownloads(),
+                countQueuedDownloads(),
+                downloadQueuePaused,
+                downloadMaxActive,
+                countCompletedDownloadHistory());
         if (signature.equals(lastDownloadControlsSignature)) return;
         lastDownloadControlsSignature = signature;
         activeDownloadControlsPanel.removeAllViews();
