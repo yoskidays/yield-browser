@@ -6024,104 +6024,15 @@ private void showDownloadSettingsPanel() {
     }
 
     private DownloadUiItem buildDownloadUiItem(DownloadItem item) {
-        long total = item.hlsDownload ? 0L : Math.max(0L, item.totalBytes);
-        long downloaded = item.hlsDownload
-                ? Math.max(0L, item.hlsOutputBytes)
-                : Math.max(0L, item.downloadedBytes);
-        int progressBasisPoints = calculateUiProgressBasisPoints(item, downloaded, total);
-        int progressPercent = Math.min(100, Math.max(0, Math.round(progressBasisPoints / 100f)));
-        String status = safeText(item.status);
-        String sizeText;
-        if ("completed".equals(status)) {
-            sizeText = readableFileSize(getDownloadSize(item));
-        } else if (item.hlsDownload && item.totalBytes > 0) {
-            sizeText = readableFileSize(item.hlsOutputBytes) + " • "
-                    + item.hlsCompletedSegments + "/" + item.totalBytes + " segmen";
-        } else if (total > 0) {
-            sizeText = readableFileSize(downloaded) + " / " + readableFileSize(total);
-        } else if (downloaded > 0) {
-            sizeText = readableFileSize(downloaded);
-        } else {
-            sizeText = "Menyiapkan ukuran file";
-        }
-
-        String activityText;
-        String detailText = getDownloadHost(item);
-        boolean showProgress = true;
-        boolean showPrimaryAction = true;
-        String primaryAction;
-
-        if ("saving".equals(status)) {
-            activityText = "Menyimpan ke Downloads…";
-            detailText = "File selesai diunduh • jangan tutup proses";
-            showPrimaryAction = false;
-            primaryAction = "";
-        } else if ("verifying".equals(status)) {
-            activityText = "Memverifikasi file…";
-            detailText = "Memastikan file lengkap sebelum disimpan";
-            showProgress = false;
-            showPrimaryAction = false;
-            primaryAction = "";
-        } else if ("running".equals(status)) {
-            double speed = item.smoothedSpeedBytesPerSecond > 0
-                    ? item.smoothedSpeedBytesPerSecond : item.speedBytesPerSecond;
-            activityText = readableSpeed(speed);
-            String eta = formatEta(item.etaSeconds);
-            if (!eta.isEmpty()) activityText += " • " + eta;
-            if (canPlayDownloadInsideYield(item)) detailText = "Ketuk untuk menonton sambil download";
-            primaryAction = "Ⅱ";
-        } else if ("queued".equals(status)) {
-            int position = getDownloadQueuePosition(item);
-            activityText = position > 0 ? "Menunggu antrean • posisi " + position : "Menunggu slot download";
-            detailText = "Siap dimulai otomatis";
-            primaryAction = "▶";
-        } else if ("paused".equals(status)) {
-            activityText = "Dijeda • " + progressPercent + "%";
-            detailText = canPlayDownloadInsideYield(item)
-                    ? "Ketuk untuk menonton bagian yang sudah tersedia"
-                    : "Tekan lanjutkan untuk meneruskan";
-            primaryAction = "▶";
-        } else if ("failed".equals(status)) {
-            activityText = "Download gagal";
-            detailText = safeText(item.failReason).isEmpty() ? "Tekan ulangi untuk mencoba lagi" : item.failReason;
-            primaryAction = "↻";
-        } else {
-            activityText = "Selesai";
-            if (canPlayDownloadInsideYield(item)) detailText = "Ketuk untuk menonton di Yield";
-            else detailText = detailText.isEmpty() ? "Ketuk untuk membuka file" : detailText;
-            showProgress = false;
-            showPrimaryAction = false;
-            primaryAction = "";
-            progressBasisPoints = 10_000;
-            progressPercent = 100;
-        }
-
-        return new DownloadUiItem(item.id, item.fileName, getDownloadCategory(item), status,
-                sizeText, activityText, detailText, progressBasisPoints, progressPercent,
-                showProgress, showPrimaryAction, primaryAction, downloadSelectMode,
+        return DownloadUiItemFactory.build(
+                item,
+                getDownloadCategory(item),
+                getDownloadHost(item),
+                getDownloadSize(item),
+                canPlayDownloadInsideYield(item),
+                getDownloadQueuePosition(item),
+                downloadSelectMode,
                 selectedDownloadIds.contains(item.id));
-    }
-
-    private int calculateUiProgressBasisPoints(DownloadItem item, long downloaded, long total) {
-        if (item == null) return 0;
-        if ("saving".equals(item.status) || "verifying".equals(item.status)) {
-            return Math.max(0, Math.min(10_000, item.finalizeProgress * 100));
-        }
-        if (item.hlsDownload && item.totalBytes > 0) {
-            return DownloadUiMetrics.progressBasisPoints(
-                    item.hlsCompletedSegments, item.totalBytes, item.progress);
-        }
-        return DownloadUiMetrics.progressBasisPoints(downloaded, total, item.progress);
-    }
-
-    private String formatEta(long seconds) {
-        if (seconds <= 0 || seconds == Long.MAX_VALUE) return "";
-        if (seconds < 60) return "tersisa " + Math.max(1, seconds) + " detik";
-        long minutes = seconds / 60;
-        if (minutes < 60) return "tersisa " + minutes + " menit";
-        long hours = minutes / 60;
-        long remainMinutes = minutes % 60;
-        return "tersisa " + hours + " jam" + (remainMinutes > 0 ? " " + remainMinutes + " menit" : "");
     }
 
     private int getDownloadQueuePosition(DownloadItem target) {
