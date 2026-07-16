@@ -1,4 +1,4 @@
-name: Diagnose Tab Navigation
+name: Safe Stage 5 Tab Navigation Policy
 
 on:
   push:
@@ -8,86 +8,60 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
-  inspect:
+  validate:
+    name: Test and build tab navigation extraction
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Capture tab and navigation methods
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Apply guarded MainActivity tab navigation delegation
+        run: python3 scripts/apply_tab_navigation_policy_refactor.py
+
+      - name: Run all unit tests
+        run: gradle testDebugUnitTest --stacktrace
+
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Commit validated MainActivity delegation
+        if: github.event_name == 'push'
+        env:
+          HEAD_BRANCH: refactor/tab-navigation-policy
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/yieldbrowser/app/MainActivity.java
+          if git diff --cached --quiet; then
+            echo "Tab navigation delegation already committed."
+          else
+            git commit -m "Delegate tab navigation decisions from MainActivity"
+            git push origin HEAD:${HEAD_BRANCH}
+          fi
 
-          path = Path('app/src/main/java/com/yieldbrowser/app/MainActivity.java')
-          text = path.read_text(encoding='utf-8')
-          lines = text.splitlines()
-          selected = []
-          method_re = re.compile(r'^    (?:private|protected|public|final|static|synchronized|void|boolean|int|long|String|TabInfo|WebView|View|LinearLayout|FrameLayout|TextView|ImageButton|Dialog|ArrayList<[^>]+>|List<[^>]+>|Set<[^>]+>|Map<[^>]+>|[A-Za-z0-9_<>?,. ]+)\s+([A-Za-z0-9_]+)\s*\(')
-          wanted_exact = {
-              'getCurrentTab', 'findTabByWebView', 'isCurrentTabInfo', 'isLiveTabWebView',
-              'createNewTab', 'createTab', 'switchToTab', 'closeTab', 'showTabsPanel',
-              'saveTabsSession', 'restoreTabsSession', 'saveCurrentTabState',
-              'navigateSwipeBack', 'navigateSwipeForward', 'restoreHiddenWebPage',
-              'updateTabsCountUi', 'navigateCurrentTabHome', 'discardPrivateTabsForExplicitExit'
-          }
-
-          def extract(start_line):
-              start = sum(len(x) + 1 for x in lines[:start_line])
-              brace = text.find('{', start)
-              if brace < 0:
-                  return ''
-              depth = 0
-              in_string = False
-              escaped = False
-              quote = ''
-              for i in range(brace, len(text)):
-                  ch = text[i]
-                  if in_string:
-                      if escaped:
-                          escaped = False
-                      elif ch == '\\':
-                          escaped = True
-                      elif ch == quote:
-                          in_string = False
-                      continue
-                  if ch in ('"', "'"):
-                      in_string = True
-                      quote = ch
-                  elif ch == '{':
-                      depth += 1
-                  elif ch == '}':
-                      depth -= 1
-                      if depth == 0:
-                          return text[start:i + 1]
-              return ''
-
-          for index, line in enumerate(lines):
-              match = method_re.match(line)
-              if not match:
-                  continue
-              name = match.group(1)
-              lower = name.lower()
-              if name in wanted_exact or 'tab' in lower or name.startswith('navigateSwipe'):
-                  body = extract(index)
-                  if body:
-                      selected.append(f'===== LINE {index + 1}: {name} =====\n{body}')
-
-          fields = []
-          for number, line in enumerate(lines, 1):
-              lower = line.lower()
-              if any(token in lower for token in ('currenttabindex', 'tabcount', 'arraylist<tabinfo>', 'skipnextswitchtabstatesave', 'skipnextshowhometabsave')):
-                  fields.append(f'{number}: {line}')
-
-          output = '=== TAB FIELDS ===\n' + '\n'.join(fields) + '\n\n' + '\n\n'.join(selected) + '\n'
-          Path('tab-navigation-diagnostic.txt').write_text(output, encoding='utf-8')
-          print(output)
-          PY
-
-      - name: Upload diagnostic
+      - name: Upload validated APK
         uses: actions/upload-artifact@v4
         with:
-          name: tab-navigation-diagnostic
-          path: tab-navigation-diagnostic.txt
+          name: YieldBrowser-tab-navigation-refactor-apk
+          path: app/build/outputs/apk/debug/*.apk
