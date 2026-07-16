@@ -39,6 +39,7 @@ final class YouTubeAdGuardScript {
 
     private static final String PAGE_SCRIPT =
             "(function(){'use strict';try{"
+                    + "var H=(location.hostname||'').toLowerCase().replace(/^www\\./,'');if(!(H==='youtube.com'||H.endsWith('.youtube.com')||H==='youtube-nocookie.com'||H.endsWith('.youtube-nocookie.com')))return;"
                     + "if(window.__yieldYouTubeAdGuardV1){window.__yieldYouTubeAdGuardV1.run();return;}"
                     + "var S={timer:0,observer:null,mutedByGuard:false,oldMuted:false,oldRate:1,adSince:0};"
                     + "var SKIP='.ytp-ad-skip-button,.ytp-skip-ad-button,.ytp-ad-skip-button-modern,button.ytp-ad-skip-button,[id^=skip-button] button,ytd-button-renderer#skip-button button,.videoAdUiSkipButton,.ytp-ad-overlay-close-button';"
