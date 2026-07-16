@@ -28,6 +28,9 @@ public class YouTubeAdGuardScriptTest {
         assertTrue(script.contains("ytd-in-feed-ad-layout-renderer"));
         assertTrue(script.contains("playbackRate=16"));
         assertTrue(script.contains("S.oldMuted"));
+        assertTrue(script.contains("__yieldShieldV2State"));
+        assertTrue(script.contains("restoreHidden"));
+        assertTrue(script.contains("data-yield-yt-ad-hidden"));
 
         assertFalse(script.contains("googlevideo"));
         assertFalse(script.contains("XMLHttpRequest"));
