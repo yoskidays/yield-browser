@@ -1,1 +1,1 @@
-This branch is intentionally minimal. The pull request workflow applies the refactor, runs all unit tests, builds the APK, and only then commits the validated change.
+Retry the staged refactor after simplifying the pull request workflow. No production code is changed by this marker commit.
