@@ -2,6 +2,7 @@ package com.yieldbrowser.app;
 
 import org.junit.Test;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
@@ -60,5 +61,17 @@ public class BrowserPageFinishPolicyTest {
                 BrowserPageFinishPolicy.Profile.GUARDED_COMPATIBILITY));
         assertFalse(BrowserPageFinishPolicy.isReloadGuarded(
                 BrowserPageFinishPolicy.Profile.NORMAL));
+    }
+
+    @Test
+    public void guardedEffectRetrySchedulesRemainStable() {
+        assertArrayEquals(new long[]{900L, 2600L},
+                BrowserPageFinishPolicy.guardedShieldRetryDelays(true));
+        assertArrayEquals(new long[0],
+                BrowserPageFinishPolicy.guardedShieldRetryDelays(false));
+        assertArrayEquals(new long[]{350L, 1200L, 2600L},
+                BrowserPageFinishPolicy.guardedViewportDelays(true));
+        assertArrayEquals(new long[]{350L},
+                BrowserPageFinishPolicy.guardedViewportDelays(false));
     }
 }

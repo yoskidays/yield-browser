@@ -46,4 +46,14 @@ final class BrowserPageFinishPolicy {
     static boolean isReloadGuarded(Profile profile) {
         return profile != Profile.NORMAL;
     }
+
+    static long[] guardedShieldRetryDelays(boolean adBlockEnabled) {
+        return adBlockEnabled ? new long[]{900L, 2600L} : new long[0];
+    }
+
+    static long[] guardedViewportDelays(boolean desktopMode) {
+        return desktopMode
+                ? new long[]{350L, 1200L, 2600L}
+                : new long[]{350L};
+    }
 }
