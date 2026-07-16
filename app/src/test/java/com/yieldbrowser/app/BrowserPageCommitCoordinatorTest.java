@@ -96,4 +96,66 @@ public class BrowserPageCommitCoordinatorTest {
         assertEquals("", currentOwner.currentPageUrlForRequest);
         assertEquals(0, currentTabLookups[0]);
     }
+
+    @Test
+    public void normalPageRunsFallbackCssAndFiltersInOriginalOrder() {
+        StringBuilder calls = new StringBuilder();
+
+        BrowserPageCommitCoordinator.applyEffects(
+                "https://normal.example/page",
+                true,
+                url -> false,
+                url -> false,
+                () -> calls.append("sync>"),
+                () -> calls.append("fallback>"),
+                () -> calls.append("css>"),
+                () -> calls.append("compat>"),
+                url -> calls.append("repair>"),
+                () -> true,
+                () -> calls.append("filters"));
+
+        assertEquals("sync>fallback>css>filters", calls.toString());
+    }
+
+    @Test
+    public void compatibilityPageRunsTargetedShieldAndRepair() {
+        StringBuilder calls = new StringBuilder();
+
+        BrowserPageCommitCoordinator.applyEffects(
+                "https://compat.example/page",
+                true,
+                url -> false,
+                url -> true,
+                () -> calls.append("sync>"),
+                () -> calls.append("fallback>"),
+                () -> calls.append("css>"),
+                () -> calls.append("compat>"),
+                url -> calls.append("repair"),
+                () -> false,
+                () -> calls.append("filters"));
+
+        assertEquals("sync>fallback>compat>repair", calls.toString());
+    }
+
+    @Test
+    public void compatibilityWithoutAdBlockStillSchedulesReaderRepair() {
+        StringBuilder calls = new StringBuilder();
+
+        BrowserPageCommitCoordinator.applyEffects(
+                "https://compat.example/page",
+                false,
+                url -> true,
+                url -> {
+                    throw new AssertionError("site predicate must short-circuit");
+                },
+                () -> calls.append("sync>"),
+                () -> calls.append("fallback>"),
+                () -> calls.append("css>"),
+                () -> calls.append("compat>"),
+                url -> calls.append("repair"),
+                () -> false,
+                () -> calls.append("filters"));
+
+        assertEquals("sync>repair", calls.toString());
+    }
 }
