@@ -1286,57 +1286,18 @@ content.addView(space(dp(36)));
         return item;
     }
 
-    private static final class WebViewBinding {
-        final TabInfo tab;
-        final long generation;
 
-        WebViewBinding(TabInfo tab, long generation) {
-            this.tab = tab;
-            this.generation = generation;
-        }
-    }
 
     private TabInfo findTabByWebView(WebView candidate) {
-        if (candidate == null) return null;
-        try {
-            Object tag = candidate.getTag();
-            if (tag instanceof WebViewBinding) {
-                WebViewBinding binding = (WebViewBinding) tag;
-                TabInfo owner = binding.tab;
-                if (owner != null && !owner.closed && owner.webView == candidate
-                        && owner.webViewGeneration == binding.generation) {
-                    return owner;
-                }
-                return null;
-            }
-            // Legacy fallback for a WebView created before bindings were introduced.
-            for (TabInfo tab : tabs) {
-                if (tab != null && !tab.closed && tab.webView == candidate) return tab;
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
+        return TabWebViewLifecycle.findOwner(tabs, candidate);
     }
 
     private boolean isLiveTabWebView(TabInfo tab, WebView candidate, long generation) {
-        return tab != null && !tab.closed && candidate != null
-                && tab.webView == candidate && tab.webViewGeneration == generation
-                && findTabByWebView(candidate) == tab;
+        return TabWebViewLifecycle.isLive(tabs, tab, candidate, generation);
     }
 
     private boolean isPrivateWebView(WebView candidate) {
-        if (dedicatedPrivateProfile) return true;
-        if (candidate == null) return false;
-        try {
-            Object tag = candidate.getTag();
-            if (tag instanceof WebViewBinding) {
-                TabInfo owner = ((WebViewBinding) tag).tab;
-                if (owner != null) return owner.privateTab;
-            }
-        } catch (Exception ignored) {
-        }
-        TabInfo owner = findTabByWebView(candidate);
-        return owner != null && owner.privateTab;
+        return TabWebViewLifecycle.isPrivate(dedicatedPrivateProfile, tabs, candidate);
     }
 
     private void applyProfileCookiePolicy(WebView candidate) {
@@ -1364,56 +1325,26 @@ content.addView(space(dp(36)));
     }
 
     private void attachWebViewToContentFrame(WebView candidate) {
-        if (candidate == null || contentFrame == null) return;
-        try {
-            if (candidate.getParent() == null) {
-                int insertIndex = 0;
-                try {
-                    insertIndex = homeScroll != null && homeScroll.getParent() == contentFrame ? 1 : contentFrame.getChildCount();
-                    if (navigationLoadingOverlay != null && navigationLoadingOverlay.getParent() == contentFrame) {
-                        int overlayIndex = contentFrame.indexOfChild(navigationLoadingOverlay);
-                        if (overlayIndex >= 0) insertIndex = Math.max(0, overlayIndex);
-                    }
-                } catch (Exception ignored) {
-                    insertIndex = contentFrame.getChildCount();
-                }
-                contentFrame.addView(candidate, insertIndex, new FrameLayout.LayoutParams(-1, -1));
-            }
-            if (navigationLoadingOverlay != null) navigationLoadingOverlay.bringToFront();
-        } catch (Exception ignored) {
-        }
+        TabWebViewLifecycle.attach(
+                contentFrame, homeScroll, navigationLoadingOverlay, candidate);
     }
 
     private WebView ensureTabWebView(TabInfo tab, int visibility) {
-        if (tab == null) return webView;
-        if (tab.closed) return null;
-        try {
-            if (tab.webView == null) {
-                WebView created = createBrowserWebView(tab, visibility);
-                tab.webView = created;
-                attachWebViewToContentFrame(created);
-            } else {
-                webView = tab.webView;
-                attachWebViewToContentFrame(webView);
-                try { applyBrowserSettings(); } catch (Exception ignored) {}
-                try { applyProfileCookiePolicy(webView); } catch (Exception ignored) {}
-                webView.setVisibility(visibility);
-            }
-            return tab.webView;
-        } catch (Exception e) {
-            return webView;
-        }
+        return TabWebViewLifecycle.ensure(
+                tab,
+                visibility,
+                webView,
+                this::createBrowserWebView,
+                this::attachWebViewToContentFrame,
+                candidate -> {
+                    webView = candidate;
+                    try { applyBrowserSettings(); } catch (Exception ignored) {}
+                    try { applyProfileCookiePolicy(candidate); } catch (Exception ignored) {}
+                });
     }
 
     private void hideInactiveTabWebViews(WebView active) {
-        try {
-            for (TabInfo tab : tabs) {
-                if (tab != null && tab.webView != null && tab.webView != active) {
-                    tab.webView.setVisibility(View.GONE);
-                }
-            }
-        } catch (Exception ignored) {
-        }
+        TabWebViewLifecycle.hideInactive(tabs, active);
     }
 
     private void invalidateTabScopedAsyncWork() {
@@ -1463,9 +1394,8 @@ content.addView(space(dp(36)));
             WebView target = ensureTabWebView(tab, showWebPage ? View.VISIBLE : View.GONE);
             webView = target;
             hideInactiveTabWebViews(target);
-            if (homeScroll != null) homeScroll.setVisibility(showWebPage ? View.GONE : View.VISIBLE);
-            if (target != null) target.setVisibility(showWebPage ? View.VISIBLE : View.GONE);
-            if (navigationLoadingOverlay != null) navigationLoadingOverlay.bringToFront();
+            TabWebViewLifecycle.activateSurface(
+                    homeScroll, navigationLoadingOverlay, target, showWebPage);
         } catch (Exception ignored) {
         }
     }
@@ -1473,45 +1403,16 @@ content.addView(space(dp(36)));
     private void destroyTabWebView(TabInfo tab) {
         if (tab == null) return;
         WebView doomed = tab.webView;
-        if (doomed != null && doomed == webView && elementPickerActive) finishElementPicker(false);
-        tab.webView = null;
-        tab.webViewGeneration++;
-        if (doomed == null) return;
-
-        // Detach ownership and callbacks before stopping the renderer. A late about:blank/error
-        // callback must never be interpreted as navigation belonging to the replacement tab.
-        if (webView == doomed) webView = null;
-        if (tab.privateTab) {
-            try { doomed.clearHistory(); } catch (Exception ignored) {}
-            try { doomed.clearFormData(); } catch (Exception ignored) {}
-            try { doomed.clearSslPreferences(); } catch (Exception ignored) {}
-            try { doomed.clearCache(true); } catch (Exception ignored) {}
+        if (doomed != null && doomed == webView && elementPickerActive) {
+            finishElementPicker(false);
         }
-        removeShieldDocumentStartScript(doomed);
-        try { doomed.setTag(null); } catch (Exception ignored) {}
-        try { doomed.setDownloadListener(null); } catch (Exception ignored) {}
-        try { doomed.removeJavascriptInterface("YieldVideoBridge"); } catch (Exception ignored) {}
-        try { doomed.removeJavascriptInterface("YieldAdBlockBridge"); } catch (Exception ignored) {}
-        try { doomed.removeJavascriptInterface("YieldTranslateBridge"); } catch (Exception ignored) {}
-        try { doomed.setWebViewClient(new WebViewClient()); } catch (Exception ignored) {}
-        try { doomed.setWebChromeClient(new WebChromeClient()); } catch (Exception ignored) {}
-        try { doomed.stopLoading(); } catch (Exception ignored) {}
-        try { doomed.loadUrl("about:blank"); } catch (Exception ignored) {}
-        try { if (contentFrame != null) contentFrame.removeView(doomed); } catch (Exception ignored) {}
-        try { doomed.removeAllViews(); } catch (Exception ignored) {}
-        try { doomed.destroy(); } catch (Exception ignored) {}
+        if (doomed != null && doomed == webView) webView = null;
+        webView = TabWebViewLifecycle.destroy(
+                tab, webView, contentFrame, this::removeShieldDocumentStartScript);
     }
 
     private boolean hasLivePage(WebView candidate) {
-        try {
-            if (candidate == null) return false;
-            String live = extractOriginalUrl(candidate.getUrl());
-            if (live == null || live.length() == 0) return false;
-            String lower = live.toLowerCase(Locale.US);
-            return !lower.equals("about:blank") && !lower.startsWith("data:");
-        } catch (Exception e) {
-            return false;
-        }
+        return TabWebViewLifecycle.hasLivePage(candidate, this::extractOriginalUrl);
     }
 
     private void ensureDefaultTab() {
@@ -9530,7 +9431,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         fresh.setVisibility(visibility);
         if (owner != null) {
             long generation = ++owner.webViewGeneration;
-            fresh.setTag(new WebViewBinding(owner, generation));
+            fresh.setTag(new TabWebViewLifecycle.Binding(owner, generation));
         }
         boolean privateProfile = dedicatedPrivateProfile || (owner != null && owner.privateTab);
         if (privateProfile) {
