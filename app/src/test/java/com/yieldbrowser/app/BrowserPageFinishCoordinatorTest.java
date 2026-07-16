@@ -550,4 +550,79 @@ public class BrowserPageFinishCoordinatorTest {
 
         assertEquals(0, calls[0]);
     }
+
+    @Test
+    public void compatibleTranslateRetriesUseOneSessionTokenSnapshot() {
+        StringBuilder calls = new StringBuilder();
+
+        assertTrue(BrowserPageFinishCoordinator.applyCompatibleTranslateEffects(
+                BrowserPageFinishPolicy.Profile.NORMAL,
+                true,
+                true,
+                false,
+                "https://example.com/page",
+                url -> {
+                    calls.append("translated?>");
+                    return false;
+                },
+                () -> {
+                    calls.append("token>");
+                    return 42;
+                },
+                (token, delay) -> calls.append(token).append(':')
+                        .append(delay).append('>')));
+
+        assertEquals(
+                "translated?>token>42:600>42:2200>",
+                calls.toString());
+    }
+
+    @Test
+    public void disabledOrGuardedCompatibleTranslateShortCircuitsUrlCheck() {
+        int[] calls = {0};
+
+        assertFalse(BrowserPageFinishCoordinator.applyCompatibleTranslateEffects(
+                BrowserPageFinishPolicy.Profile.NORMAL,
+                false,
+                true,
+                false,
+                "https://example.com/page",
+                url -> {
+                    calls[0]++;
+                    return false;
+                },
+                () -> ++calls[0],
+                (token, delay) -> calls[0]++));
+        assertFalse(BrowserPageFinishCoordinator.applyCompatibleTranslateEffects(
+                BrowserPageFinishPolicy.Profile.GUARDED_COMPATIBILITY,
+                true,
+                true,
+                false,
+                "https://example.com/page",
+                url -> {
+                    calls[0]++;
+                    return false;
+                },
+                () -> ++calls[0],
+                (token, delay) -> calls[0]++));
+
+        assertEquals(0, calls[0]);
+    }
+
+    @Test
+    public void alreadyTranslatedPageDoesNotCaptureSessionToken() {
+        int[] tokenCalls = {0};
+
+        assertFalse(BrowserPageFinishCoordinator.applyCompatibleTranslateEffects(
+                BrowserPageFinishPolicy.Profile.NORMAL,
+                true,
+                true,
+                false,
+                "https://translate.example/page",
+                url -> true,
+                () -> ++tokenCalls[0],
+                (token, delay) -> tokenCalls[0]++));
+
+        assertEquals(0, tokenCalls[0]);
+    }
 }

@@ -58,6 +58,14 @@ final class BrowserPageFinishCoordinator {
         void record(String title, String url);
     }
 
+    interface IntSupplier {
+        int get();
+    }
+
+    interface TokenDelayScheduler {
+        void schedule(int token, long delayMs);
+    }
+
     static final class Result {
         final TabInfo owner;
         final String finalUrl;
@@ -379,6 +387,35 @@ final class BrowserPageFinishCoordinator {
             for (long delay : BrowserPageFinishPolicy
                     .translateToolbarHideDelays(true)) {
                 hideToolbarScheduler.schedule(delay);
+            }
+        }
+        return true;
+    }
+
+    static boolean applyCompatibleTranslateEffects(
+            BrowserPageFinishPolicy.Profile profile,
+            boolean translateEnabled,
+            boolean compatibleTranslateActive,
+            boolean translateManuallyDisabled,
+            String rawUrl,
+            UrlPredicate translatedUrlPredicate,
+            IntSupplier translateSessionTokenSupplier,
+            TokenDelayScheduler translateScheduler) {
+        if (BrowserPageFinishPolicy.isReloadGuarded(profile)
+                || !translateEnabled
+                || !compatibleTranslateActive
+                || translateManuallyDisabled
+                || test(translatedUrlPredicate, rawUrl)) {
+            return false;
+        }
+
+        int token = translateSessionTokenSupplier == null
+                ? 0
+                : translateSessionTokenSupplier.get();
+        if (translateScheduler != null) {
+            for (long delay : BrowserPageFinishPolicy
+                    .compatibleTranslateRetryDelays(true)) {
+                translateScheduler.schedule(token, delay);
             }
         }
         return true;
