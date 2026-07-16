@@ -6,11 +6,6 @@ on:
     branches:
       - main
       - master
-      - refactor/history-presentation
-
-permissions:
-  contents: write
-  issues: write
 
 jobs:
   build:
@@ -20,8 +15,6 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -37,53 +30,14 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
-      - name: Apply staged history panel refactor
-        run: python3 scripts/apply_history_panel_presentation.py
-
       - name: Run unit tests
         run: gradle testDebugUnitTest --stacktrace
 
       - name: Build Debug APK
         run: gradle assembleDebug --stacktrace
 
-      - name: Commit validated MainActivity delegation
-        id: commit
-        if: github.ref_name == 'refactor/history-presentation'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/src/main/java/com/yieldbrowser/app/MainActivity.java
-          if git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "History panel delegation already committed."
-          else
-            git commit -m "Delegate browser history panel state from MainActivity"
-            git push origin HEAD:refactor/history-presentation
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "feature_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: YieldBrowser-history-refactor-apk
+          name: YieldBrowser-debug-apk
           path: app/build/outputs/apk/debug/*.apk
-
-      - name: Publish successful checkpoint
-        if: success() && github.ref_name == 'refactor/history-presentation' && steps.commit.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FEATURE_SHA: ${{ steps.commit.outputs.feature_sha }}
-        run: |
-          gh issue create \
-            --title "History refactor verified ${GITHUB_RUN_ID}" \
-            --body "Feature commit: ${FEATURE_SHA}\nBranch: refactor/history-presentation\nRun ID: ${GITHUB_RUN_ID}\nArtifact: YieldBrowser-history-refactor-apk"
-
-      - name: Publish failed checkpoint
-        if: failure() && github.ref_name == 'refactor/history-presentation'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue create \
-            --title "History refactor failed ${GITHUB_RUN_ID}" \
-            --body "Run ID: ${GITHUB_RUN_ID}. MainActivity was not committed because validation failed."
