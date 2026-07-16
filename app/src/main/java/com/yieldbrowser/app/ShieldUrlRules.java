@@ -62,15 +62,16 @@ final class ShieldUrlRules {
             Pattern.CASE_INSENSITIVE);
 
     private static final Pattern DIRECT_CONTENT_ASSET = Pattern.compile(
-            ".*\\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|woff2?|ttf|otf|mp4|m4v|mov|webm|mkv|m3u8|mpd|m4s|ts|mp3|aac|wav|ogg|pdf|zip|rar|7z)(?:$|[?#]).*",
+            ".*\\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|woff2?|ttf|otf|mp4|m4v|mov|webm|mkv|m3u8|mpd|m4s|ts|mp3|aac|wav|ogg|pdf|zip|rar|7z)$",
             Pattern.CASE_INSENSITIVE);
 
     private ShieldUrlRules() {
     }
 
     static boolean isDirectContentAsset(String url) {
-        return url != null
-                && DIRECT_CONTENT_ASSET.matcher(url.toLowerCase(Locale.US)).matches();
+        if (!isHttpOrHttps(url)) return false;
+        String path = pathOf(url);
+        return !path.isEmpty() && DIRECT_CONTENT_ASSET.matcher(path).matches();
     }
 
     static boolean isRelayPath(String url) {
