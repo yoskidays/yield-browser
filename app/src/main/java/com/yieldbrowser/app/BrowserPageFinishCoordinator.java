@@ -342,6 +342,27 @@ final class BrowserPageFinishCoordinator {
         return resolvedOwner;
     }
 
+    static boolean applyNormalCompletionEffects(
+            BrowserPageFinishPolicy.Profile profile,
+            String finalUrl,
+            String rawUrl,
+            Runnable resetManualVideoControls,
+            Runnable injectVideoPlaybackWatcher,
+            UrlConsumer scheduleNightModeSync,
+            UrlConsumer detectTranslateProxyBlocked) {
+        if (BrowserPageFinishPolicy.isReloadGuarded(profile)) return false;
+
+        run(resetManualVideoControls);
+        run(injectVideoPlaybackWatcher);
+        if (scheduleNightModeSync != null) {
+            scheduleNightModeSync.accept(finalUrl);
+        }
+        if (detectTranslateProxyBlocked != null) {
+            detectTranslateProxyBlocked.accept(rawUrl);
+        }
+        return true;
+    }
+
     private static boolean test(UrlPredicate predicate, String url) {
         return predicate != null && predicate.test(url);
     }
