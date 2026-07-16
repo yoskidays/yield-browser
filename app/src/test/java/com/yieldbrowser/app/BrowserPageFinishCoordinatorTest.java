@@ -470,4 +470,39 @@ public class BrowserPageFinishCoordinatorTest {
 
         assertEquals("record?>record?>", calls.toString());
     }
+
+    @Test
+    public void normalCompletionEffectsKeepVideoNightAndTranslateOrder() {
+        StringBuilder calls = new StringBuilder();
+
+        assertTrue(BrowserPageFinishCoordinator.applyNormalCompletionEffects(
+                BrowserPageFinishPolicy.Profile.NORMAL,
+                "https://original.example/page",
+                "https://proxy.example/page",
+                () -> calls.append("reset>"),
+                () -> calls.append("watcher>"),
+                url -> calls.append("night:").append(url).append('>'),
+                url -> calls.append("translate:").append(url)));
+
+        assertEquals(
+                "reset>watcher>night:https://original.example/page>"
+                        + "translate:https://proxy.example/page",
+                calls.toString());
+    }
+
+    @Test
+    public void guardedCompletionSkipsNormalEffects() {
+        int[] calls = {0};
+
+        assertFalse(BrowserPageFinishCoordinator.applyNormalCompletionEffects(
+                BrowserPageFinishPolicy.Profile.STRICT_COMPATIBILITY,
+                "https://strict.example/page",
+                "https://strict.example/page",
+                () -> calls[0]++,
+                () -> calls[0]++,
+                url -> calls[0]++,
+                url -> calls[0]++));
+
+        assertEquals(0, calls[0]);
+    }
 }
