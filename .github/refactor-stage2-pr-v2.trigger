@@ -1,1 +1,1 @@
-This PR starts from the latest main branch so the stage 2 validation workflow is available before the pull request event.
+Trigger the recognized staged browser workflow after it was extended to validate and commit the download list policy extraction.
