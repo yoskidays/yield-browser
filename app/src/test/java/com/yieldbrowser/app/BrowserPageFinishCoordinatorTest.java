@@ -217,4 +217,66 @@ public class BrowserPageFinishCoordinatorTest {
 
         assertEquals(BrowserPageFinishPolicy.Profile.NORMAL, profile);
     }
+
+    @Test
+    public void guardedDesktopEffectsKeepShieldAndViewportRetryOrder() {
+        StringBuilder calls = new StringBuilder();
+
+        assertTrue(BrowserPageFinishCoordinator.applyGuardedEffects(
+                BrowserPageFinishPolicy.Profile.GUARDED_COMPATIBILITY,
+                "https://guarded.example/page",
+                true,
+                true,
+                () -> calls.append("plain>"),
+                url -> calls.append("night>"),
+                () -> calls.append("shield>"),
+                delay -> calls.append("shield").append(delay).append('>'),
+                url -> calls.append("repair>"),
+                delay -> calls.append("desktop").append(delay).append('>'),
+                delay -> calls.append("mobile").append(delay).append('>')));
+
+        assertEquals(
+                "plain>night>shield>shield900>shield2600>repair>"
+                        + "desktop350>desktop1200>desktop2600>",
+                calls.toString());
+    }
+
+    @Test
+    public void guardedMobileWithoutAdBlockSkipsShieldButKeepsRepair() {
+        StringBuilder calls = new StringBuilder();
+
+        assertTrue(BrowserPageFinishCoordinator.applyGuardedEffects(
+                BrowserPageFinishPolicy.Profile.STRICT_COMPATIBILITY,
+                "https://strict.example/page",
+                false,
+                false,
+                () -> calls.append("plain>"),
+                url -> calls.append("night>"),
+                () -> calls.append("shield>"),
+                delay -> calls.append("shieldRetry>"),
+                url -> calls.append("repair>"),
+                delay -> calls.append("desktop>"),
+                delay -> calls.append("mobile").append(delay)));
+
+        assertEquals("plain>night>repair>mobile350", calls.toString());
+    }
+
+    @Test
+    public void normalProfileDoesNotRunGuardedEffects() {
+        int[] calls = {0};
+
+        assertFalse(BrowserPageFinishCoordinator.applyGuardedEffects(
+                BrowserPageFinishPolicy.Profile.NORMAL,
+                "https://normal.example/page",
+                true,
+                true,
+                () -> calls[0]++,
+                url -> calls[0]++,
+                () -> calls[0]++,
+                delay -> calls[0]++,
+                url -> calls[0]++,
+                delay -> calls[0]++,
+                delay -> calls[0]++));
+        assertEquals(0, calls[0]);
+    }
 }

@@ -50,6 +50,10 @@ final class BrowserPageFinishCoordinator {
         boolean get();
     }
 
+    interface DelayScheduler {
+        void schedule(long delayMs);
+    }
+
     static final class Result {
         final TabInfo owner;
         final String finalUrl;
@@ -188,6 +192,49 @@ final class BrowserPageFinishCoordinator {
                 strictCompatibility,
                 reloadLoopGuarded,
                 siteCompatibilityActive);
+    }
+
+    static boolean applyGuardedEffects(
+            BrowserPageFinishPolicy.Profile profile,
+            String finalUrl,
+            boolean adBlockEnabled,
+            boolean desktopMode,
+            Runnable applyPlainCompatibilitySettings,
+            UrlConsumer scheduleNightModeSync,
+            Runnable injectCompatibilityShield,
+            DelayScheduler compatibilityShieldScheduler,
+            UrlConsumer scheduleReaderRepair,
+            DelayScheduler desktopViewportScheduler,
+            DelayScheduler mobileViewportScheduler) {
+        if (!BrowserPageFinishPolicy.isReloadGuarded(profile)) return false;
+
+        run(applyPlainCompatibilitySettings);
+        if (scheduleNightModeSync != null) {
+            scheduleNightModeSync.accept(finalUrl);
+        }
+        if (adBlockEnabled) {
+            run(injectCompatibilityShield);
+            if (compatibilityShieldScheduler != null) {
+                for (long delay : BrowserPageFinishPolicy
+                        .guardedShieldRetryDelays(true)) {
+                    compatibilityShieldScheduler.schedule(delay);
+                }
+            }
+        }
+        if (scheduleReaderRepair != null) {
+            scheduleReaderRepair.accept(finalUrl);
+        }
+
+        DelayScheduler viewportScheduler = desktopMode
+                ? desktopViewportScheduler
+                : mobileViewportScheduler;
+        if (viewportScheduler != null) {
+            for (long delay : BrowserPageFinishPolicy
+                    .guardedViewportDelays(desktopMode)) {
+                viewportScheduler.schedule(delay);
+            }
+        }
+        return true;
     }
 
     private static boolean test(UrlPredicate predicate, String url) {

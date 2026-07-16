@@ -10039,23 +10039,18 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                                 MainActivity.this::cancelSmoothSearchTransition);
                 boolean pageReloadGuarded = BrowserPageFinishPolicy.isReloadGuarded(pageFinishProfile);
                 if (pageReloadGuarded) {
-                    // Compatibility pages keep first-party scripts/images untouched. Apply only
-                    // browser profile, viewport, safe night mode, and targeted content repair.
-                    applyPlainCompatibilitySettings();
-                    scheduleNightModeSyncForPage(finalUrl);
-                    if (adBlock) {
-                        injectCompatibilityAdShield();
-                        mainHandler.postDelayed(MainActivity.this::injectCompatibilityAdShield, 900);
-                        mainHandler.postDelayed(MainActivity.this::injectCompatibilityAdShield, 2600);
-                    }
-                    scheduleUniversalReaderCompatibilityRepair(finalUrl);
-                    if (desktopMode) {
-                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 350);
-                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1200);
-                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 2600);
-                    } else {
-                        mainHandler.postDelayed(() -> applyMobileViewportIfNeeded(), 350);
-                    }
+                    BrowserPageFinishCoordinator.applyGuardedEffects(
+                            pageFinishProfile, finalUrl, adBlock, desktopMode,
+                            MainActivity.this::applyPlainCompatibilitySettings,
+                            MainActivity.this::scheduleNightModeSyncForPage,
+                            MainActivity.this::injectCompatibilityAdShield,
+                            delay -> mainHandler.postDelayed(
+                                    MainActivity.this::injectCompatibilityAdShield, delay),
+                            MainActivity.this::scheduleUniversalReaderCompatibilityRepair,
+                            delay -> mainHandler.postDelayed(
+                                    MainActivity.this::applyDesktopViewportIfNeeded, delay),
+                            delay -> mainHandler.postDelayed(
+                                    MainActivity.this::applyMobileViewportIfNeeded, delay));
                 }
                 if (!pageReloadGuarded) {
                     applyViewportForCurrentMode();
