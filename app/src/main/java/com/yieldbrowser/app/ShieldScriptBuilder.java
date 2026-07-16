@@ -29,7 +29,7 @@ final class ShieldScriptBuilder {
                                 boolean popupBlocker,
                                 boolean redirectBlocker,
                                 boolean scriptIframeBlocker,
-                                booolean clickHijackBlocker) {
+                                boolean clickHijackBlocker) {
         return "javascript:(function(){try{if(window.__yieldShieldV2SetConfig)window.__yieldShieldV2SetConfig({enabled:"
                 + enabled + ",popup:" + popupBlocker + ",redirect:" + redirectBlocker
                 + ",resource:" + scriptIframeBlocker + ",click:" + clickHijackBlocker
