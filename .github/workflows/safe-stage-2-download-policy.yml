@@ -1,14 +1,13 @@
 name: Safe Stage 2 Download Policy Refactor
 
 on:
-  push:
-    paths:
-      - .github/refactor-stage2-download.trigger
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   refactor:
@@ -16,9 +15,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout source branch
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
           fetch-depth: 0
 
       - name: Set up Java 17
@@ -42,25 +42,29 @@ jobs:
 
           main_path = Path('app/src/main/java/com/yieldbrowser/app/MainActivity.java')
           text = main_path.read_text(encoding='utf-8')
-          start_marker = '    private ArrayList<DownloadItem> getFilteredDownloadItems() {'
-          end_marker = '    private String getDownloadCategory(DownloadItem item) {'
-          if text.count(start_marker) != 1 or text.count(end_marker) != 1:
-              raise SystemExit('MainActivity download-list markers changed; refusing unsafe patch')
-          start = text.index(start_marker)
-          end = text.index(end_marker, start)
-          replacement = '''    private ArrayList<DownloadItem> getFilteredDownloadItems() {
-              synchronized (downloadItems) {
-                  return DownloadListPolicy.filterAndSort(
-                          downloadItems,
-                          activeDownloadSection,
-                          activeDownloadCategory,
-                          activeDownloadSearchQuery,
-                          activeDownloadSort);
+          policy_path = Path('app/src/main/java/com/yieldbrowser/app/DownloadListPolicy.java')
+          test_path = Path('app/src/test/java/com/yieldbrowser/app/DownloadListPolicyTest.java')
+
+          if 'DownloadListPolicy.filterAndSort(' not in text:
+              start_marker = '    private ArrayList<DownloadItem> getFilteredDownloadItems() {'
+              end_marker = '    private String getDownloadCategory(DownloadItem item) {'
+              if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+                  raise SystemExit('MainActivity download-list markers changed; refusing unsafe patch')
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              replacement = '''    private ArrayList<DownloadItem> getFilteredDownloadItems() {
+                  synchronized (downloadItems) {
+                      return DownloadListPolicy.filterAndSort(
+                              downloadItems,
+                              activeDownloadSection,
+                              activeDownloadCategory,
+                              activeDownloadSearchQuery,
+                              activeDownloadSort);
+                  }
               }
-          }
 
 '''
-          main_path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+              main_path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
 
           policy = r'''package com.yieldbrowser.app;
 
@@ -72,8 +76,8 @@ import java.util.Locale;
 /**
  * Pure filtering and sorting policy for the Download Manager list.
  *
- * Keeping this logic outside MainActivity makes it independently testable and avoids coupling
- * list presentation rules to Activity lifecycle, WebView, storage, or download transports.
+ * This module is independent from Activity lifecycle, WebView, storage writes, and download
+ * transports, so list behavior can be tested without constructing MainActivity.
  */
 final class DownloadListPolicy {
     private DownloadListPolicy() {
@@ -130,7 +134,7 @@ final class DownloadListPolicy {
     }
 }
 '''
-          Path('app/src/main/java/com/yieldbrowser/app/DownloadListPolicy.java').write_text(policy, encoding='utf-8')
+          policy_path.write_text(policy, encoding='utf-8')
 
           test = r'''package com.yieldbrowser.app;
 
@@ -191,7 +195,7 @@ public class DownloadListPolicyTest {
     }
 }
 '''
-          Path('app/src/test/java/com/yieldbrowser/app/DownloadListPolicyTest.java').write_text(test, encoding='utf-8')
+          test_path.write_text(test, encoding='utf-8')
           PY
 
       - name: Run unit tests
@@ -200,39 +204,25 @@ public class DownloadListPolicyTest {
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 
-      - name: Commit validated refactor
-        id: commit
+      - name: Commit validated refactor to source branch
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/src/main/java/com/yieldbrowser/app/MainActivity.java \
                   app/src/main/java/com/yieldbrowser/app/DownloadListPolicy.java \
                   app/src/test/java/com/yieldbrowser/app/DownloadListPolicyTest.java
-          git commit -m "Extract download list filtering policy"
-          git push origin HEAD:main
-          echo "feature_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if git diff --cached --quiet; then
+            echo "Refactor already present; validation only."
+          else
+            git commit -m "Extract download list filtering policy"
+            git push origin HEAD:${HEAD_BRANCH}
+          fi
 
       - name: Upload validated APK
         uses: actions/upload-artifact@v4
         with:
           name: YieldBrowser-stage2-download-policy-apk
           path: app/build/outputs/apk/debug/*.apk
-
-      - name: Publish success marker
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FEATURE_SHA: ${{ steps.commit.outputs.feature_sha }}
-        run: |
-          gh issue create \
-            --title "Stage 2 download policy build ${GITHUB_RUN_ID}" \
-            --body "Feature commit: ${FEATURE_SHA}\nRun ID: ${GITHUB_RUN_ID}\nArtifact: YieldBrowser-stage2-download-policy-apk"
-
-      - name: Publish failure marker
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue create \
-            --title "Stage 2 download policy failed ${GITHUB_RUN_ID}" \
-            --body "Run ID: ${GITHUB_RUN_ID}. The safe refactor was not pushed to main because validation failed."
