@@ -5910,94 +5910,37 @@ private void showDownloadSettingsPanel() {
     }
 
     private View downloadToolRow() {
-        LinearLayout tools = new LinearLayout(this);
-        tools.setOrientation(LinearLayout.HORIZONTAL);
-        tools.setGravity(Gravity.CENTER_VERTICAL);
-        tools.setPadding(0, dp(2), 0, dp(3));
-
-        TextView sort = downloadToolButton("Urut: " + activeDownloadSort);
-        sort.setOnClickListener(v -> showDownloadSortDialog());
-        tools.addView(sort, new LinearLayout.LayoutParams(0, dp(40), 1));
-
-        TextView select = downloadToolButton(downloadSelectMode ? "Batal pilih" : "Pilih");
-        select.setOnClickListener(v -> {
-            downloadSelectMode = !downloadSelectMode;
-            selectedDownloadIds.clear();
-            lastDownloadControlsSignature = "";
-            renderDownloadList();
-        });
-        LinearLayout.LayoutParams selectParams = new LinearLayout.LayoutParams(0, dp(40), 1);
-        selectParams.setMargins(dp(8), 0, 0, 0);
-        tools.addView(select, selectParams);
-
-        if ("Selesai".equals(activeDownloadSection)
-                && !downloadSelectMode
-                && countCompletedDownloadHistory() > 0) {
-            TextView clearAll = downloadToolButton("Hapus semua");
-            clearAll.setTextColor(Color.WHITE);
-            clearAll.setBackground(roundRect(Color.parseColor("#E5484D"),
-                    dp(18), 0, Color.TRANSPARENT));
-            clearAll.setContentDescription("Hapus semua riwayat unduhan selesai");
-            clearAll.setOnClickListener(v -> confirmClearCompletedDownloadHistory());
-            LinearLayout.LayoutParams clearAllParams = new LinearLayout.LayoutParams(0, dp(40), 1);
-            clearAllParams.setMargins(dp(8), 0, 0, 0);
-            tools.addView(clearAll, clearAllParams);
-        }
-
-        if (downloadSelectMode) {
-            TextView share = downloadToolButton("Bagikan");
-            share.setOnClickListener(v -> shareSelectedDownloads());
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(40), 1);
-            p.setMargins(dp(8), 0, 0, 0);
-            tools.addView(share, p);
-
-            TextView delete = downloadToolButton("Hapus");
-            delete.setTextColor(Color.WHITE);
-            delete.setBackground(roundRect(Color.parseColor("#E5484D"), dp(18), 0, Color.TRANSPARENT));
-            delete.setOnClickListener(v -> deleteSelectedDownloads());
-            LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, dp(40), 1);
-            p2.setMargins(dp(8), 0, 0, 0);
-            tools.addView(delete, p2);
-        }
-        return tools;
+        return DownloadControlsFactory.createToolRow(
+                this,
+                activeDownloadSort,
+                downloadSelectMode,
+                activeDownloadSection,
+                countCompletedDownloadHistory(),
+                this::showDownloadSortDialog,
+                () -> {
+                    downloadSelectMode = !downloadSelectMode;
+                    selectedDownloadIds.clear();
+                    lastDownloadControlsSignature = "";
+                    renderDownloadList();
+                },
+                this::confirmClearCompletedDownloadHistory,
+                this::shareSelectedDownloads,
+                this::deleteSelectedDownloads);
     }
 
     private View downloadQueueControlRow() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(3), 0, dp(5));
-
-        TextView pause = downloadToolButton("Jeda semua");
-        pause.setOnClickListener(v -> pauseAllDownloads());
-        row.addView(pause, new LinearLayout.LayoutParams(0, dp(37), 1));
-
-        TextView resume = downloadToolButton("Lanjutkan");
-        resume.setOnClickListener(v -> resumeAllDownloads());
-        LinearLayout.LayoutParams resumeLp = new LinearLayout.LayoutParams(0, dp(37), 1);
-        resumeLp.setMargins(dp(8), 0, 0, 0);
-        row.addView(resume, resumeLp);
-
-        TextView queue = downloadToolButton("Queue " + countActiveDownloads() + "/"
-                + downloadMaxActive + " • " + countQueuedDownloads());
-        queue.setOnClickListener(v -> showDownloadQueueSettingsDialog());
-        LinearLayout.LayoutParams queueLp = new LinearLayout.LayoutParams(0, dp(37), 1);
-        queueLp.setMargins(dp(8), 0, 0, 0);
-        row.addView(queue, queueLp);
-        return row;
+        return DownloadControlsFactory.createQueueRow(
+                this,
+                countActiveDownloads(),
+                downloadMaxActive,
+                countQueuedDownloads(),
+                this::pauseAllDownloads,
+                this::resumeAllDownloads,
+                this::showDownloadQueueSettingsDialog);
     }
 
     private TextView downloadToolButton(String text) {
-        TextView button = new TextView(this);
-        button.setText(text);
-        button.setTextColor(Color.WHITE);
-        button.setTextSize(12);
-        button.setTypeface(Typeface.DEFAULT_BOLD);
-        button.setGravity(Gravity.CENTER);
-        button.setSingleLine(true);
-        button.setEllipsize(TextUtils.TruncateAt.END);
-        button.setBackground(roundRect(Color.parseColor("#20232A"), dp(18), dp(1), COLOR_BORDER));
-        return button;
+        return DownloadControlsFactory.createButton(this, text);
     }
 
     private ArrayList<DownloadItem> getFilteredDownloadItems() {
