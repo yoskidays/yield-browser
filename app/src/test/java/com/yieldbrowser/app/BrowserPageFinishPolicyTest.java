@@ -107,4 +107,12 @@ public class BrowserPageFinishPolicyTest {
         assertFalse(BrowserPageFinishPolicy.shouldAddHistory(true, null));
         assertFalse(BrowserPageFinishPolicy.shouldAddHistory(false, publicTab));
     }
+
+    @Test
+    public void translateToolbarHideScheduleRemainsStable() {
+        assertArrayEquals(new long[]{250L, 800L, 1800L, 3500L, 6000L},
+                BrowserPageFinishPolicy.translateToolbarHideDelays(true));
+        assertArrayEquals(new long[0],
+                BrowserPageFinishPolicy.translateToolbarHideDelays(false));
+    }
 }

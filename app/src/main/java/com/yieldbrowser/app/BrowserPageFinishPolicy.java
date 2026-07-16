@@ -79,4 +79,10 @@ final class BrowserPageFinishPolicy {
                                     TabInfo owner) {
         return recordableHistoryUrl && owner != null && !owner.privateTab;
     }
+
+    static long[] translateToolbarHideDelays(boolean shouldHideToolbar) {
+        return shouldHideToolbar
+                ? new long[]{250L, 800L, 1800L, 3500L, 6000L}
+                : new long[0];
+    }
 }

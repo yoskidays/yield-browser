@@ -363,6 +363,27 @@ final class BrowserPageFinishCoordinator {
         return true;
     }
 
+    static boolean applyTranslateToolbarEffects(
+            BrowserPageFinishPolicy.Profile profile,
+            boolean hideGoogleTranslateBar,
+            String rawUrl,
+            UrlPredicate translatedUrlPredicate,
+            DelayScheduler hideToolbarScheduler) {
+        if (BrowserPageFinishPolicy.isReloadGuarded(profile)
+                || !hideGoogleTranslateBar
+                || !test(translatedUrlPredicate, rawUrl)) {
+            return false;
+        }
+
+        if (hideToolbarScheduler != null) {
+            for (long delay : BrowserPageFinishPolicy
+                    .translateToolbarHideDelays(true)) {
+                hideToolbarScheduler.schedule(delay);
+            }
+        }
+        return true;
+    }
+
     private static boolean test(UrlPredicate predicate, String url) {
         return predicate != null && predicate.test(url);
     }

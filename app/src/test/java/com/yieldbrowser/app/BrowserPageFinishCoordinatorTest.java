@@ -505,4 +505,49 @@ public class BrowserPageFinishCoordinatorTest {
 
         assertEquals(0, calls[0]);
     }
+
+    @Test
+    public void translatedPageSchedulesEveryToolbarHideRetry() {
+        StringBuilder calls = new StringBuilder();
+
+        assertTrue(BrowserPageFinishCoordinator.applyTranslateToolbarEffects(
+                BrowserPageFinishPolicy.Profile.NORMAL,
+                true,
+                "https://translate.example/page",
+                url -> {
+                    calls.append("translated?>");
+                    return true;
+                },
+                delay -> calls.append(delay).append('>')));
+
+        assertEquals(
+                "translated?>250>800>1800>3500>6000>",
+                calls.toString());
+    }
+
+    @Test
+    public void disabledOrGuardedToolbarEffectsShortCircuitUrlCheck() {
+        int[] calls = {0};
+
+        assertFalse(BrowserPageFinishCoordinator.applyTranslateToolbarEffects(
+                BrowserPageFinishPolicy.Profile.NORMAL,
+                false,
+                "https://translate.example/page",
+                url -> {
+                    calls[0]++;
+                    return true;
+                },
+                delay -> calls[0]++));
+        assertFalse(BrowserPageFinishCoordinator.applyTranslateToolbarEffects(
+                BrowserPageFinishPolicy.Profile.GUARDED_COMPATIBILITY,
+                true,
+                "https://translate.example/page",
+                url -> {
+                    calls[0]++;
+                    return true;
+                },
+                delay -> calls[0]++));
+
+        assertEquals(0, calls[0]);
+    }
 }
