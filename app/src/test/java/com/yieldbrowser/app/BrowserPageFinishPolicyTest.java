@@ -88,4 +88,12 @@ public class BrowserPageFinishPolicyTest {
         assertArrayEquals(new long[0],
                 BrowserPageFinishPolicy.normalAdBlockRetryDelays(false));
     }
+
+    @Test
+    public void userFilterRetryScheduleRemainsStable() {
+        assertArrayEquals(new long[]{350L, 1400L},
+                BrowserPageFinishPolicy.userFilterRetryDelays(true));
+        assertArrayEquals(new long[0],
+                BrowserPageFinishPolicy.userFilterRetryDelays(false));
+    }
 }
