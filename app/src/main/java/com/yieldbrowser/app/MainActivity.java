@@ -10119,15 +10119,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onProgressChanged(WebView view, int newProgress) {
-                if (view != webView) return;
-                boolean homeVisible = homeScroll != null && homeScroll.getVisibility() == View.VISIBLE;
-                if (homeVisible || view.getVisibility() != View.VISIBLE) {
-                    progressBar.setProgress(0);
-                    progressBar.setVisibility(View.GONE);
-                    return;
-                }
-                progressBar.setProgress(newProgress);
-                progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
+                BrowserChromeProgressHandler.handle(
+                        webView,
+                        view,
+                        newProgress,
+                        homeScroll != null && homeScroll.getVisibility() == View.VISIBLE,
+                        progressBar);
             }
 
             @Override
