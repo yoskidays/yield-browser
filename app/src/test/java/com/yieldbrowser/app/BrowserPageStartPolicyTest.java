@@ -71,4 +71,61 @@ public class BrowserPageStartPolicyTest {
         assertTrue(BrowserPageStartPolicy.shouldHideProgress(
                 BrowserPageStartPolicy.Profile.GUARDED_COMPATIBILITY));
     }
+
+    @Test
+    public void choosesNavigationReferenceWithoutChangingFallbackOrder() {
+        assertEquals("https://safe.example/page",
+                BrowserPageStartPolicy.chooseNavigationReference(
+                        "https://safe.example/page",
+                        "https://tab.example/page",
+                        "https://current.example/page"));
+        assertEquals("https://tab.example/page",
+                BrowserPageStartPolicy.chooseNavigationReference(
+                        "", "https://tab.example/page", "https://current.example/page"));
+        assertEquals("https://current.example/page",
+                BrowserPageStartPolicy.chooseNavigationReference(
+                        null, "", "https://current.example/page"));
+        assertEquals("",
+                BrowserPageStartPolicy.chooseNavigationReference(null, null, null));
+    }
+
+    @Test
+    public void compatibilityFlowPreservesTrustedReaderNavigation() {
+        assertTrue(BrowserPageStartPolicy.isCompatibilityFlow(true, false));
+        assertTrue(BrowserPageStartPolicy.isCompatibilityFlow(false, true));
+        assertFalse(BrowserPageStartPolicy.isCompatibilityFlow(false, false));
+
+        assertFalse(BrowserPageStartPolicy.shouldRestoreDirectImage(
+                true, false, true));
+        assertFalse(BrowserPageStartPolicy.shouldRestoreDirectImage(
+                false, true, true));
+        assertTrue(BrowserPageStartPolicy.shouldRestoreDirectImage(
+                false, false, true));
+    }
+
+    @Test
+    public void externalSchemesAlwaysRestoreTheSafePage() {
+        assertTrue(BrowserPageStartPolicy.shouldRestoreExternalScheme(true));
+        assertFalse(BrowserPageStartPolicy.shouldRestoreExternalScheme(false));
+    }
+
+    @Test
+    public void redirectRecoveryRequiresEveryBlockingGuard() {
+        assertTrue(BrowserPageStartPolicy.shouldRestoreRedirect(
+                false, true, true, false, false, true, false));
+        assertTrue(BrowserPageStartPolicy.shouldRestoreRedirect(
+                false, true, true, false, false, false, true));
+        assertFalse(BrowserPageStartPolicy.shouldRestoreRedirect(
+                true, true, true, false, false, true, true));
+        assertFalse(BrowserPageStartPolicy.shouldRestoreRedirect(
+                false, false, true, false, false, true, true));
+        assertFalse(BrowserPageStartPolicy.shouldRestoreRedirect(
+                false, true, false, false, false, true, true));
+        assertFalse(BrowserPageStartPolicy.shouldRestoreRedirect(
+                false, true, true, true, false, true, true));
+        assertFalse(BrowserPageStartPolicy.shouldRestoreRedirect(
+                false, true, true, false, true, true, true));
+        assertFalse(BrowserPageStartPolicy.shouldRestoreRedirect(
+                false, true, true, false, false, false, false));
+    }
 }

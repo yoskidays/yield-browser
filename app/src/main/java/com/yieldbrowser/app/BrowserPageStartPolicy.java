@@ -63,4 +63,46 @@ final class BrowserPageStartPolicy {
     static boolean shouldHideProgress(Profile profile) {
         return profile != Profile.NORMAL;
     }
+
+    static String chooseNavigationReference(String safeReferenceUrl,
+                                            String tabReferenceUrl,
+                                            String currentUrl) {
+        if (safeReferenceUrl != null && safeReferenceUrl.length() > 0) {
+            return safeReferenceUrl;
+        }
+        if (tabReferenceUrl != null && tabReferenceUrl.length() > 0) {
+            return tabReferenceUrl;
+        }
+        return currentUrl == null ? "" : currentUrl;
+    }
+
+    static boolean isCompatibilityFlow(boolean referenceFlow,
+                                       boolean currentFlow) {
+        return referenceFlow || currentFlow;
+    }
+
+    static boolean shouldRestoreDirectImage(boolean compatibilityFlow,
+                                            boolean trustedNavigation,
+                                            boolean directImageNavigation) {
+        return !compatibilityFlow && !trustedNavigation && directImageNavigation;
+    }
+
+    static boolean shouldRestoreExternalScheme(boolean externalScheme) {
+        return externalScheme;
+    }
+
+    static boolean shouldRestoreRedirect(boolean compatibilityFlow,
+                                         boolean adBlockEnabled,
+                                         boolean redirectBlockerEnabled,
+                                         boolean trustedNavigation,
+                                         boolean searchResultNavigation,
+                                         boolean suspiciousPopupNavigation,
+                                         boolean likelyAdClick) {
+        return !compatibilityFlow
+                && adBlockEnabled
+                && redirectBlockerEnabled
+                && !trustedNavigation
+                && !searchResultNavigation
+                && (suspiciousPopupNavigation || likelyAdClick);
+    }
 }

@@ -9947,39 +9947,31 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 if (pendingHideKeyboardAfterNavigation) {
                     blurWebInputsAndHideKeyboard();
                 }
-                try {
-                    if (smoothSearchTransitionActive && navigationLoadingOverlay != null) {
-                        navigationLoadingOverlay.bringToFront();
-                    }
-                    if (shouldRecordHistoryUrl(url)) {
-                        historyClearLock = false;
-                        addBrowserHistory(url, url);
-                    }
-                    String currentUrl = getEffectiveCurrentUrl();
-                    String referenceUrlForDirectImage = (safeBeforePageStarted != null && safeBeforePageStarted.length() > 0)
-                            ? safeBeforePageStarted
-                            : getTabReferenceUrl(activeOwner);
-                    if ((referenceUrlForDirectImage == null || referenceUrlForDirectImage.length() == 0)) referenceUrlForDirectImage = currentUrl;
-                    boolean compatibilityFlow = isCompatibilityNavigationFlow(url, referenceUrlForDirectImage)
-                            || isCompatibilityNavigationFlow(url, currentUrl);
-                    if (!compatibilityFlow && !isTrustedMainFrameNavigation(url)
-                            && isDirectImageMainFrameNavigation(url, referenceUrlForDirectImage)) {
-                        restoreAfterBlockedNavigation(view, url);
-                        return;
-                    }
-                    if (isExternalSchemeUrl(url)) {
-                        restoreAfterBlockedNavigation(view, url);
-                        return;
-                    }
-                    if (!compatibilityFlow && adBlock && adBlockRedirectBlocker
-                            && !isTrustedMainFrameNavigation(url)
-                            && !isSearchEngineResultNavigation(url, currentUrl)
-                            && (isSuspiciousPopupNavigation(url, currentUrl) || isLikelyAdClickUrl(url))) {
-                        restoreAfterBlockedNavigation(view, url);
-                        return;
-                    }
-                } catch (Exception ignored) {
-                }
+                BrowserPageStartCoordinator.handleNavigation(
+                        view,
+                        url,
+                        activeOwner,
+                        safeBeforePageStarted,
+                        adBlock,
+                        adBlockRedirectBlocker,
+                        () -> {
+                            if (smoothSearchTransitionActive && navigationLoadingOverlay != null) {
+                                navigationLoadingOverlay.bringToFront();
+                            }
+                        },
+                        MainActivity.this::shouldRecordHistoryUrl,
+                        () -> historyClearLock = false,
+                        MainActivity.this::addBrowserHistory,
+                        MainActivity.this::getEffectiveCurrentUrl,
+                        MainActivity.this::getTabReferenceUrl,
+                        MainActivity.this::isCompatibilityNavigationFlow,
+                        MainActivity.this::isTrustedMainFrameNavigation,
+                        MainActivity.this::isDirectImageMainFrameNavigation,
+                        MainActivity.this::isExternalSchemeUrl,
+                        MainActivity.this::isSearchEngineResultNavigation,
+                        MainActivity.this::isSuspiciousPopupNavigation,
+                        MainActivity.this::isLikelyAdClickUrl,
+                        MainActivity.this::restoreAfterBlockedNavigation);
             }
 
             @Override
