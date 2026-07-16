@@ -9434,16 +9434,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             fresh.setTag(new TabWebViewLifecycle.Binding(owner, generation));
         }
         boolean privateProfile = dedicatedPrivateProfile || (owner != null && owner.privateTab);
-        if (privateProfile) {
-            try { fresh.setSaveEnabled(false); } catch (Exception ignored) {}
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                try { fresh.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS); }
-                catch (Exception ignored) {}
-            }
-            try { fresh.clearHistory(); } catch (Exception ignored) {}
-            try { fresh.clearFormData(); } catch (Exception ignored) {}
-            try { fresh.clearCache(true); } catch (Exception ignored) {}
-        }
+        BrowserWebViewSettings.prepareNewWebView(fresh, privateProfile);
         webView = fresh;
         configureWebView();
         return fresh;
@@ -10685,69 +10676,37 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private void applyBrowserSettings() {
         if (webView == null) return;
-        WebSettings settings = webView.getSettings();
         boolean privateProfile = isPrivateWebView(webView);
-        settings.setJavaScriptEnabled(true);
-        // Incognito keeps modern site storage functional, but the storage lives inside the
-        // dedicated private WebView profile and is purged when that profile closes.
-        settings.setDomStorageEnabled(true);
-        settings.setBuiltInZoomControls(true);
-        settings.setDisplayZoomControls(false);
-        settings.setSupportZoom(true);
-        settings.setSupportMultipleWindows(false);
         boolean youtubePage = isYouTubePlaybackUrl(getEffectiveCurrentUrl());
-        try { settings.setMediaPlaybackRequiresUserGesture(youtubePage || !videoBackgroundPlay); } catch (Exception ignored) {}
-        settings.setJavaScriptCanOpenWindowsAutomatically(!(adBlock && adBlockPopupBlocker));
-        settings.setDatabaseEnabled(true);
-        settings.setCacheMode(privateProfile
-                ? WebSettings.LOAD_NO_CACHE
-                : ((speedMode || (videoBufferBooster && !youtubePage))
-                ? WebSettings.LOAD_CACHE_ELSE_NETWORK : WebSettings.LOAD_DEFAULT));
-        try { settings.setSaveFormData(!privateProfile); } catch (Exception ignored) {}
-        try { settings.setAllowFileAccess(!privateProfile); } catch (Exception ignored) {}
-        try { settings.setAllowContentAccess(true); } catch (Exception ignored) {}
-        settings.setLoadsImagesAutomatically(!dataSaver);
-        settings.setTextZoom(textZoom <= 0 ? 100 : textZoom);
-
-        if (desktopMode) {
-            applyDesktopProfile(settings);
-        } else {
-            applyMobileProfile(settings);
-        }
-
-        try {
-            applyAlgorithmicDarkening(settings, isNightModeActiveForCurrentSite());
-        } catch (Exception ignored) {
-        }
-
-        try {
-            webView.setBackgroundColor(isNightModeActiveForCurrentSite() ? COLOR_BG : Color.WHITE);
-        } catch (Exception ignored) {
-        }
+        boolean nightActive = isNightModeActiveForCurrentSite();
+        BrowserWebViewSettings.apply(
+                webView,
+                new BrowserWebViewSettings.Config(
+                        privateProfile,
+                        speedMode,
+                        videoBufferBooster,
+                        youtubePage,
+                        videoBackgroundPlay,
+                        adBlock,
+                        adBlockPopupBlocker,
+                        dataSaver,
+                        textZoom,
+                        desktopMode,
+                        getMobileUserAgent(),
+                        getDesktopUserAgent(),
+                        nightActive,
+                        nightActive ? COLOR_BG : Color.WHITE),
+                this::applyAlgorithmicDarkening);
     }
 
     private void applyMobileProfile(WebSettings settings) {
-        if (settings == null) return;
-        settings.setUserAgentString(getMobileUserAgent());
-        settings.setUseWideViewPort(false);
-        settings.setLoadWithOverviewMode(false);
-        try { settings.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING); } catch (Exception ignored) {}
-        try { webView.setInitialScale(0); } catch (Exception ignored) {}
-        try { webView.setHorizontalScrollBarEnabled(false); } catch (Exception ignored) {}
-        try { webView.setVerticalScrollBarEnabled(true); } catch (Exception ignored) {}
+        BrowserWebViewSettings.applyMobileProfile(
+                webView, settings, getMobileUserAgent());
     }
 
     private void applyDesktopProfile(WebSettings settings) {
-        if (settings == null) return;
-        settings.setUserAgentString(getDesktopUserAgent());
-        settings.setUseWideViewPort(true);
-        settings.setLoadWithOverviewMode(true);
-        try { settings.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.NORMAL); } catch (Exception ignored) {}
-        // Desktop mode must feel like a real browser desktop-site toggle:
-        // start zoomed out enough to show the wide page, but keep pinch zoom available.
-        try { if (webView != null) webView.setInitialScale(65); } catch (Exception ignored) {}
-        try { if (webView != null) webView.setHorizontalScrollBarEnabled(true); } catch (Exception ignored) {}
-        try { if (webView != null) webView.setVerticalScrollBarEnabled(true); } catch (Exception ignored) {}
+        BrowserWebViewSettings.applyDesktopProfile(
+                webView, settings, getDesktopUserAgent());
     }
 
     private String getMobileUserAgent() {
