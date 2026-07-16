@@ -162,4 +162,39 @@ final class BrowserPageFinishCoordinator {
         if (hideProgress != null) hideProgress.run();
         return new Result(owner, finalUrl);
     }
+
+    static BrowserPageFinishPolicy.Profile prepareProfile(
+            String finalUrl,
+            UrlPredicate strictCompatibilityPredicate,
+            UrlPredicate reloadLoopPredicate,
+            UrlPredicate siteCompatibilityPredicate,
+            Runnable applyPlainCompatibilitySettings,
+            Runnable cancelSmoothTransition) {
+        boolean strictCompatibility = test(
+                strictCompatibilityPredicate, finalUrl);
+        boolean reloadLoopGuarded = false;
+        boolean siteCompatibilityActive = false;
+        if (strictCompatibility) {
+            run(applyPlainCompatibilitySettings);
+            run(cancelSmoothTransition);
+        } else {
+            reloadLoopGuarded = test(reloadLoopPredicate, finalUrl);
+            if (!reloadLoopGuarded) {
+                siteCompatibilityActive = test(
+                        siteCompatibilityPredicate, finalUrl);
+            }
+        }
+        return BrowserPageFinishPolicy.profile(
+                strictCompatibility,
+                reloadLoopGuarded,
+                siteCompatibilityActive);
+    }
+
+    private static boolean test(UrlPredicate predicate, String url) {
+        return predicate != null && predicate.test(url);
+    }
+
+    private static void run(Runnable runnable) {
+        if (runnable != null) runnable.run();
+    }
 }

@@ -148,4 +148,73 @@ public class BrowserPageFinishCoordinatorTest {
         assertEquals(0, currentTabLookups[0]);
         assertEquals("progress", calls.toString());
     }
+
+    @Test
+    public void strictProfileRunsPlainSettingsAndCancelsTransition() {
+        StringBuilder calls = new StringBuilder();
+
+        BrowserPageFinishPolicy.Profile profile =
+                BrowserPageFinishCoordinator.prepareProfile(
+                        "https://strict.example/page",
+                        url -> {
+                            calls.append("strict>");
+                            return true;
+                        },
+                        url -> {
+                            throw new AssertionError("reload predicate must short-circuit");
+                        },
+                        url -> {
+                            throw new AssertionError("site predicate must short-circuit");
+                        },
+                        () -> calls.append("plain>"),
+                        () -> calls.append("cancel"));
+
+        assertEquals(BrowserPageFinishPolicy.Profile.STRICT_COMPATIBILITY,
+                profile);
+        assertEquals("strict>plain>cancel", calls.toString());
+    }
+
+    @Test
+    public void reloadGuardShortCircuitsSitePredicateWithoutStrictEffects() {
+        StringBuilder calls = new StringBuilder();
+
+        BrowserPageFinishPolicy.Profile profile =
+                BrowserPageFinishCoordinator.prepareProfile(
+                        "https://guarded.example/page",
+                        url -> {
+                            calls.append("strict>");
+                            return false;
+                        },
+                        url -> {
+                            calls.append("reload");
+                            return true;
+                        },
+                        url -> {
+                            throw new AssertionError("site predicate must short-circuit");
+                        },
+                        () -> calls.append("plain>"),
+                        () -> calls.append("cancel"));
+
+        assertEquals(BrowserPageFinishPolicy.Profile.GUARDED_COMPATIBILITY,
+                profile);
+        assertEquals("strict>reload", calls.toString());
+    }
+
+    @Test
+    public void ordinaryPageUsesNormalProfileWithoutCompatibilityEffects() {
+        BrowserPageFinishPolicy.Profile profile =
+                BrowserPageFinishCoordinator.prepareProfile(
+                        "https://normal.example/page",
+                        url -> false,
+                        url -> false,
+                        url -> false,
+                        () -> {
+                            throw new AssertionError("plain settings must not run");
+                        },
+                        () -> {
+                            throw new AssertionError("transition must not cancel");
+                        });
+
+        assertEquals(BrowserPageFinishPolicy.Profile.NORMAL, profile);
+    }
 }

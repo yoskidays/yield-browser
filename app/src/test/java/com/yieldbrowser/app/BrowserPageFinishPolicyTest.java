@@ -42,4 +42,23 @@ public class BrowserPageFinishPolicyTest {
         assertTrue(BrowserPageFinishPolicy.shouldUpdateAddressBar(true));
         assertFalse(BrowserPageFinishPolicy.shouldUpdateAddressBar(false));
     }
+
+    @Test
+    public void pageFinishProfilesKeepStrictAndGuardedPriority() {
+        assertEquals(BrowserPageFinishPolicy.Profile.STRICT_COMPATIBILITY,
+                BrowserPageFinishPolicy.profile(true, true, true));
+        assertEquals(BrowserPageFinishPolicy.Profile.GUARDED_COMPATIBILITY,
+                BrowserPageFinishPolicy.profile(false, true, false));
+        assertEquals(BrowserPageFinishPolicy.Profile.GUARDED_COMPATIBILITY,
+                BrowserPageFinishPolicy.profile(false, false, true));
+        assertEquals(BrowserPageFinishPolicy.Profile.NORMAL,
+                BrowserPageFinishPolicy.profile(false, false, false));
+
+        assertTrue(BrowserPageFinishPolicy.isReloadGuarded(
+                BrowserPageFinishPolicy.Profile.STRICT_COMPATIBILITY));
+        assertTrue(BrowserPageFinishPolicy.isReloadGuarded(
+                BrowserPageFinishPolicy.Profile.GUARDED_COMPATIBILITY));
+        assertFalse(BrowserPageFinishPolicy.isReloadGuarded(
+                BrowserPageFinishPolicy.Profile.NORMAL));
+    }
 }

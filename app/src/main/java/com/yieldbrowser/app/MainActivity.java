@@ -10030,11 +10030,14 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                                 () -> progressBar.setVisibility(View.GONE));
                 String finalUrl = pageFinish.finalUrl;
                 TabInfo currentTab = pageFinish.owner;
-                boolean pageReloadGuarded = isStrictSiteCompatibilityUrl(finalUrl) || isReloadLoopGuardActiveForUrl(finalUrl) || isSiteCompatibilityModeActiveForUrl(finalUrl);
-                if (isStrictSiteCompatibilityUrl(finalUrl)) {
-                    applyPlainCompatibilitySettings();
-                    cancelSmoothSearchTransition();
-                }
+                BrowserPageFinishPolicy.Profile pageFinishProfile =
+                        BrowserPageFinishCoordinator.prepareProfile(
+                                finalUrl, MainActivity.this::isStrictSiteCompatibilityUrl,
+                                MainActivity.this::isReloadLoopGuardActiveForUrl,
+                                MainActivity.this::isSiteCompatibilityModeActiveForUrl,
+                                MainActivity.this::applyPlainCompatibilitySettings,
+                                MainActivity.this::cancelSmoothSearchTransition);
+                boolean pageReloadGuarded = BrowserPageFinishPolicy.isReloadGuarded(pageFinishProfile);
                 if (pageReloadGuarded) {
                     // Compatibility pages keep first-party scripts/images untouched. Apply only
                     // browser profile, viewport, safe night mode, and targeted content repair.
