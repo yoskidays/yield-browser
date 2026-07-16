@@ -85,4 +85,8 @@ final class BrowserPageFinishPolicy {
                 ? new long[]{250L, 800L, 1800L, 3500L, 6000L}
                 : new long[0];
     }
+
+    static long[] compatibleTranslateRetryDelays(boolean shouldTranslate) {
+        return shouldTranslate ? new long[]{600L, 2200L} : new long[0];
+    }
 }

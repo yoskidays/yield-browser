@@ -115,4 +115,12 @@ public class BrowserPageFinishPolicyTest {
         assertArrayEquals(new long[0],
                 BrowserPageFinishPolicy.translateToolbarHideDelays(false));
     }
+
+    @Test
+    public void compatibleTranslateRetryScheduleRemainsStable() {
+        assertArrayEquals(new long[]{600L, 2200L},
+                BrowserPageFinishPolicy.compatibleTranslateRetryDelays(true));
+        assertArrayEquals(new long[0],
+                BrowserPageFinishPolicy.compatibleTranslateRetryDelays(false));
+    }
 }
