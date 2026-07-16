@@ -189,8 +189,8 @@ public class MainActivity extends Activity
     private boolean historyV2InitializationStarted = false;
 
     // A bounded favicon pipeline prevents one thread/request per history row.
-    private final ExecutorService faviconExecutor = Executors.newFixedThreadPool(3);
-    private final LruCache<String, Bitmap> faviconMemoryCache = new LruCache<>(96);
+    private final HistoryFaviconLoader historyFaviconLoader =
+            new HistoryFaviconLoader(mainHandler);
 
     // ===== Video and fullscreen state =====
     private LinearLayout videoControlsBar;
@@ -684,7 +684,7 @@ public class MainActivity extends Activity
             }
             tabs.clear();
         } catch (Exception ignored) {}
-        try { faviconExecutor.shutdownNow(); } catch (Exception ignored) {}
+        historyFaviconLoader.shutdown();
         super.onDestroy();
     }
 
@@ -1221,48 +1221,7 @@ content.addView(space(dp(36)));
     }
 
     private void loadFavicon(String url, ImageView target, TextView fallback) {
-        if (target == null || fallback == null) return;
-        final String requestKey = shortHost(url == null ? "" : url).toLowerCase(Locale.US);
-        target.setTag(requestKey);
-        target.setVisibility(View.GONE);
-        fallback.setVisibility(View.VISIBLE);
-        if (requestKey.length() == 0) return;
-
-        Bitmap cached = faviconMemoryCache.get(requestKey);
-        if (cached != null) {
-            target.setImageBitmap(cached);
-            target.setVisibility(View.VISIBLE);
-            fallback.setVisibility(View.GONE);
-            return;
-        }
-
-        faviconExecutor.execute(() -> {
-            HttpURLConnection conn = null;
-            InputStream input = null;
-            try {
-                String faviconUrl = "https://www.google.com/s2/favicons?sz=96&domain_url="
-                        + URLEncoder.encode(url, "UTF-8");
-                conn = (HttpURLConnection) new URL(faviconUrl).openConnection();
-                conn.setConnectTimeout(3500);
-                conn.setReadTimeout(3500);
-                conn.setUseCaches(true);
-                input = conn.getInputStream();
-                Bitmap bitmap = BitmapFactory.decodeStream(input);
-                if (bitmap == null) return;
-                faviconMemoryCache.put(requestKey, bitmap);
-                runOnUiThread(() -> {
-                    Object tag = target.getTag();
-                    if (tag == null || !requestKey.equals(String.valueOf(tag))) return;
-                    target.setImageBitmap(bitmap);
-                    target.setVisibility(View.VISIBLE);
-                    fallback.setVisibility(View.GONE);
-                });
-            } catch (Exception ignored) {
-            } finally {
-                try { if (input != null) input.close(); } catch (Exception ignored) {}
-                try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
-            }
-        });
+        historyFaviconLoader.load(url, target, fallback);
     }
 
     private View createBottomNav() {
