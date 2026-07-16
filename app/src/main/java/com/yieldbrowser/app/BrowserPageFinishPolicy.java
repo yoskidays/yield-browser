@@ -13,4 +13,17 @@ final class BrowserPageFinishPolicy {
                                       int savedListSize) {
         return savedListAvailable && savedListSize > 0;
     }
+
+    static TabInfo chooseOwner(TabInfo viewOwner, TabInfo currentOwner) {
+        return viewOwner != null ? viewOwner : currentOwner;
+    }
+
+    static boolean shouldUpdateLastSafeUrl(boolean recordableHistoryUrl,
+                                           boolean safeToCommit) {
+        return recordableHistoryUrl && safeToCommit;
+    }
+
+    static boolean shouldUpdateAddressBar(boolean activePageVisible) {
+        return activePageVisible;
+    }
 }
