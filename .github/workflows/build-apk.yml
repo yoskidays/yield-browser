@@ -42,7 +42,7 @@ jobs:
       - name: Run unit tests
         run: |
           set -o pipefail
-          gradle testDebugUnitTest --stacktrace 2>&1 | tee /tmp/unit-test.log
+          gradle testDebugUnitTest --stacktrace --console=plain 2>&1 | tee /tmp/unit-test.log
 
       - name: Build Debug APK
         run: gradle assembleDebug --stacktrace
@@ -89,12 +89,12 @@ jobs:
             echo
             echo '```text'
             if [ -f /tmp/unit-test.log ]; then
-              tail -n 120 /tmp/unit-test.log
+              grep -E -B 4 -A 12 'error:|cannot find symbol|not mocked|AssertionError|There were failing tests|FAILED|Caused by:|Compilation failed' /tmp/unit-test.log | tail -n 220 || true
             else
               echo "Unit-test log was not created."
             fi
             echo '```'
           } > /tmp/failure-body.md
           gh issue create \
-            --title "Download controls diagnostic ${GITHUB_RUN_ID}" \
+            --title "Download controls focused diagnostic ${GITHUB_RUN_ID}" \
             --body-file /tmp/failure-body.md
