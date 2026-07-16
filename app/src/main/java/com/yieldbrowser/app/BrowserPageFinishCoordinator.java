@@ -237,6 +237,56 @@ final class BrowserPageFinishCoordinator {
         return true;
     }
 
+    static boolean applyNormalEffects(
+            BrowserPageFinishPolicy.Profile profile,
+            String finalUrl,
+            boolean desktopMode,
+            boolean readerMode,
+            boolean adBlockEnabled,
+            Runnable applyViewport,
+            DelayScheduler viewportScheduler,
+            DelayScheduler desktopViewportScheduler,
+            Runnable injectReaderMode,
+            Runnable injectInitialAdBlock,
+            DelayScheduler adBlockRetryScheduler,
+            UrlConsumer scheduleBlankRecovery,
+            UrlConsumer scheduleReaderRepair,
+            Runnable updateVideoControls) {
+        if (BrowserPageFinishPolicy.isReloadGuarded(profile)) return false;
+
+        run(applyViewport);
+        if (viewportScheduler != null) {
+            for (long delay : BrowserPageFinishPolicy
+                    .normalViewportRetryDelays()) {
+                viewportScheduler.schedule(delay);
+            }
+        }
+        if (desktopViewportScheduler != null) {
+            for (long delay : BrowserPageFinishPolicy
+                    .normalDesktopViewportDelays(desktopMode)) {
+                desktopViewportScheduler.schedule(delay);
+            }
+        }
+        if (readerMode) run(injectReaderMode);
+        if (adBlockEnabled) {
+            run(injectInitialAdBlock);
+            if (adBlockRetryScheduler != null) {
+                for (long delay : BrowserPageFinishPolicy
+                        .normalAdBlockRetryDelays(true)) {
+                    adBlockRetryScheduler.schedule(delay);
+                }
+            }
+        }
+        if (scheduleBlankRecovery != null) {
+            scheduleBlankRecovery.accept(finalUrl);
+        }
+        if (scheduleReaderRepair != null) {
+            scheduleReaderRepair.accept(finalUrl);
+        }
+        run(updateVideoControls);
+        return true;
+    }
+
     private static boolean test(UrlPredicate predicate, String url) {
         return predicate != null && predicate.test(url);
     }

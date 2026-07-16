@@ -56,4 +56,18 @@ final class BrowserPageFinishPolicy {
                 ? new long[]{350L, 1200L, 2600L}
                 : new long[]{350L};
     }
+
+    static long[] normalViewportRetryDelays() {
+        return new long[]{600L, 1800L};
+    }
+
+    static long[] normalDesktopViewportDelays(boolean desktopMode) {
+        return desktopMode
+                ? new long[]{350L, 1200L, 2600L}
+                : new long[0];
+    }
+
+    static long[] normalAdBlockRetryDelays(boolean adBlockEnabled) {
+        return adBlockEnabled ? new long[]{1800L, 5200L} : new long[0];
+    }
 }

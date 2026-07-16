@@ -279,4 +279,79 @@ public class BrowserPageFinishCoordinatorTest {
                 delay -> calls[0]++));
         assertEquals(0, calls[0]);
     }
+
+    @Test
+    public void normalDesktopEffectsKeepViewportReaderAndAdBlockOrder() {
+        StringBuilder calls = new StringBuilder();
+
+        assertTrue(BrowserPageFinishCoordinator.applyNormalEffects(
+                BrowserPageFinishPolicy.Profile.NORMAL,
+                "https://normal.example/page",
+                true,
+                true,
+                true,
+                () -> calls.append("viewport>"),
+                delay -> calls.append("viewport").append(delay).append('>'),
+                delay -> calls.append("desktop").append(delay).append('>'),
+                () -> calls.append("reader>"),
+                () -> calls.append("adInitial>"),
+                delay -> calls.append("adRetry").append(delay).append('>'),
+                url -> calls.append("blank>"),
+                url -> calls.append("repair>"),
+                () -> calls.append("video")));
+
+        assertEquals(
+                "viewport>viewport600>viewport1800>"
+                        + "desktop350>desktop1200>desktop2600>"
+                        + "reader>adInitial>adRetry1800>adRetry5200>"
+                        + "blank>repair>video",
+                calls.toString());
+    }
+
+    @Test
+    public void normalMobileWithoutOptionalModesKeepsCoreEffects() {
+        StringBuilder calls = new StringBuilder();
+
+        assertTrue(BrowserPageFinishCoordinator.applyNormalEffects(
+                BrowserPageFinishPolicy.Profile.NORMAL,
+                "https://normal.example/page",
+                false,
+                false,
+                false,
+                () -> calls.append("viewport>"),
+                delay -> calls.append("viewport").append(delay).append('>'),
+                delay -> calls.append("desktop>"),
+                () -> calls.append("reader>"),
+                () -> calls.append("adInitial>"),
+                delay -> calls.append("adRetry>"),
+                url -> calls.append("blank>"),
+                url -> calls.append("repair>"),
+                () -> calls.append("video")));
+
+        assertEquals(
+                "viewport>viewport600>viewport1800>blank>repair>video",
+                calls.toString());
+    }
+
+    @Test
+    public void guardedProfileDoesNotRunNormalEffects() {
+        int[] calls = {0};
+
+        assertFalse(BrowserPageFinishCoordinator.applyNormalEffects(
+                BrowserPageFinishPolicy.Profile.GUARDED_COMPATIBILITY,
+                "https://guarded.example/page",
+                true,
+                true,
+                true,
+                () -> calls[0]++,
+                delay -> calls[0]++,
+                delay -> calls[0]++,
+                () -> calls[0]++,
+                () -> calls[0]++,
+                delay -> calls[0]++,
+                url -> calls[0]++,
+                url -> calls[0]++,
+                () -> calls[0]++));
+        assertEquals(0, calls[0]);
+    }
 }
