@@ -5,6 +5,7 @@ import android.view.ViewGroup;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.ScrollView;
 
 import java.util.List;
@@ -121,9 +122,7 @@ final class TabWebViewLifecycle {
                 int insertIndex = TabWebViewLifecyclePolicy.insertionIndex(
                         contentFrame.getChildCount(), homeAttached, overlayIndex);
                 contentFrame.addView(candidate, insertIndex,
-                        new ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT));
+                        new FrameLayout.LayoutParams(-1, -1));
             }
             if (navigationLoadingOverlay != null) navigationLoadingOverlay.bringToFront();
         } catch (Exception ignored) {
