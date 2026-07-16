@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.yieldbrowser.install"
+    android:versionCode="91"
+    android:versionName="0.10.17" >
+
+    <uses-sdk
+        android:minSdkVersion="23"
+        android:targetSdkVersion="35" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <application
+        android:name="com.yieldbrowser.app.YieldBrowserApplication"
+        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+        android:debuggable="true"
+        android:extractNativeLibs="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/launcher_name"
+        android:resizeableActivity="false"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.YieldBrowser"
+        android:usesCleartextTraffic="true" >
+        <activity
+            android:name="com.yieldbrowser.app.SplashActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:resizeableActivity="false"
+            android:supportsPictureInPicture="false"
+            android:theme="@style/Theme.YieldBrowser.Splash" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="com.yieldbrowser.app.MainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize"
+            android:documentLaunchMode="never"
+            android:excludeFromRecents="false"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:supportsPictureInPicture="false" />
+        <activity
+            android:name="com.yieldbrowser.app.PrivateBrowserActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize"
+            android:documentLaunchMode="never"
+            android:excludeFromRecents="false"
+            android:exported="false"
+            android:label="Yield Privat"
+            android:launchMode="singleTask"
+            android:process=":incognito"
+            android:supportsPictureInPicture="false"
+            android:taskAffinity="com.yieldbrowser.install.incognito" />
+        <activity
+            android:name="com.yieldbrowser.app.ProgressiveVideoActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:launchMode="singleTop"
+            android:resizeableActivity="true"
+            android:screenOrientation="sensor"
+            android:supportsPictureInPicture="true" />
+
+        <service
+            android:name="com.yieldbrowser.app.DownloadKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <service
+            android:name="com.yieldbrowser.app.PrivateDownloadKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:process=":incognito" />
+
+        <receiver
+            android:name="com.yieldbrowser.app.DownloadOpenReceiver"
+            android:exported="false" />
+    </application>
+
+</manifest>

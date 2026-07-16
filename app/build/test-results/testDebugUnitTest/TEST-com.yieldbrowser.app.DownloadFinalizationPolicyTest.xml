@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yieldbrowser.app.DownloadFinalizationPolicyTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-07-16T04:22:05" hostname="runnervm5mmn9" time="0.005">
+  <properties/>
+  <testcase name="updateIsThrottledBeforeInterval" classname="com.yieldbrowser.app.DownloadFinalizationPolicyTest" time="0.0"/>
+  <testcase name="firstProgressSampleIsAlwaysDue" classname="com.yieldbrowser.app.DownloadFinalizationPolicyTest" time="0.0"/>
+  <testcase name="completionForcesFinalUpdate" classname="com.yieldbrowser.app.DownloadFinalizationPolicyTest" time="0.0"/>
+  <testcase name="invalidTotalsReturnZero" classname="com.yieldbrowser.app.DownloadFinalizationPolicyTest" time="0.0"/>
+  <testcase name="progressIsClampedAndReachesOneHundred" classname="com.yieldbrowser.app.DownloadFinalizationPolicyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

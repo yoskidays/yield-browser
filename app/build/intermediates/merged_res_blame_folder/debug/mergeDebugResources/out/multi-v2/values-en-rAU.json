@@ -1,0 +1,36 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.yieldbrowser.app-mergeDebugResources-10:/values-en-rAU/values-en-rAU.xml",
+            "map": [
+                {
+                    "source": "/home/runner/.gradle/caches/8.10.2/transforms/659c4830e6579afa9f1fba5ad97676c4/transformed/media3-exoplayer-1.6.1/res/values-en-rAU/values-en-rAU.xml",
+                    "from": {
+                        "startLines": "2,3,4,5,6,7,8,9,10",
+                        "startColumns": "4,4,4,4,4,4,4,4,4",
+                        "startOffsets": "55,125,187,252,316,393,458,548,633",
+                        "endColumns": "69,61,64,63,76,64,89,84,68",
+                        "endOffsets": "120,182,247,311,388,453,543,628,697"
+                    }
+                },
+                {
+                    "source": "/home/runner/.gradle/caches/8.10.2/transforms/0527c2f415ab652ef253a67c7a09fe8f/transformed/core-1.8.0/res/values-en-rAU/values-en-rAU.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "100",
+                        "endOffsets": "151"
+                    },
+                    "to": {
+                        "startLines": "11",
+                        "startColumns": "4",
+                        "startOffsets": "702",
+                        "endColumns": "100",
+                        "endOffsets": "798"
+                    }
+                }
+            ]
+        }
+    ]
+}

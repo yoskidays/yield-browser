@@ -5898,7 +5898,8 @@ private void showDownloadSettingsPanel() {
         String signature = activeDownloadSection + "|" + activeDownloadSort + "|"
                 + downloadSelectMode + "|" + selectedDownloadIds.size() + "|"
                 + countActiveDownloads() + "|" + countQueuedDownloads() + "|"
-                + downloadQueuePaused + "|" + downloadMaxActive;
+                + downloadQueuePaused + "|" + downloadMaxActive + "|"
+                + countCompletedDownloadHistory();
         if (signature.equals(lastDownloadControlsSignature)) return;
         lastDownloadControlsSignature = signature;
         activeDownloadControlsPanel.removeAllViews();
@@ -5928,6 +5929,20 @@ private void showDownloadSettingsPanel() {
         LinearLayout.LayoutParams selectParams = new LinearLayout.LayoutParams(0, dp(40), 1);
         selectParams.setMargins(dp(8), 0, 0, 0);
         tools.addView(select, selectParams);
+
+        if ("Selesai".equals(activeDownloadSection)
+                && !downloadSelectMode
+                && countCompletedDownloadHistory() > 0) {
+            TextView clearAll = downloadToolButton("Hapus semua");
+            clearAll.setTextColor(Color.WHITE);
+            clearAll.setBackground(roundRect(Color.parseColor("#E5484D"),
+                    dp(18), 0, Color.TRANSPARENT));
+            clearAll.setContentDescription("Hapus semua riwayat unduhan selesai");
+            clearAll.setOnClickListener(v -> confirmClearCompletedDownloadHistory());
+            LinearLayout.LayoutParams clearAllParams = new LinearLayout.LayoutParams(0, dp(40), 1);
+            clearAllParams.setMargins(dp(8), 0, 0, 0);
+            tools.addView(clearAll, clearAllParams);
+        }
 
         if (downloadSelectMode) {
             TextView share = downloadToolButton("Bagikan");
@@ -6236,6 +6251,64 @@ private void showDownloadSettingsPanel() {
             return;
         }
         QuietToast.makeText(this, "Bagikan multi-file akan disempurnakan setelah FileProvider aktif", QuietToast.LENGTH_LONG).show();
+    }
+
+    private int countCompletedDownloadHistory() {
+        synchronized (downloadItems) {
+            return DownloadHistoryClearPolicy.countClearable(downloadItems);
+        }
+    }
+
+    private void confirmClearCompletedDownloadHistory() {
+        int count = countCompletedDownloadHistory();
+        if (count <= 0) {
+            QuietToast.makeText(this, "Tidak ada riwayat unduhan selesai",
+                    QuietToast.LENGTH_SHORT).show();
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Hapus semua riwayat unduhan?")
+                .setMessage(count + " riwayat unduhan selesai akan dihapus dari daftar. "
+                        + "File yang sudah tersimpan tetap ada di perangkat.")
+                .setPositiveButton("Hapus semua", (dialog, which) -> clearCompletedDownloadHistory())
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
+    private void clearCompletedDownloadHistory() {
+        ArrayList<DownloadItem> removed = new ArrayList<>();
+        synchronized (downloadItems) {
+            for (int i = downloadItems.size() - 1; i >= 0; i--) {
+                DownloadItem item = downloadItems.get(i);
+                if (!DownloadHistoryClearPolicy.isClearable(item)) continue;
+                item.runGeneration++;
+                item.pauseRequested = true;
+                item.status = "removed";
+                removed.add(item);
+                downloadItems.remove(i);
+            }
+        }
+
+        if (removed.isEmpty()) {
+            QuietToast.makeText(this, "Tidak ada riwayat unduhan selesai",
+                    QuietToast.LENGTH_SHORT).show();
+            return;
+        }
+
+        for (DownloadItem item : removed) {
+            stopActiveDownloadTransports(item);
+            cancelDownloadNotification(item);
+            selectedDownloadIds.remove(item.id);
+        }
+        downloadSelectMode = false;
+        lastDownloadControlsSignature = "";
+        saveDownloadHistory();
+        renderDownloadList();
+        updateDownloadKeepAliveState();
+        mainHandler.post(this::pumpDownloadQueue);
+        QuietToast.makeText(this, removed.size() + " riwayat unduhan dihapus. File tetap tersimpan.",
+                QuietToast.LENGTH_SHORT).show();
     }
 
     private void deleteSelectedDownloads() {

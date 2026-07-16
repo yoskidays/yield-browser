@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yieldbrowser.app.ReaderCompatibilityPolicyTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-07-16T04:22:05" hostname="runnervm5mmn9" time="0.007">
+  <properties/>
+  <testcase name="compatibilityResourcePolicyPreservesReaderAssets" classname="com.yieldbrowser.app.ReaderCompatibilityPolicyTest" time="0.002"/>
+  <testcase name="compatibilityShieldBlocksHijackedCrossSiteClicks" classname="com.yieldbrowser.app.ReaderCompatibilityPolicyTest" time="0.0"/>
+  <testcase name="rejectsDirectAssetsAndNonWebSchemes" classname="com.yieldbrowser.app.ReaderCompatibilityPolicyTest" time="0.001"/>
+  <testcase name="detectsTransientBlankDocumentsUsedByDirectLinks" classname="com.yieldbrowser.app.ReaderCompatibilityPolicyTest" time="0.0"/>
+  <testcase name="usesMoreRetriesForCompatibilityPages" classname="com.yieldbrowser.app.ReaderCompatibilityPolicyTest" time="0.001"/>
+  <testcase name="acceptsReaderPagesAcrossDifferentDomains" classname="com.yieldbrowser.app.ReaderCompatibilityPolicyTest" time="0.0"/>
+  <testcase name="detectsGenericReaderPathHints" classname="com.yieldbrowser.app.ReaderCompatibilityPolicyTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yieldbrowser.app.ShieldEngineV2Test" tests="15" skipped="0" failures="0" errors="0" timestamp="2026-07-16T04:22:05" hostname="runnervm5mmn9" time="0.019">
+  <properties/>
+  <testcase name="keepsReaderCdnAssetsAndBlocksKnownAdScripts" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.0"/>
+  <testcase name="chapterAllowLaneDoesNotAllowSameOriginAdRelay" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.001"/>
+  <testcase name="trustedVideoHostsDoNotUsePopupIsolationBoundary" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.001"/>
+  <testcase name="allowsCurrentKomikuNextChapterShape" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.001"/>
+  <testcase name="searchResultsAreNeverClassifiedAsReaderPages" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.002"/>
+  <testcase name="readerBoundaryRemainsActiveAfterUniversalSearchFix" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.002"/>
+  <testcase name="ordinaryPagesStillAllowCleanExternalLinks" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.0"/>
+  <testcase name="allowsCleanChapterNavigation" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.001"/>
+  <testcase name="readerBoundaryBlocksKnownAndUnknownCrossSiteTakeovers" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.0"/>
+  <testcase name="readerPagesDisableOnlyTheLegacyDuplicateClickGuard" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.002"/>
+  <testcase name="blocksSameOriginRelayBeforeReaderLeavesMainTab" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.001"/>
+  <testcase name="allowsNextAndPreviousWhenSourceIsAlreadyAChapterPage" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.005"/>
+  <testcase name="explicitTrustedFlowCanLeaveReaderAndReaderCdnAssetsStayAllowed" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.0"/>
+  <testcase name="videoPagesDisableLegacyDuplicateClickGuard" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.001"/>
+  <testcase name="videoPagesUsePopupIsolationBoundary" classname="com.yieldbrowser.app.ShieldEngineV2Test" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

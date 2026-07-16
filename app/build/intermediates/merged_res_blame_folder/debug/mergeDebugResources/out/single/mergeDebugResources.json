@@ -1,0 +1,234 @@
+[
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_video_control.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_video_control.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_download_modern.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_download_modern.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_bookmark.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_bookmark.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_customize.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_customize.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/mipmap-xxxhdpi_ic_launcher_round.png.flat",
+        "source": "com.yieldbrowser.app-main-14:/mipmap-xxxhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_fullscreen.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_fullscreen.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_back.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_back.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_block_element.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_block_element.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/mipmap-xhdpi_ic_launcher_round.png.flat",
+        "source": "com.yieldbrowser.app-main-14:/mipmap-xhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_add_tab.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_add_tab.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_text_size.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_text_size.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_save_page.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_save_page.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_file.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_file.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_exit.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_exit.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_settings.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_settings.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/mipmap-xxhdpi_ic_launcher_round.png.flat",
+        "source": "com.yieldbrowser.app-main-14:/mipmap-xxhdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/mipmap-mdpi_ic_launcher.png.flat",
+        "source": "com.yieldbrowser.app-main-14:/mipmap-mdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_search_engine.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_search_engine.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_history.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_history.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_page_info.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_page_info.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_copy_link.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_copy_link.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_video_pause.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_video_pause.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_reader.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_reader.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable-nodpi_yield_logo_splash.png.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable-nodpi/yield_logo_splash.png"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/mipmap-hdpi_ic_launcher_round.png.flat",
+        "source": "com.yieldbrowser.app-main-14:/mipmap-hdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_folder.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_folder.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_speed.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_speed.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_video_stop.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_video_stop.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_go.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_go.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_night.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_night.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_refresh.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_refresh.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_safe.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_safe.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/mipmap-xxxhdpi_ic_launcher.png.flat",
+        "source": "com.yieldbrowser.app-main-14:/mipmap-xxxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_find_page.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_find_page.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_splash_glow_line.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/splash_glow_line.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_menu_more.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_menu_more.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_qr_scan.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_qr_scan.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_search.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_search.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_clear.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_clear.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_shield.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_shield.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/mipmap-hdpi_ic_launcher.png.flat",
+        "source": "com.yieldbrowser.app-main-14:/mipmap-hdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_private_tab.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_private_tab.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/mipmap-xxhdpi_ic_launcher.png.flat",
+        "source": "com.yieldbrowser.app-main-14:/mipmap-xxhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_forward.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_forward.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_data_saver.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_data_saver.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_translate.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_translate.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_share.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_share.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_video_play.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_video_play.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_private.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_private.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_star.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_star.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_download.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_download.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_close.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_close.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_info.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_info.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/mipmap-mdpi_ic_launcher_round.png.flat",
+        "source": "com.yieldbrowser.app-main-14:/mipmap-mdpi/ic_launcher_round.png"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/mipmap-xhdpi_ic_launcher.png.flat",
+        "source": "com.yieldbrowser.app-main-14:/mipmap-xhdpi/ic_launcher.png"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_tabs.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_tabs.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_desktop.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_desktop.xml"
+    },
+    {
+        "merged": "com.yieldbrowser.app-debug-12:/drawable_ic_home.xml.flat",
+        "source": "com.yieldbrowser.app-main-14:/drawable/ic_home.xml"
+    }
+]

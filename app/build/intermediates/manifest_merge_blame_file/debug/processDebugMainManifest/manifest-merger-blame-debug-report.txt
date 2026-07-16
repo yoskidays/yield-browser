@@ -1,0 +1,165 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.yieldbrowser.install"
+4    android:versionCode="91"
+5    android:versionName="0.10.17" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="23"
+9        android:targetSdkVersion="35" />
+10
+11    <uses-permission android:name="android.permission.INTERNET" />
+11-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:3:5-67
+11-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:3:22-64
+12    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+12-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:4:5-79
+12-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:4:22-76
+13    <uses-permission android:name="android.permission.WAKE_LOCK" />
+13-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:5:5-68
+13-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:5:22-65
+14    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+14-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:6:5-77
+14-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:6:22-74
+15    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+15-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:7:5-87
+15-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:7:22-84
+16    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+16-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:8:5-77
+16-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:8:22-74
+17    <uses-permission android:name="android.permission.CAMERA" />
+17-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:9:5-65
+17-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:9:22-62
+18
+19    <application
+19-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:11:5-80:19
+20        android:name="com.yieldbrowser.app.YieldBrowserApplication"
+20-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:12:9-48
+21        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+21-->[androidx.core:core:1.8.0] /home/runner/.gradle/caches/8.10.2/transforms/0527c2f415ab652ef253a67c7a09fe8f/transformed/core-1.8.0/AndroidManifest.xml:24:18-86
+22        android:debuggable="true"
+23        android:extractNativeLibs="false"
+24        android:icon="@mipmap/ic_launcher"
+24-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:13:9-43
+25        android:label="@string/launcher_name"
+25-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:14:9-46
+26        android:resizeableActivity="false"
+26-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:15:9-43
+27        android:roundIcon="@mipmap/ic_launcher_round"
+27-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:16:9-54
+28        android:theme="@style/Theme.YieldBrowser"
+28-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:17:9-50
+29        android:usesCleartextTraffic="true" >
+29-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:18:9-44
+30        <activity
+30-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:20:9-32:20
+31            android:name="com.yieldbrowser.app.SplashActivity"
+31-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:21:13-43
+32            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize"
+32-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:22:13-93
+33            android:exported="true"
+33-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:23:13-36
+34            android:launchMode="singleTop"
+34-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:24:13-43
+35            android:resizeableActivity="false"
+35-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:25:13-47
+36            android:supportsPictureInPicture="false"
+36-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:26:13-53
+37            android:theme="@style/Theme.YieldBrowser.Splash" >
+37-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:27:13-61
+38            <intent-filter>
+38-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:28:13-31:29
+39                <action android:name="android.intent.action.MAIN" />
+39-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:29:17-69
+39-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:29:25-66
+40
+41                <category android:name="android.intent.category.LAUNCHER" />
+41-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:30:17-77
+41-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:30:27-74
+42            </intent-filter>
+43        </activity>
+44        <activity
+44-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:34:9-41:56
+45            android:name="com.yieldbrowser.app.MainActivity"
+45-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:35:13-41
+46            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize"
+46-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:36:13-93
+47            android:documentLaunchMode="never"
+47-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:37:13-47
+48            android:excludeFromRecents="false"
+48-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:38:13-47
+49            android:exported="false"
+49-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:39:13-37
+50            android:launchMode="singleTop"
+50-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:40:13-43
+51            android:supportsPictureInPicture="false" />
+51-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:41:13-53
+52        <activity
+53            android:name="com.yieldbrowser.app.PrivateBrowserActivity"
+53-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:44:13-51
+54            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize"
+54-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:45:13-93
+55            android:documentLaunchMode="never"
+55-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:46:13-47
+56            android:excludeFromRecents="false"
+56-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:47:13-47
+57            android:exported="false"
+57-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:48:13-37
+58            android:label="Yield Privat"
+58-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:49:13-41
+59            android:launchMode="singleTask"
+59-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:50:13-44
+60            android:process=":incognito"
+60-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:51:13-41
+61            android:supportsPictureInPicture="false"
+61-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:53:13-53
+62            android:taskAffinity="com.yieldbrowser.install.incognito" />
+62-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:52:13-62
+63        <activity
+63-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:55:9-64:55
+64            android:name="com.yieldbrowser.app.ProgressiveVideoActivity"
+64-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:56:13-53
+65            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+65-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:58:13-106
+66            android:excludeFromRecents="true"
+66-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:59:13-46
+67            android:exported="false"
+67-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:60:13-37
+68            android:hardwareAccelerated="true"
+68-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:57:13-47
+69            android:launchMode="singleTop"
+69-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:61:13-43
+70            android:resizeableActivity="true"
+70-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:62:13-46
+71            android:screenOrientation="sensor"
+71-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:63:13-47
+72            android:supportsPictureInPicture="true" />
+72-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:64:13-52
+73
+74        <service
+74-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:66:9-69:56
+75            android:name="com.yieldbrowser.app.DownloadKeepAliveService"
+75-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:67:13-53
+76            android:exported="false"
+76-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:68:13-37
+77            android:foregroundServiceType="dataSync" />
+77-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:69:13-53
+78        <service
+78-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:71:9-75:44
+79            android:name="com.yieldbrowser.app.PrivateDownloadKeepAliveService"
+79-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:72:13-60
+80            android:exported="false"
+80-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:73:13-37
+81            android:foregroundServiceType="dataSync"
+81-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:74:13-53
+82            android:process=":incognito" />
+82-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:75:13-41
+83
+84        <receiver
+84-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:77:9-79:40
+85            android:name="com.yieldbrowser.app.DownloadOpenReceiver"
+85-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:78:13-49
+86            android:exported="false" />
+86-->/home/runner/work/yield-browser/yield-browser/app/src/main/AndroidManifest.xml:79:13-37
+87    </application>
+88
+89</manifest>
