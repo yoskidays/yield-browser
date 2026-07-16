@@ -6001,45 +6001,14 @@ private void showDownloadSettingsPanel() {
     }
 
     private ArrayList<DownloadItem> getFilteredDownloadItems() {
-        ArrayList<DownloadItem> result = new ArrayList<>();
         synchronized (downloadItems) {
-            for (DownloadItem item : new ArrayList<>(downloadItems)) {
-                if (!matchesDownloadSection(item)) continue;
-                if (!matchesDownloadCategory(item, activeDownloadCategory)) continue;
-                if (!matchesDownloadSearch(item)) continue;
-                result.add(item);
-            }
+            return DownloadListPolicy.filterAndSort(
+                    downloadItems,
+                    activeDownloadSection,
+                    activeDownloadCategory,
+                    activeDownloadSearchQuery,
+                    activeDownloadSort);
         }
-
-        if ("Antrian".equals(activeDownloadSort)) return result;
-        Collections.sort(result, (a, b) -> {
-            if ("Nama".equals(activeDownloadSort)) {
-                return safeText(a.fileName).compareToIgnoreCase(safeText(b.fileName));
-            }
-            if ("Ukuran".equals(activeDownloadSort)) {
-                return Long.compare(getDownloadSize(b), getDownloadSize(a));
-            }
-            return Integer.compare(b.id, a.id);
-        });
-        return result;
-    }
-
-    private boolean matchesDownloadSection(DownloadItem item) {
-        if (item == null) return false;
-        boolean completed = "completed".equals(item.status);
-        return "Selesai".equals(activeDownloadSection) ? completed : !completed;
-    }
-
-    private boolean matchesDownloadSearch(DownloadItem item) {
-        if (activeDownloadSearchQuery == null || activeDownloadSearchQuery.trim().isEmpty()) return true;
-        String q = activeDownloadSearchQuery.toLowerCase(Locale.US);
-        return safeText(item.fileName).toLowerCase(Locale.US).contains(q)
-                || safeText(item.url).toLowerCase(Locale.US).contains(q)
-                || getDownloadHost(item).toLowerCase(Locale.US).contains(q);
-    }
-
-    private boolean matchesDownloadCategory(DownloadItem item, String category) {
-        return DownloadItemUtils.matchesDownloadCategory(item, category);
     }
 
     private String getDownloadCategory(DownloadItem item) {
