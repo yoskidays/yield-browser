@@ -10052,27 +10052,26 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                             delay -> mainHandler.postDelayed(
                                     MainActivity.this::applyMobileViewportIfNeeded, delay));
                 }
-                if (!pageReloadGuarded) {
-                    applyViewportForCurrentMode();
-                    mainHandler.postDelayed(() -> applyViewportForCurrentMode(), 600);
-                    mainHandler.postDelayed(() -> applyViewportForCurrentMode(), 1800);
-                    if (desktopMode) {
-                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 350);
-                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1200);
-                        mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 2600);
-                    }
-                    if (readerMode) injectReaderMode();
-                    if (adBlock) {
-                        injectShieldEngineV2Fallback();
-                        injectPremiumAdBlock();
-                        injectYouTubeSafeAdBlockV6();
-                        mainHandler.postDelayed(() -> { injectPremiumAdBlock(); injectYouTubeSafeAdBlockV6(); }, 1800);
-                        mainHandler.postDelayed(() -> { injectPremiumAdBlock(); injectYouTubeSafeAdBlockV6(); }, 5200);
-                    }
-                    scheduleUniversalBlankCompatibilityRecovery(finalUrl);
-                    scheduleUniversalReaderCompatibilityRepair(finalUrl);
-                    updateVideoControlsVisibility();
-                }
+                BrowserPageFinishCoordinator.applyNormalEffects(
+                        pageFinishProfile, finalUrl, desktopMode, readerMode, adBlock,
+                        MainActivity.this::applyViewportForCurrentMode,
+                        delay -> mainHandler.postDelayed(
+                                MainActivity.this::applyViewportForCurrentMode, delay),
+                        delay -> mainHandler.postDelayed(
+                                MainActivity.this::applyDesktopViewportIfNeeded, delay),
+                        MainActivity.this::injectReaderMode,
+                        () -> {
+                            injectShieldEngineV2Fallback();
+                            injectPremiumAdBlock();
+                            injectYouTubeSafeAdBlockV6();
+                        },
+                        delay -> mainHandler.postDelayed(() -> {
+                            injectPremiumAdBlock();
+                            injectYouTubeSafeAdBlockV6();
+                        }, delay),
+                        MainActivity.this::scheduleUniversalBlankCompatibilityRecovery,
+                        MainActivity.this::scheduleUniversalReaderCompatibilityRepair,
+                        MainActivity.this::updateVideoControlsVisibility);
                 if (hasUserFiltersForCurrentHost()) {
                     applyUserFiltersForCurrentPage();
                     mainHandler.postDelayed(MainActivity.this::applyUserFiltersForCurrentPage, 350);

@@ -74,4 +74,18 @@ public class BrowserPageFinishPolicyTest {
         assertArrayEquals(new long[]{350L},
                 BrowserPageFinishPolicy.guardedViewportDelays(false));
     }
+
+    @Test
+    public void normalEffectRetrySchedulesRemainStable() {
+        assertArrayEquals(new long[]{600L, 1800L},
+                BrowserPageFinishPolicy.normalViewportRetryDelays());
+        assertArrayEquals(new long[]{350L, 1200L, 2600L},
+                BrowserPageFinishPolicy.normalDesktopViewportDelays(true));
+        assertArrayEquals(new long[0],
+                BrowserPageFinishPolicy.normalDesktopViewportDelays(false));
+        assertArrayEquals(new long[]{1800L, 5200L},
+                BrowserPageFinishPolicy.normalAdBlockRetryDelays(true));
+        assertArrayEquals(new long[0],
+                BrowserPageFinishPolicy.normalAdBlockRetryDelays(false));
+    }
 }
