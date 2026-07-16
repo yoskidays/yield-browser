@@ -1764,56 +1764,41 @@ content.addView(space(dp(36)));
             return;
         }
         try {
-            SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-            String raw = p.getString(KEY_TABS_SESSION_V1, "");
-            if (raw == null || raw.trim().length() == 0) return;
+            TabSessionStore.StoredSession stored = TabSessionStore.read(this);
+            if (stored.raw.trim().length() == 0) return;
 
-            int requestedIndex = Math.max(0, p.getInt(KEY_TABS_CURRENT_INDEX_V1, 0));
-            int restoredAtOrBefore = -1;
-            int firstRestoredAfter = -1;
-            int serializedIndex = 0;
             ArrayList<TabInfo> restored = new ArrayList<>();
-            String[] rows = raw.split("\n");
-            for (String row : rows) {
-                if (row == null || row.trim().length() == 0) continue;
-                int rowIndex = serializedIndex++;
-                String[] parts = row.split("\t", -1);
-                if (parts.length < 4) continue;
-                String title = decode(parts[0]);
-                String url = decode(parts[1]);
-                boolean privateTab = "1".equals(parts[2]);
-                boolean adTab = "1".equals(parts[3]);
-                String savedIsolationHost = parts.length >= 5 ? decode(parts[4]) : "";
-                String savedTabId = parts.length >= 6 ? decode(parts[5]) : "";
+            ArrayList<Integer> restoredSourceIndexes = new ArrayList<>();
+            for (TabSessionCodec.Record record : TabSessionCodec.decode(stored.raw)) {
+                // Private and ad tabs remain ephemeral even when reading legacy session rows.
+                if (!TabSessionPolicy.shouldRestore(record.privateTab, record.adTab)) continue;
 
-                // Private/ad tabs are intentionally ephemeral. Legacy private rows are discarded
-                // during migration so they cannot leak into a future normal browsing session.
-                if (privateTab || adTab) continue;
-                if (title == null || title.trim().length() == 0) title = "Tab baru";
-                if (url == null) url = "";
-                url = cleanTabSessionUrl(url);
+                String title = TabSessionCodec.normalizedTitle(record.title);
+                String url = cleanTabSessionUrl(record.url);
                 if (url.length() > 0 && !isRestorableTabSessionUrl(url)) continue;
 
-                TabInfo restoredTab = new TabInfo(savedTabId, title, url, false, false);
+                TabInfo restoredTab = new TabInfo(record.tabId, title, url, false, false);
                 if (url.length() > 0) {
                     restoredTab.lastSafeUrl = url;
                     restoredTab.lastSafeTitle = title;
                     restoredTab.currentPageUrlForRequest = url;
-                    String host = savedIsolationHost != null && savedIsolationHost.length() > 0
-                            ? savedIsolationHost : BrowserUrlUtils.safeHostForTabIsolation(url);
+                    String host = record.isolationHost.length() > 0
+                            ? record.isolationHost
+                            : BrowserUrlUtils.safeHostForTabIsolation(url);
                     restoredTab.isolationHost = host == null ? "" : host;
                 }
-                int newIndex = restored.size();
                 restored.add(restoredTab);
-                if (rowIndex <= requestedIndex) restoredAtOrBefore = newIndex;
-                else if (firstRestoredAfter < 0) firstRestoredAfter = newIndex;
+                restoredSourceIndexes.add(record.sourceIndex);
             }
+
             if (!restored.isEmpty()) {
                 tabs.clear();
                 tabs.addAll(restored);
-                int selected = restoredAtOrBefore >= 0 ? restoredAtOrBefore : firstRestoredAfter;
-                currentTabIndex = Math.max(0, Math.min(selected < 0 ? 0 : selected, tabs.size() - 1));
-                tabCount = tabs.size();
+                int selected = TabSessionPolicy.restoredSelectionIndex(
+                        restoredSourceIndexes, stored.requestedIndex);
+                currentTabIndex = TabNavigationPolicy.clampIndex(
+                        selected < 0 ? 0 : selected, tabs.size());
+                tabCount = TabNavigationPolicy.countForUi(tabs.size());
             }
         } catch (Exception ignored) {
         }
@@ -1824,43 +1809,41 @@ content.addView(space(dp(36)));
         try {
             if (tabs.isEmpty()) ensureDefaultTab();
             TabInfo persistedSelection = findPersistedSelectionCandidate();
-            StringBuilder sb = new StringBuilder();
+            ArrayList<TabSessionCodec.Record> records = new ArrayList<>();
             int savedIndex = 0;
-            int savedCount = 0;
+
             for (TabInfo tab : tabs) {
                 if (!isPersistableTab(tab)) continue;
                 String url = getSafeUrlForSession(tab);
                 if (url == null) continue;
-                if (tab == persistedSelection) savedIndex = savedCount;
+                if (tab == persistedSelection) savedIndex = records.size();
+
                 String title = tab.title == null ? "" : tab.title;
-                if (url.length() > 0 && tab.lastSafeTitle != null && tab.lastSafeTitle.length() > 0
+                if (url.length() > 0 && tab.lastSafeTitle != null
+                        && tab.lastSafeTitle.length() > 0
                         && !canCommitUrlToTab(tab, tab.url)) {
                     title = tab.lastSafeTitle;
                 }
-                if (sb.length() > 0) sb.append('\n');
+
                 String isolationHost = tab.isolationHost == null ? "" : tab.isolationHost;
                 if (isolationHost.length() == 0 && url.length() > 0) {
                     isolationHost = BrowserUrlUtils.safeHostForTabIsolation(url);
                 }
-                sb.append(encode(title)).append('\t')
-                        .append(encode(url)).append('\t')
-                        .append("0\t0\t")
-                        .append(encode(isolationHost)).append('\t')
-                        .append(encode(tab.id));
-                savedCount++;
+                records.add(TabSessionCodec.Record.persisted(
+                        title, url, isolationHost, tab.id));
             }
-            if (savedCount <= 0) {
+
+            if (records.isEmpty()) {
                 TabInfo fallback = createProfileTab("Tab utama", "Tab privat", "", false);
-                sb.append(encode(fallback.title)).append('\t').append(encode(""))
-                        .append("\t0\t0\t\t").append(encode(fallback.id));
+                records.add(TabSessionCodec.Record.persisted(
+                        fallback.title, "", "", fallback.id));
                 savedIndex = 0;
-                savedCount = 1;
             }
-            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                    .putString(KEY_TABS_SESSION_V1, sb.toString())
-                    .putInt(KEY_TABS_CURRENT_INDEX_V1,
-                            Math.max(0, Math.min(savedIndex, Math.max(0, savedCount - 1))))
-                    .apply();
+
+            TabSessionStore.write(
+                    this,
+                    TabSessionCodec.encode(records),
+                    TabSessionPolicy.persistedSelectionIndex(savedIndex, records.size()));
         } catch (Exception ignored) {
         }
     }
