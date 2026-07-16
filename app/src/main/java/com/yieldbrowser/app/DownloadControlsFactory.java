@@ -33,17 +33,16 @@ final class DownloadControlsFactory {
         tools.setGravity(Gravity.CENTER_VERTICAL);
         tools.setPadding(0, dp(context, 2), 0, dp(context, 3));
 
-        TextView sort = button(context, "Urut: " + safe(activeSort));
+        TextView sort = createButton(context, "Urut: " + safe(activeSort));
         sort.setOnClickListener(v -> run(onSort));
         tools.addView(sort, new LinearLayout.LayoutParams(0, dp(context, 40), 1));
 
-        TextView select = button(context, selectionMode ? "Batal pilih" : "Pilih");
+        TextView select = createButton(context, selectionMode ? "Batal pilih" : "Pilih");
         select.setOnClickListener(v -> run(onToggleSelection));
-        LinearLayout.LayoutParams selectParams = weightedButtonParams(context, 40);
-        tools.addView(select, selectParams);
+        tools.addView(select, weightedButtonParams(context, 40));
 
         if (shouldShowClearAll(section, selectionMode, completedCount)) {
-            TextView clearAll = button(context, "Hapus semua");
+            TextView clearAll = createButton(context, "Hapus semua");
             clearAll.setBackground(roundRect(context, COLOR_DANGER, 18, 0,
                     Color.TRANSPARENT));
             clearAll.setContentDescription("Hapus semua riwayat unduhan selesai");
@@ -52,11 +51,11 @@ final class DownloadControlsFactory {
         }
 
         if (selectionMode) {
-            TextView share = button(context, "Bagikan");
+            TextView share = createButton(context, "Bagikan");
             share.setOnClickListener(v -> run(onShare));
             tools.addView(share, weightedButtonParams(context, 40));
 
-            TextView delete = button(context, "Hapus");
+            TextView delete = createButton(context, "Hapus");
             delete.setBackground(roundRect(context, COLOR_DANGER, 18, 0,
                     Color.TRANSPARENT));
             delete.setOnClickListener(v -> run(onDelete));
@@ -77,15 +76,15 @@ final class DownloadControlsFactory {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(context, 3), 0, dp(context, 5));
 
-        TextView pause = button(context, "Jeda semua");
+        TextView pause = createButton(context, "Jeda semua");
         pause.setOnClickListener(v -> run(onPauseAll));
         row.addView(pause, new LinearLayout.LayoutParams(0, dp(context, 37), 1));
 
-        TextView resume = button(context, "Lanjutkan");
+        TextView resume = createButton(context, "Lanjutkan");
         resume.setOnClickListener(v -> run(onResumeAll));
         row.addView(resume, weightedButtonParams(context, 37));
 
-        TextView queue = button(context, queueLabel(activeCount, maxActive, queuedCount));
+        TextView queue = createButton(context, queueLabel(activeCount, maxActive, queuedCount));
         queue.setOnClickListener(v -> run(onQueueSettings));
         row.addView(queue, weightedButtonParams(context, 37));
         return row;
@@ -101,7 +100,7 @@ final class DownloadControlsFactory {
                 + " • " + Math.max(0, queuedCount);
     }
 
-    private static TextView button(Context context, String text) {
+    static TextView createButton(Context context, String text) {
         TextView button = new TextView(context);
         button.setText(text);
         button.setTextColor(Color.WHITE);
