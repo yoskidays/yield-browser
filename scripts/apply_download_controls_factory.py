@@ -45,6 +45,10 @@ replacement = """    private View downloadToolRow() {
                 this::showDownloadQueueSettingsDialog);
     }
 
+    private TextView downloadToolButton(String text) {
+        return DownloadControlsFactory.createButton(this, text);
+    }
+
 """
 
 path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
