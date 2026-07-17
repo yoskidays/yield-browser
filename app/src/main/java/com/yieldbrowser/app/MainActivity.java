@@ -11264,30 +11264,29 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private String prepareHttpsFirstNavigation(String rawUrl, TabInfo tab) {
-        if (rawUrl == null) return null;
-        String clean = rawUrl.trim();
-        if (!httpsFirstEnabled || !isHttpUrl(clean) || isHttpsFirstExemptUrl(clean)) return clean;
-
-        if (tab != null && tab.httpsFallbackInProgress) {
-            String expected = tab.pendingHttpsOriginalUrl;
-            tab.httpsFallbackInProgress = false;
-            if (expected != null && expected.equals(clean)) {
+        HttpsNavigationPreparePolicy.Result result = HttpsNavigationPreparePolicy.prepare(
+                rawUrl,
+                httpsFirstEnabled,
+                tab != null,
+                tab != null && tab.httpsFallbackInProgress,
+                tab != null ? tab.pendingHttpsOriginalUrl : "",
+                MainActivity.this::isHttpUrl,
+                MainActivity.this::isHttpsFirstExemptUrl,
+                url -> isHttpsFallbackGuardActive(tab, url),
+                MainActivity.this::buildHttpsUpgradeUrl);
+        if (tab != null) {
+            if (result.consumeFallbackInProgress) tab.httpsFallbackInProgress = false;
+            if (result.clearPendingState) {
                 tab.pendingHttpsOriginalUrl = "";
                 tab.pendingHttpsUpgradeUrl = "";
                 tab.pendingHttpsStartedAtMs = 0L;
-                return clean;
+            } else if (result.startPendingState) {
+                tab.pendingHttpsOriginalUrl = rawUrl.trim();
+                tab.pendingHttpsUpgradeUrl = result.targetUrl;
+                tab.pendingHttpsStartedAtMs = System.currentTimeMillis();
             }
         }
-        if (isHttpsFallbackGuardActive(tab, clean)) return clean;
-
-        String secure = buildHttpsUpgradeUrl(clean);
-        if (secure == null || secure.equals(clean)) return clean;
-        if (tab != null) {
-            tab.pendingHttpsOriginalUrl = clean;
-            tab.pendingHttpsUpgradeUrl = secure;
-            tab.pendingHttpsStartedAtMs = System.currentTimeMillis();
-        }
-        return secure;
+        return result.targetUrl;
     }
 
     private boolean startHttpsFirstOverrideIfNeeded(WebView view, String targetUrl, TabInfo tab) {
