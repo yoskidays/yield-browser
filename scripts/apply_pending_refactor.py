@@ -1,3 +1,4 @@
+# Stage 80 guarded bookmark-store extraction.
 from pathlib import Path
 
 PATH = Path("app/src/main/java/com/yieldbrowser/app/MainActivity.java")
