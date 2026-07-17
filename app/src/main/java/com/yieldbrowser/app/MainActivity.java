@@ -11246,23 +11246,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private String buildHttpsUpgradeUrl(String httpUrl) {
-        try {
-            if (!isHttpUrl(httpUrl) || isHttpsFirstExemptUrl(httpUrl)) return httpUrl;
-            URI source = new URI(httpUrl.trim());
-            int sourcePort = source.getPort();
-            int securePort = sourcePort == 80 ? -1 : sourcePort;
-            URI secure = new URI(
-                    "https",
-                    source.getUserInfo(),
-                    source.getHost(),
-                    securePort,
-                    source.getPath(),
-                    source.getQuery(),
-                    source.getFragment());
-            return secure.toASCIIString();
-        } catch (Exception ignored) {
-            return httpUrl;
-        }
+        return HttpsFirstUpgradePolicy.upgrade(
+                httpUrl,
+                MainActivity.this::isHttpUrl,
+                MainActivity.this::isHttpsFirstExemptUrl);
     }
 
     private boolean isHttpsFallbackGuardActive(TabInfo tab, String httpUrl) {
