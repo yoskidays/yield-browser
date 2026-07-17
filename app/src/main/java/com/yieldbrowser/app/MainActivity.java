@@ -10892,10 +10892,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean isReloadLoopGuardActiveForUrl(String url) {
-        long now = System.currentTimeMillis();
-        if (reloadLoopGuardHost == null || reloadLoopGuardHost.length() == 0 || now > reloadLoopGuardUntilMs) return false;
-        String host = hostOfUrl(url);
-        return host.length() > 0 && (host.equals(reloadLoopGuardHost) || host.endsWith("." + reloadLoopGuardHost));
+        return ReloadLoopGuardActivePolicy.isActive(
+                reloadLoopGuardHost,
+                reloadLoopGuardUntilMs,
+                System.currentTimeMillis(),
+                () -> hostOfUrl(url));
     }
     private boolean registerNavigationLoopGuard(String url) {
         if (!isHttpOrHttpsUrl(url)) return false;
