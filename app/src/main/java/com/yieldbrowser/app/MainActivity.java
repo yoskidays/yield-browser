@@ -11058,8 +11058,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private boolean isCompatibilityThirdPartyAdResource(String resourceUrl, String pageUrl) {
         try {
-            if (!adBlock || !isHttpOrHttpsUrl(resourceUrl) || !isHttpOrHttpsUrl(pageUrl)) return false;
-            if (isTrustedDownloadIntentUrl(resourceUrl) || isYoutubeCoreUrl(resourceUrl)) return false;
+            if (!CompatibilityThirdPartyResourcePreflightPolicy.shouldClassify(
+                    adBlock,
+                    isHttpOrHttpsUrl(resourceUrl),
+                    isHttpOrHttpsUrl(pageUrl),
+                    isTrustedDownloadIntentUrl(resourceUrl),
+                    isYoutubeCoreUrl(resourceUrl))) return false;
             boolean hardAd = isKnownPopupHost(resourceUrl) || isAdUrl(resourceUrl);
             return ReaderCompatibilityPolicy.shouldBlockThirdPartyResource(
                     resourceUrl, pageUrl, hardAd, isCompatibilityContentAssetUrl(resourceUrl));
