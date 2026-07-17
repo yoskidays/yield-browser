@@ -48,10 +48,27 @@ jobs:
           gradle-version: "8.10.2"
 
       - name: Run unit tests
-        run: gradle testDebugUnitTest --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle testDebugUnitTest --stacktrace 2>&1 | tee unit-test.log
 
       - name: Build Debug APK
-        run: gradle assembleDebug --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle assembleDebug --stacktrace 2>&1 | tee apk-build.log
+
+      - name: Upload Gradle failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gradle-failure-logs
+          path: |
+            unit-test.log
+            apk-build.log
+            app/build/reports/tests/
+          if-no-files-found: ignore
 
       - name: Commit validated MainActivity refactor
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('scripts/apply_pending_refactor.py') != '' }}
