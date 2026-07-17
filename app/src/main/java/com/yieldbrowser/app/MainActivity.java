@@ -10641,10 +10641,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private boolean isStrictSiteCompatibilityUrl(String url) {
         try {
-            String host = hostOfUrl(url);
-            if (host == null || host.length() == 0) return false;
-            if (isKnownStrictCompatibilityHost(host)) return true;
-            return isSiteCompatibilityModeActiveForUrl(url);
+            return StrictCompatibilityUrlPolicy.isStrict(
+                    hostOfUrl(url),
+                    MainActivity.this::isKnownStrictCompatibilityHost,
+                    () -> isSiteCompatibilityModeActiveForUrl(url));
         } catch (Exception e) {
             return false;
         }
