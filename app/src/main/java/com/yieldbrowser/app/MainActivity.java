@@ -11345,25 +11345,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean equivalentUrlIgnoringSchemeAndFragment(String a, String b) {
-        try {
-            URI ua = new URI(a);
-            URI ub = new URI(b);
-            String ha = ua.getHost() == null ? "" : ua.getHost().toLowerCase(Locale.US);
-            String hb = ub.getHost() == null ? "" : ub.getHost().toLowerCase(Locale.US);
-            if (!ha.equals(hb)) return false;
-            int pa = ua.getPort();
-            int pb = ub.getPort();
-            if (pa == 80 || pa == 443) pa = -1;
-            if (pb == 80 || pb == 443) pb = -1;
-            if (pa != pb) return false;
-            String pathA = ua.getPath() == null || ua.getPath().length() == 0 ? "/" : ua.getPath();
-            String pathB = ub.getPath() == null || ub.getPath().length() == 0 ? "/" : ub.getPath();
-            String queryA = ua.getQuery() == null ? "" : ua.getQuery();
-            String queryB = ub.getQuery() == null ? "" : ub.getQuery();
-            return pathA.equals(pathB) && queryA.equals(queryB);
-        } catch (Exception ignored) {
-            return false;
-        }
+        return EquivalentUrlPolicy.equivalentIgnoringSchemeAndFragment(a, b);
     }
 
     private void upgradeBookmarksAfterHttpsSuccess(String originalHttpUrl, String finalHttpsUrl) {
