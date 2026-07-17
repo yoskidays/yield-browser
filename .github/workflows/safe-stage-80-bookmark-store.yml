@@ -1,6 +1,7 @@
 name: Safe Stage 80 Bookmark Store
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - refactor/bookmark-store
