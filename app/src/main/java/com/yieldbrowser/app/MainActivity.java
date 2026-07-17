@@ -11131,10 +11131,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private boolean isFirstPartyResourceForCurrentPage(String resourceUrl, String pageUrl) {
         try {
-            if (!isHttpOrHttpsUrl(resourceUrl) || !isHttpOrHttpsUrl(pageUrl)) return false;
-            String resourceHost = normalizeHostForAdBlock(resourceUrl);
-            String pageHost = normalizeHostForAdBlock(pageUrl);
-            return resourceHost.length() > 0 && pageHost.length() > 0 && sameOrSubDomain(resourceHost, pageHost);
+            return FirstPartyResourcePolicy.isFirstParty(
+                    resourceUrl,
+                    pageUrl,
+                    MainActivity.this::isHttpOrHttpsUrl,
+                    MainActivity.this::normalizeHostForAdBlock,
+                    MainActivity.this::sameOrSubDomain);
         } catch (Exception e) {
             return false;
         }
