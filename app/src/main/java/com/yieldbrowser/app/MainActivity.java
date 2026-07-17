@@ -11781,65 +11781,23 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     // ===== v0.9.92: "Blokir elemen" (element picker, gaya uBlock/Brave) =====
     // Escape string agar aman ditempel di dalam literal JS berkutip-ganda.
-    private String escapeForJsDoubleQuotes(String s) {
-        if (s == null) return "";
-        StringBuilder sb = new StringBuilder(s.length() + 16);
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
-                case '\\': sb.append("\\\\"); break;
-                case '"': sb.append("\\\""); break;
-                case '\n': sb.append("\\n"); break;
-                case '\r': sb.append("\\r"); break;
-                case '\t': sb.append("\\t"); break;
-                case '<': sb.append("\\u003C"); break;
-                default: sb.append(c);
-            }
-        }
-        return sb.toString();
-    }
+
 
     private void loadUserElementFilters() {
         if (userElementFiltersLoaded) return;
         userElementFiltersLoaded = true;
-        try {
-            SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-            Set<String> hosts = p.getStringSet("ef_hosts", null);
-            if (hosts == null) return;
-            for (String host : hosts) {
-                if (host == null || host.length() == 0) continue;
-                Set<String> sels = p.getStringSet("ef_" + host, null);
-                if (sels == null || sels.isEmpty()) continue;
-                userElementFilters.put(host, new LinkedHashSet<>(sels));
-            }
-        } catch (Exception ignored) {
-        }
+        UserElementFilterStore.load(
+                getSharedPreferences(PREFS, MODE_PRIVATE), userElementFilters);
     }
 
     private void persistUserElementFiltersForHost(String host) {
-        if (host == null || host.length() == 0) return;
-        try {
-            SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-            SharedPreferences.Editor e = p.edit();
-            LinkedHashSet<String> sels = userElementFilters.get(host);
-            Set<String> hosts = new LinkedHashSet<>(p.getStringSet("ef_hosts", new LinkedHashSet<>()));
-            if (sels == null || sels.isEmpty()) {
-                e.remove("ef_" + host);
-                hosts.remove(host);
-            } else {
-                e.putStringSet("ef_" + host, new LinkedHashSet<>(sels));
-                hosts.add(host);
-            }
-            e.putStringSet("ef_hosts", hosts);
-            e.apply();
-        } catch (Exception ignored) {
-        }
+        UserElementFilterStore.persistHost(
+                getSharedPreferences(PREFS, MODE_PRIVATE), userElementFilters, host);
     }
 
     private LinkedHashSet<String> userFiltersForHost(String host) {
         loadUserElementFilters();
-        if (host == null || host.length() == 0) return null;
-        return userElementFilters.get(host);
+        return UserElementFilterStore.filtersForHost(userElementFilters, host);
     }
 
     private boolean hasUserFiltersForCurrentHost() {
@@ -11848,44 +11806,22 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean addUserElementFilter(String host, String selector) {
-        if (host == null || host.length() == 0 || selector == null) return false;
-        selector = selector.trim();
-        if (!UserElementFilterPolicy.isSafeSelector(selector, "")) return false;
         loadUserElementFilters();
-        LinkedHashSet<String> set = userElementFilters.get(host);
-        if (set == null) {
-            set = new LinkedHashSet<>();
-            userElementFilters.put(host, set);
-        }
-        boolean added = set.add(selector);
+        boolean added = UserElementFilterStore.add(userElementFilters, host, selector);
         if (added) persistUserElementFiltersForHost(host);
         return added;
     }
 
     private void removeUserElementFilter(String host, String selector) {
-        if (host == null || selector == null) return;
         loadUserElementFilters();
-        LinkedHashSet<String> set = userElementFilters.get(host);
-        if (set == null) return;
-        if (set.remove(selector)) {
-            if (set.isEmpty()) userElementFilters.remove(host);
+        if (UserElementFilterStore.remove(userElementFilters, host, selector)) {
             persistUserElementFiltersForHost(host);
         }
     }
 
     private String buildUserFilterCss(String host) {
-        LinkedHashSet<String> set = userFiltersForHost(host);
-        if (set == null || set.isEmpty()) return "";
-        StringBuilder sb = new StringBuilder();
-        final String hideRule = "{display:none!important;visibility:hidden!important;"
-                + "height:0!important;min-height:0!important;max-height:0!important;"
-                + "margin:0!important;padding:0!important;border:0!important;"
-                + "overflow:hidden!important;pointer-events:none!important;}\n";
-        for (String sel : set) {
-            if (!UserElementFilterPolicy.isSafeSelector(sel, "")) continue;
-            sb.append(sel.trim()).append(hideRule);
-        }
-        return sb.toString();
+        loadUserElementFilters();
+        return UserElementFilterStore.buildCss(userElementFilters, host);
     }
 
     // Filter manual merupakan fitur mandiri: selalu diterapkan walaupun AdBlock utama OFF dan
@@ -11894,34 +11830,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private void applyUserFiltersForCurrentPage() {
         if (webView == null) return;
         try {
-            String cur = getEffectiveCurrentUrl();
-            String host = hostOfUrl(cur);
-            String css = buildUserFilterCss(host);
-            String js = "javascript:(function(){try{"
-                    + "var css=\"" + escapeForJsDoubleQuotes(css == null ? "" : css) + "\";"
-                    + "var id='yield-user-filters';"
-                    + "window.__yieldUserFiltersCss=css;"
-                    + "window.__yieldEnsureUserFilters=function(){try{"
-                    + "var root=document.head||document.documentElement||document.body;if(!root)return;"
-                    + "var el=document.getElementById(id);"
-                    + "if(!window.__yieldUserFiltersCss){if(el)el.textContent='';return;}"
-                    + "if(!el){el=document.createElement('style');el.id=id;el.setAttribute('type','text/css');root.appendChild(el);}"
-                    + "if(el.textContent!==window.__yieldUserFiltersCss)el.textContent=window.__yieldUserFiltersCss;"
-                    + "}catch(e){}};"
-                    + "window.__yieldEnsureUserFilters();"
-                    + "if(!css){"
-                    + "if(window.__yieldUserFiltersObserver){try{window.__yieldUserFiltersObserver.disconnect();}catch(e){}window.__yieldUserFiltersObserver=null;}"
-                    + "return;"
-                    + "}"
-                    + "if(!window.__yieldUserFiltersObserver&&window.MutationObserver&&document.documentElement){"
-                    + "window.__yieldUserFiltersObserver=new MutationObserver(function(){window.__yieldEnsureUserFilters();});"
-                    + "window.__yieldUserFiltersObserver.observe(document.documentElement,{childList:true,subtree:true});"
-                    + "}"
-                    + "setTimeout(window.__yieldEnsureUserFilters,250);"
-                    + "setTimeout(window.__yieldEnsureUserFilters,1000);"
-                    + "setTimeout(window.__yieldEnsureUserFilters,3000);"
-                    + "}catch(e){}})();";
-            runPageScript(js);
+            String host = hostOfUrl(getEffectiveCurrentUrl());
+            runPageScript(UserElementFilterStore.buildPageScript(buildUserFilterCss(host)));
         } catch (Exception ignored) {
         }
     }
@@ -12091,8 +12001,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
             root.addView(menuDivider());
             root.addView(menuRow(R.drawable.ic_clear, "Hapus semua filter situs ini", v -> {
-                if (host != null && host.length() > 0) {
-                    userElementFilters.remove(host);
+                if (UserElementFilterStore.clearHost(userElementFilters, host)) {
                     persistUserElementFiltersForHost(host);
                     applyUserFiltersForCurrentPage();
                 }
