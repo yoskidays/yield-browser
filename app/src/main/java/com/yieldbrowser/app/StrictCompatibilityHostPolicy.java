@@ -7,7 +7,7 @@ final class StrictCompatibilityHostPolicy {
     private StrictCompatibilityHostPolicy() {
     }
 
-    static boolean isKnownHost(String host, Iterable<String> strictHosts) {
+    static boolean isKnownHost(String host, String[] strictHosts) {
         try {
             if (host == null || host.length() == 0 || strictHosts == null) return false;
             String normalized = host.toLowerCase(Locale.US);
