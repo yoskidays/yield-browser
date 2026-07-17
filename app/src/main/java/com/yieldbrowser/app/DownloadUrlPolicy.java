@@ -44,6 +44,24 @@ final class DownloadUrlPolicy {
                 || u.contains("/file/");
     }
 
+    static boolean hasHardAdClickToken(String u) {
+        if (u == null) return false;
+        return u.contains("adclick")
+                || u.contains("ad_click")
+                || u.contains("adurl=")
+                || u.contains("click_id")
+                || u.contains("af_click")
+                || u.contains("clickunder")
+                || u.contains("popunder")
+                || u.contains("popupads")
+                || u.contains("onclickads")
+                || u.contains("interstitial")
+                || u.contains("utm_medium=affiliates")
+                || u.contains("deep_and_deferred")
+                || u.contains("navigate_url=")
+                || u.contains("reactpath");
+    }
+
     static String normalizeGoogleDriveDownloadUrl(String value) {
         try {
             if (value == null || value.isEmpty()) return value;
