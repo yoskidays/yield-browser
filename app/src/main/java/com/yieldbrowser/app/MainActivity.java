@@ -2372,225 +2372,71 @@ content.addView(space(dp(36)));
 
 
     private void showQuickMenu() {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        LinearLayout menu = new LinearLayout(this);
-        menu.setOrientation(LinearLayout.VERTICAL);
-        menu.setPadding(dp(12), dp(12), dp(12), dp(12));
-        menu.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(24), dp(1), Color.parseColor("#2D333D")));
-
-        if (shortcutDownload) {
-            menu.addView(menuRow(R.drawable.ic_download_modern, "Unduhan Yield", v -> {
-                switchDialogSmooth(dialog, () -> showDownloadManager());
-            }));
-        }
-        if (shortcutBookmark) {
-            menu.addView(menuRow(R.drawable.ic_bookmark, "Bookmark", v -> {
-                switchDialogSmooth(dialog, () -> showBookmarkList());
-            }));
-        }
-        if (shortcutPrivate) {
-            String profileAction = dedicatedPrivateProfile ? "Beralih ke tab umum" : "Buka ruang privat";
-            menu.addView(menuRow(R.drawable.ic_private, profileAction, v -> {
-                dialog.dismiss();
-                if (dedicatedPrivateProfile) openNormalBrowserSpace();
-                else openPrivateBrowserSpace();
-            }));
-        }
-        if (shortcutAdBlock) {
-            menu.addView(menuRow(R.drawable.ic_shield, "AdBlock " + (adBlock ? "ON" : "OFF"), v -> {
-                adBlock = !adBlock;
-                if (!adBlock) stopYouTubeAutoAssistantNow();
-                onShieldSettingsChanged();
-                dialog.dismiss();
-            }));
-        }
-        if (shortcutReader) {
-            menu.addView(menuRow(R.drawable.ic_reader, "Reader Mode " + (readerMode ? "ON" : "OFF"), v -> {
-                readerMode = !readerMode;
-                saveSettings();
-                dialog.dismiss();
-                QuietToast.makeText(this, readerMode ? "Reader mode aktif" : "Reader mode nonaktif", QuietToast.LENGTH_SHORT).show();
-            }));
-        }
-        if (shortcutNightMode) {
-            menu.addView(menuRow(R.drawable.ic_night, "Mode Malam: " + nightModeLabel(), v -> {
-                switchDialogSmooth(dialog, () -> showNightModeSettingsDialog());
-            }));
-        }
-        if (shortcutQrScan) {
-            menu.addView(menuRow(R.drawable.ic_qr_scan, "Pindai QR Code", v -> {
-                dialog.dismiss();
-                openQrScanner();
-            }));
-        }
-        if (shortcutHistory) {
-            menu.addView(menuRow(R.drawable.ic_history, "Riwayat", v -> {
-                switchDialogSmooth(dialog, () -> showHistoryPanel());
-            }));
-        }
-        if (shortcutFindPage) {
-            menu.addView(menuRow(R.drawable.ic_find_page, "Cari di halaman", v -> {
-                switchDialogSmooth(dialog, () -> showFindInPageDialog());
-            }));
-        }
-        if (shortcutShare) {
-            menu.addView(menuRow(R.drawable.ic_share, "Bagikan halaman", v -> {
-                dialog.dismiss();
-                shareCurrentPage();
-            }));
-        }
-        if (shortcutFullscreen) {
-            menu.addView(menuRow(R.drawable.ic_fullscreen, "Layar penuh", v -> {
-                dialog.dismiss();
-                toggleFullscreenMode();
-            }));
-        }
-        if (shortcutVideoControls) {
-            menu.addView(menuRow(R.drawable.ic_video_control, "Kontrol video " + (videoControlsEnabled ? "ON" : "OFF"), v -> {
-                videoControlsEnabled = !videoControlsEnabled;
-                saveSettings();
-                updateVideoControlsVisibility();
-                dialog.dismiss();
-                QuietToast.makeText(this, videoControlsEnabled ? "Kontrol video aktif" : "Kontrol video nonaktif", QuietToast.LENGTH_SHORT).show();
-            }));
-        }
-
-        if (shortcutReloadWebsite) {
-            menu.addView(menuRow(R.drawable.ic_refresh, "Reload website", v -> {
-                dialog.dismiss();
-                reloadCurrentWebsite();
-            }));
-        }
-
-        if (shortcutBlockElement) {
-            menu.addView(menuRow(R.drawable.ic_block_element, "Blokir elemen", v -> {
-                dialog.dismiss();
-                startElementPicker();
-            }));
-        }
-        if (shortcutSiteFilter) {
-            menu.addView(menuRow(R.drawable.ic_safe, "Filter situs ini", v -> {
-                switchDialogSmooth(dialog, () -> showUserFiltersManager());
-            }));
-        }
-
-        menu.addView(menuDivider());
-        menu.addView(menuRow(R.drawable.ic_settings, "Setelan", v -> {
-            switchDialogSmooth(dialog, () -> showSettingsPanel());
-        }));
-        menu.addView(menuRow(R.drawable.ic_customize, "Sesuaikan menu", v -> {
-            switchDialogSmooth(dialog, () -> showCustomizeMenuPanel());
-        }));
-        menu.addView(menuRow(R.drawable.ic_exit, "Keluar", v -> {
-            try {
-                if (!dedicatedPrivateProfile) {
-                    recordCurrentPageToHistory();
-                    recordWebViewBackForwardHistory();
-                    saveBrowserHistory();
-                }
-            } catch (Exception ignored) {}
-            discardPrivateTabsForExplicitExit();
-            dialog.dismiss();
-            if (dedicatedPrivateProfile) launchNormalProfile(false, false);
-            finish();
-        }));
-
-        dialog.setContentView(menu);
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.gravity = Gravity.BOTTOM | Gravity.END;
-            lp.width = dp(292);
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            lp.x = dp(12);
-            lp.y = dp(76);
-            window.setAttributes(lp);
-        }
-        dialog.show();
-    }
-
-    private String getAppVersionName() {
-        try {
-            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
-            if (info != null && info.versionName != null && info.versionName.length() > 0) {
-                return info.versionName;
+        QuickMenuController.State state = new QuickMenuController.State(
+                shortcutDownload, shortcutBookmark, shortcutPrivate, shortcutAdBlock,
+                shortcutReader, shortcutNightMode, shortcutQrScan, shortcutHistory,
+                shortcutFindPage, shortcutShare, shortcutFullscreen, shortcutVideoControls,
+                shortcutReloadWebsite, shortcutBlockElement, shortcutSiteFilter,
+                dedicatedPrivateProfile, adBlock, readerMode, videoControlsEnabled,
+                nightModeLabel());
+        new QuickMenuController(this, mainHandler, state, action -> {
+            switch (action) {
+                case DOWNLOADS: showDownloadManager(); break;
+                case BOOKMARKS: showBookmarkList(); break;
+                case PROFILE:
+                    if (dedicatedPrivateProfile) openNormalBrowserSpace();
+                    else openPrivateBrowserSpace();
+                    break;
+                case AD_BLOCK:
+                    adBlock = !adBlock;
+                    if (!adBlock) stopYouTubeAutoAssistantNow();
+                    onShieldSettingsChanged();
+                    break;
+                case READER:
+                    readerMode = !readerMode;
+                    saveSettings();
+                    QuietToast.makeText(this,
+                            readerMode ? "Reader mode aktif" : "Reader mode nonaktif",
+                            QuietToast.LENGTH_SHORT).show();
+                    break;
+                case NIGHT_MODE: showNightModeSettingsDialog(); break;
+                case QR_SCAN: openQrScanner(); break;
+                case HISTORY: showHistoryPanel(); break;
+                case FIND_PAGE: showFindInPageDialog(); break;
+                case SHARE: shareCurrentPage(); break;
+                case FULLSCREEN: toggleFullscreenMode(); break;
+                case VIDEO_CONTROLS:
+                    videoControlsEnabled = !videoControlsEnabled;
+                    saveSettings();
+                    updateVideoControlsVisibility();
+                    QuietToast.makeText(this,
+                            videoControlsEnabled ? "Kontrol video aktif" : "Kontrol video nonaktif",
+                            QuietToast.LENGTH_SHORT).show();
+                    break;
+                case RELOAD: reloadCurrentWebsite(); break;
+                case BLOCK_ELEMENT: startElementPicker(); break;
+                case SITE_FILTER: showUserFiltersManager(); break;
+                case SETTINGS: showSettingsPanel(); break;
+                case CUSTOMIZE: showCustomizeMenuPanel(); break;
+                case EXIT:
+                    try {
+                        if (!dedicatedPrivateProfile) {
+                            recordCurrentPageToHistory();
+                            recordWebViewBackForwardHistory();
+                            saveBrowserHistory();
+                        }
+                    } catch (Exception ignored) {
+                    }
+                    discardPrivateTabsForExplicitExit();
+                    if (dedicatedPrivateProfile) launchNormalProfile(false, false);
+                    finish();
+                    break;
             }
-        } catch (Exception ignored) {
-        }
-        return "0.9.99";
+        }).show();
     }
 
     private void showAboutYieldDialog() {
-        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#17191E"));
-        root.setPadding(dp(18), dp(18), dp(18), dp(18));
-
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-
-        ImageView back = new ImageView(this);
-        back.setImageResource(R.drawable.ic_back);
-        back.setColorFilter(Color.parseColor("#D8D8DB"));
-        LinearLayout.LayoutParams backLp = new LinearLayout.LayoutParams(dp(28), dp(28));
-        header.addView(back, backLp);
-
-        TextView title = new TextView(this);
-        title.setText("Tentang Yield");
-        title.setTextColor(Color.parseColor("#EDEDF0"));
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(0, -2, 1f);
-        titleLp.setMargins(dp(18), 0, dp(18), 0);
-        header.addView(title, titleLp);
-
-        ImageView close = new ImageView(this);
-        close.setImageResource(R.drawable.ic_close);
-        close.setColorFilter(Color.parseColor("#D8D8DB"));
-        LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(dp(28), dp(28));
-        header.addView(close, closeLp);
-
-        root.addView(header, new LinearLayout.LayoutParams(-1, -2));
-
-        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
-        cardLp.setMargins(0, dp(20), 0, 0);
-        root.addView(aboutInfoCard("Versi aplikasi", "Yield Browser " + getAppVersionName()), cardLp);
-
-        String osInfo = "Android " + Build.VERSION.RELEASE + " ; Build/" + Build.ID;
-        LinearLayout.LayoutParams cardLp2 = new LinearLayout.LayoutParams(-1, -2);
-        cardLp2.setMargins(0, dp(10), 0, 0);
-        root.addView(aboutInfoCard("Sistem operasi", osInfo), cardLp2);
-
-        LinearLayout.LayoutParams cardLp3 = new LinearLayout.LayoutParams(-1, -2);
-        cardLp3.setMargins(0, dp(10), 0, 0);
-        root.addView(aboutInfoCard("Developer", "develop by yoski days"), cardLp3);
-
-        View spacer = new View(this);
-        root.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1f));
-
-        back.setOnClickListener(v -> dialog.dismiss());
-        close.setOnClickListener(v -> dialog.dismiss());
-
-        dialog.setContentView(root);
-        dialog.show();
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.parseColor("#17191E")));
-            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
-        }
-    }
-
-
-    private View aboutInfoCard(String heading, String value) {
-        return SettingsUi.aboutInfoCard(this, heading, value);
+        QuickMenuController.showAbout(this);
     }
 
     private void showSettingsPanel() {
