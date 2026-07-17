@@ -4139,348 +4139,46 @@ private void showDownloadSettingsPanel() {
 
 
 
-    private void applyDarkFullscreenDialog(Dialog dialog) {
-        FullscreenDialogStyler.apply(this, dialog);
-    }
+
 
     private void showBookmarkHomePanel() {
-        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(COLOR_BG);
-        root.setPadding(dp(18), dp(18), dp(18), dp(10));
-
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-
-        ImageButton back = plainIconButton(R.drawable.ic_back, v -> dialog.dismiss());
-        top.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
-
-        TextView title = new TextView(this);
-        title.setText("Bookmark");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -2, 1);
-        titleParams.setMargins(dp(8), 0, 0, 0);
-        top.addView(title, titleParams);
-
-        ImageButton filter = plainIconButton(R.drawable.ic_customize, v -> showBookmarkSortMenu(v));
-        top.addView(filter, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        ImageButton addFolder = plainIconButton(R.drawable.ic_add_tab, v -> showCreateBookmarkFolderDialog(() -> switchDialogSmooth(dialog, () -> showBookmarkHomePanel())));
-        top.addView(addFolder, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        ImageButton close = plainIconButton(R.drawable.ic_exit, v -> dialog.dismiss());
-        top.addView(close, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        ImageButton more = plainIconButton(R.drawable.ic_menu_more, v -> showBookmarkMainMenu(v, dialog));
-        top.addView(more, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        root.addView(top);
-
-        EditText search = darkSearchInput("Telusuri bookmark");
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, dp(54));
-        sp.setMargins(0, dp(14), 0, dp(16));
-        root.addView(search, sp);
-
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(list);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-
-        java.util.ArrayList<String> folders = new java.util.ArrayList<>(getBookmarkFolders());
-        for (String folder : folders) {
-            list.addView(bookmarkFolderRow(folder, countBookmarksInFolder(folder), dialog));
-        }
-
-        dialog.setContentView(root);
-        dialog.show();
-        applyDarkFullscreenDialog(dialog);
+        BookmarkPanelController controller = new BookmarkPanelController(
+                this,
+                mainHandler,
+                bookmarkData,
+                getSharedPreferences(PREFS, MODE_PRIVATE),
+                MainActivity.this::normalizeShortcutUrl,
+                MainActivity.this::loadFavicon,
+                url -> {
+                    addressBar.setText(url);
+                    openAddressBarUrl();
+                },
+                url -> {
+                    newTabInCurrentProfile();
+                    addressBar.setText(url);
+                    openAddressBarUrl();
+                },
+                MainActivity.this::openUrlInPrivateSpace);
+        controller.showHome();
     }
 
-    private void showBookmarkFolderPanel(String folder) {
-        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(COLOR_BG);
-        root.setPadding(dp(18), dp(18), dp(18), dp(10));
 
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
 
-        ImageButton back = plainIconButton(R.drawable.ic_back, v -> switchDialogSmooth(dialog, () -> showBookmarkHomePanel()));
-        top.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
 
-        TextView title = new TextView(this);
-        title.setText(folder);
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -2, 1);
-        titleParams.setMargins(dp(8), 0, 0, 0);
-        top.addView(title, titleParams);
 
-        ImageButton filter = plainIconButton(R.drawable.ic_customize, v -> showBookmarkSortMenu(v));
-        top.addView(filter, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        ImageButton addFolder = plainIconButton(R.drawable.ic_add_tab, v -> showCreateBookmarkFolderDialog(() -> switchDialogSmooth(dialog, () -> showBookmarkHomePanel())));
-        top.addView(addFolder, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        ImageButton close = plainIconButton(R.drawable.ic_exit, v -> dialog.dismiss());
-        top.addView(close, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        ImageButton more = plainIconButton(R.drawable.ic_menu_more, v -> showBookmarkMainMenu(v, dialog));
-        top.addView(more, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        root.addView(top);
 
-        EditText search = darkSearchInput("Telusuri bookmark");
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, dp(54));
-        sp.setMargins(0, dp(14), 0, dp(12));
-        root.addView(search, sp);
 
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(list);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        final Runnable[] renderRef = new Runnable[1];
-        renderRef[0] = () -> {
-            list.removeAllViews();
-            String q = search.getText().toString().trim().toLowerCase(Locale.US);
-            java.util.ArrayList<BookmarkItemData> items = new java.util.ArrayList<>();
-            for (BookmarkItemData item : bookmarkData) {
-                if (folder.equals(item.folder)) {
-                    String hay = ((item.title == null ? "" : item.title) + " " + item.url).toLowerCase(Locale.US);
-                    if (q.length() == 0 || hay.contains(q)) items.add(item);
-                }
-            }
-            if (items.isEmpty()) {
-                TextView empty = new TextView(this);
-                empty.setText("Belum ada bookmark di folder ini.");
-                empty.setTextColor(COLOR_SUBTEXT);
-                empty.setTextSize(16);
-                empty.setPadding(0, dp(20), 0, 0);
-                list.addView(empty);
-            } else {
-                for (BookmarkItemData item : items) list.addView(bookmarkItemRow(item, dialog, renderRef[0]));
-            }
-        };
-        search.addTextChangedListener(new android.text.TextWatcher() {
-            public void beforeTextChanged(CharSequence s,int st,int c,int a){}
-            public void onTextChanged(CharSequence s,int st,int b,int c){ if (renderRef[0] != null) renderRef[0].run(); }
-            public void afterTextChanged(android.text.Editable s){}
-        });
-        renderRef[0].run();
 
-        dialog.setContentView(root);
-        dialog.show();
-        applyDarkFullscreenDialog(dialog);
-    }
 
-    private View bookmarkFolderRow(String folder, int count, Dialog parent) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(14), 0, dp(14));
-        row.setOnClickListener(v -> switchDialogSmooth(parent, () -> showBookmarkFolderPanel(folder)));
 
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(R.drawable.ic_folder);
-        icon.setColorFilter(Color.parseColor("#5B2A1F"));
-        icon.setPadding(dp(12), dp(12), dp(12), dp(12));
-        icon.setBackground(roundRect(Color.parseColor("#E6E8EF"), dp(28), 0, Color.TRANSPARENT));
-        row.addView(icon, new LinearLayout.LayoutParams(dp(56), dp(56)));
 
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1);
-        tp.setMargins(dp(14), 0, 0, 0);
-        TextView t = new TextView(this);
-        t.setText(folder + " (" + count + ")");
-        t.setTextColor(Color.WHITE);
-        t.setTextSize(17);
-        texts.addView(t);
-        row.addView(texts, tp);
-        return row;
-    }
 
-    private View bookmarkItemRow(BookmarkItemData item, Dialog dialog, Runnable refresh) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(10), 0, dp(10));
-        row.setOnClickListener(v -> { dialog.dismiss(); addressBar.setText(item.url); openAddressBarUrl(); });
 
-        FrameLayout iconWrap = new FrameLayout(this);
-        TextView fallback = circleLetter(bookmarkInitial(item), Color.parseColor("#1F232A"), Color.WHITE);
-        iconWrap.addView(fallback, new FrameLayout.LayoutParams(-1, -1));
-        ImageView favicon = new ImageView(this);
-        favicon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        favicon.setPadding(dp(9), dp(9), dp(9), dp(9));
-        favicon.setBackground(roundRect(Color.parseColor("#2A2D33"), dp(23), 0, Color.TRANSPARENT));
-        favicon.setVisibility(View.GONE);
-        iconWrap.addView(favicon, new FrameLayout.LayoutParams(-1, -1));
-        loadFavicon(item.url, favicon, fallback);
-        row.addView(iconWrap, new LinearLayout.LayoutParams(dp(46), dp(46)));
 
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1);
-        tp.setMargins(dp(14), 0, dp(8), 0);
-        TextView title = new TextView(this);
-        title.setText(item.title == null || item.title.length() == 0 ? item.url : item.title);
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(16);
-        title.setSingleLine(true);
-        texts.addView(title);
-        TextView url = new TextView(this);
-        url.setText(shortHost(item.url));
-        url.setTextColor(COLOR_SUBTEXT);
-        url.setTextSize(13);
-        url.setSingleLine(true);
-        texts.addView(url);
-        row.addView(texts, tp);
 
-        TextView more = new TextView(this);
-        more.setText("⋮");
-        more.setTextColor(Color.parseColor("#D3D8E1"));
-        more.setTextSize(22);
-        more.setGravity(Gravity.CENTER);
-        more.setOnClickListener(v -> showBookmarkItemMenu(v, item, dialog, refresh));
-        row.addView(more, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        return row;
-    }
 
-    private void showBookmarkItemMenu(View anchor, BookmarkItemData item, Dialog dialog, Runnable refresh) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        menu.getMenu().add("Pilih");
-        menu.getMenu().add("Edit");
-        menu.getMenu().add("Salin link");
-        menu.getMenu().add("Pindahkan ke...");
-        menu.getMenu().add("Hapus");
-        menu.getMenu().add("Berpindah ke atas");
-        menu.getMenu().add("Buka di tab baru");
-        menu.getMenu().add("Buka di tab Privat");
-        menu.setOnMenuItemClickListener(mi -> {
-            String t = String.valueOf(mi.getTitle());
-            if ("Pilih".equals(t)) {
-                QuietToast.makeText(this, "Mode pilih bookmark aktif", QuietToast.LENGTH_SHORT).show();
-            } else if ("Edit".equals(t)) {
-                showEditBookmarkDialog(item, dialog, refresh);
-            } else if ("Salin link".equals(t)) {
-                ClipboardManager cb = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                if (cb != null) cb.setPrimaryClip(ClipData.newPlainText("bookmark", item.url));
-                QuietToast.makeText(this, "Link bookmark disalin", QuietToast.LENGTH_SHORT).show();
-            } else if ("Pindahkan ke...".equals(t)) {
-                showMoveBookmarkDialog(item, dialog, refresh);
-            } else if ("Hapus".equals(t)) {
-                bookmarkData.remove(item);
-                saveBookmarkData();
-                refreshDialogSmooth(dialog, refresh);
-            } else if ("Berpindah ke atas".equals(t)) {
-                bookmarkData.remove(item);
-                bookmarkData.add(0, item);
-                saveBookmarkData();
-                refreshDialogSmooth(dialog, refresh);
-            } else if ("Buka di tab baru".equals(t)) {
-                dialog.dismiss();
-                newTabInCurrentProfile();
-                addressBar.setText(item.url);
-                openAddressBarUrl();
-            } else if ("Buka di tab Privat".equals(t)) {
-                dialog.dismiss();
-                openUrlInPrivateSpace(item.url);
-            }
-            return true;
-        });
-        menu.show();
-    }
 
-    private void showEditBookmarkDialog(BookmarkItemData item, Dialog dialog, Runnable refresh) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(8), dp(4), dp(8), 0);
-        EditText title = new EditText(this);
-        title.setHint("Judul");
-        title.setText(item.title);
-        box.addView(title);
-        EditText url = new EditText(this);
-        url.setHint("URL");
-        url.setText(item.url);
-        box.addView(url);
-        new AlertDialog.Builder(this)
-                .setTitle("Edit bookmark")
-                .setView(box)
-                .setPositiveButton("Simpan", (d,w) -> {
-                    item.title = title.getText().toString().trim();
-                    item.url = normalizeShortcutUrl(url.getText().toString().trim());
-                    if (item.url == null) item.url = url.getText().toString().trim();
-                    saveBookmarkData();
-                    refreshDialogSmooth(dialog, refresh);
-                })
-                .setNegativeButton("Batal", null)
-                .show();
-    }
-
-    private void showMoveBookmarkDialog(BookmarkItemData item, Dialog dialog, Runnable refresh) {
-        java.util.ArrayList<String> folders = new java.util.ArrayList<>(getBookmarkFolders());
-        String[] arr = folders.toArray(new String[0]);
-        new AlertDialog.Builder(this)
-                .setTitle("Pindahkan ke folder")
-                .setItems(arr, (d,w) -> {
-                    item.folder = arr[w];
-                    saveBookmarkData();
-                    refreshDialogSmooth(dialog, refresh);
-                })
-                .show();
-    }
-
-    private void showCreateBookmarkFolderDialog(Runnable onDone) {
-        EditText input = new EditText(this);
-        input.setHint("Nama folder");
-        new AlertDialog.Builder(this)
-                .setTitle("Folder bookmark baru")
-                .setView(input)
-                .setPositiveButton("Tambah", (d,w) -> {
-                    String name = input.getText().toString().trim();
-                    if (name.length() == 0) return;
-                    java.util.Set<String> folders = new java.util.LinkedHashSet<>(getBookmarkFolders());
-                    folders.add(name);
-                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putStringSet(KEY_BOOKMARK_FOLDERS, new java.util.LinkedHashSet<>(folders)).apply();
-                    QuietToast.makeText(this, "Folder ditambahkan", QuietToast.LENGTH_SHORT).show();
-                    if (onDone != null) onDone.run();
-                })
-                .setNegativeButton("Batal", null)
-                .show();
-    }
-
-    private void showBookmarkSortMenu(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        menu.getMenu().add("Urutkan terbaru");
-        menu.getMenu().add("Urutkan A-Z");
-        menu.setOnMenuItemClickListener(mi -> {
-            String t = String.valueOf(mi.getTitle());
-            if (t.contains("A-Z")) {
-                java.util.Collections.sort(bookmarkData, (a,b) -> safeBookmarkTitle(a).compareToIgnoreCase(safeBookmarkTitle(b)));
-            } else {
-                java.util.Collections.sort(bookmarkData, (a,b) -> Long.compare(b.time, a.time));
-            }
-            saveBookmarkData();
-            QuietToast.makeText(this, "Urutan bookmark diperbarui", QuietToast.LENGTH_SHORT).show();
-            return true;
-        });
-        menu.show();
-    }
-
-    private void showBookmarkMainMenu(View anchor, Dialog dialog) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        menu.getMenu().add("Pilih");
-        menu.getMenu().add("Tutup");
-        menu.setOnMenuItemClickListener(mi -> {
-            if ("Tutup".equals(String.valueOf(mi.getTitle()))) dialog.dismiss();
-            else QuietToast.makeText(this, "Mode pilih bookmark aktif", QuietToast.LENGTH_SHORT).show();
-            return true;
-        });
-        menu.show();
-    }
 
     private void switchDialogSmooth(Dialog currentDialog, Runnable openNext) {
         try {
@@ -4499,88 +4197,24 @@ private void showDownloadSettingsPanel() {
         }
     }
 
-    private void refreshDialogSmooth(Dialog dialog, Runnable render) {
-        try {
-            if (render != null) render.run();
-        } catch (Exception ignored) {
-        }
-        if (dialog != null && !dialog.isShowing()) {
-            try { dialog.show(); } catch (Exception ignored) {}
-        }
-    }
 
-    private ImageButton plainIconButton(int iconRes, View.OnClickListener listener) {
-        ImageButton b = new ImageButton(this);
-        b.setImageResource(iconRes);
-        b.setBackgroundColor(Color.TRANSPARENT);
-        b.setColorFilter(Color.parseColor("#E9EDF5"));
-        b.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        b.setOnClickListener(listener);
-        return b;
-    }
 
-    private EditText darkSearchInput(String hint) {
-        EditText input = new EditText(this);
-        input.setHint(hint);
-        input.setHintTextColor(Color.parseColor("#A5ACB8"));
-        input.setTextColor(Color.WHITE);
-        input.setSingleLine(true);
-        input.setBackground(roundRect(Color.parseColor("#2A2C32"), dp(16), 0, Color.TRANSPARENT));
-        input.setPadding(dp(18), 0, dp(18), 0);
-        return input;
-    }
 
-    private TextView circleLetter(String text, int bg, int fg) {
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextColor(fg);
-        tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setTextSize(16);
-        tv.setGravity(Gravity.CENTER);
-        tv.setBackground(roundRect(bg, dp(23), 0, Color.TRANSPARENT));
-        return tv;
-    }
-    private String safeBookmarkTitle(BookmarkItemData item) {
-        return item.title == null || item.title.length() == 0 ? item.url : item.title;
-    }
 
-    private String bookmarkInitial(BookmarkItemData item) {
-        String t = safeBookmarkTitle(item);
-        return t == null || t.length() == 0 ? "B" : t.substring(0,1).toUpperCase(Locale.US);
-    }
 
-    private String historyInitial(HistoryItemData item) {
-        String t = item.title == null || item.title.length() == 0 ? item.url : item.title;
-        return t == null || t.length() == 0 ? "H" : t.substring(0,1).toUpperCase(Locale.US);
-    }
 
-    private String shortHost(String url) {
-        try {
-            URI uri = new URI(url);
-            String host = uri.getHost();
-            if (host == null) return url;
-            if (host.startsWith("www.")) host = host.substring(4);
-            return host;
-        } catch (Exception e) {
-            return url;
-        }
-    }
 
-    private String historyDayLabel(long timeMs) {
-        java.util.Calendar now = java.util.Calendar.getInstance();
-        java.util.Calendar item = java.util.Calendar.getInstance();
-        item.setTimeInMillis(timeMs);
-        java.util.Calendar yesterday = java.util.Calendar.getInstance();
-        yesterday.add(java.util.Calendar.DAY_OF_YEAR, -1);
-        String dateText = new SimpleDateFormat("dd MMM yyyy", Locale.US).format(new Date(timeMs));
-        if (sameDay(now, item)) return "Hari ini - " + dateText;
-        if (sameDay(yesterday, item)) return "Kemarin - " + dateText;
-        return dateText;
-    }
 
-    private boolean sameDay(java.util.Calendar a, java.util.Calendar b) {
-        return BrowserUtils.sameDay(a, b);
-    }
+
+
+
+
+
+
+
+
+
+
 
     private void showFindInPageDialog() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
