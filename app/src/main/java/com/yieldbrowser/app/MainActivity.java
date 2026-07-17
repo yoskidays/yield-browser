@@ -11087,9 +11087,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     || isAdUrl(targetUrl)
                     || (currentHost.length() > 0 && isSuspiciousPopupNavigation(targetUrl, currentUrl));
 
-            if (!suspicious) return false;
-            if (sameSite) return true;
-            if (fromSearch) return true;
+            SuspiciousMainFrameContextPolicy.Decision contextDecision =
+                    SuspiciousMainFrameContextPolicy.beforeCompatibility(
+                            suspicious, sameSite, fromSearch);
+            if (contextDecision.resolved) return contextDecision.allow;
 
             // v0.9.97: on compatibility/reader pages, a touch event can be stolen by an
             // advertising click-hijacker. Do not treat that inherited user gesture as consent
@@ -11098,9 +11099,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     || isSiteCompatibilityModeActiveForUrl(currentUrl)
                     || isReloadLoopGuardActiveForUrl(currentUrl)
                     || ShieldEngineV2.isPopupIsolationContentPage(currentUrl);
-            if (compatibilitySource) return false;
-
-            return hasGesture && currentHost.length() > 0;
+            return SuspiciousMainFrameContextPolicy.allowCrossSite(
+                    compatibilitySource,
+                    hasGesture,
+                    currentHost.length() > 0);
         } catch (Exception e) {
             return false;
         }
