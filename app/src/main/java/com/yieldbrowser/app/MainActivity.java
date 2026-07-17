@@ -10795,18 +10795,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (isStrictSiteCompatibilityUrl(url) || isSiteCompatibilityModeActiveForUrl(url)) return false;
             if (ShieldEngineV2.isSearchResultsPage(url)) return false;
             if (isImageResourceUrl(url) || isMediaResourceUrl(url)) return false;
-            String lowerUrl = url == null ? "" : url.toLowerCase(Locale.US);
-            if (lowerUrl.contains(".pdf") || lowerUrl.contains("application/pdf")) return false;
-            String host = hostOfUrl(url);
-            if (host == null || host.length() == 0) return false;
-            String h = host.toLowerCase(Locale.US);
-            if (h.startsWith("www.")) h = h.substring(4);
-            if (h.equals("youtube.com") || h.endsWith(".youtube.com") || h.equals("youtu.be")) return false;
-            if (h.equals("google.com") || h.endsWith(".google.com") || h.equals("google.co.id") || h.endsWith(".google.co.id")) return false;
-            if (h.equals("bing.com") || h.endsWith(".bing.com")) return false;
-            if (h.equals("duckduckgo.com") || h.endsWith(".duckduckgo.com")) return false;
-            if (h.equals("startpage.com") || h.endsWith(".startpage.com")) return false;
-            return true;
+            return UniversalCompatibilityCandidatePolicy.isCandidate(
+                    url, hostOfUrl(url));
         } catch (Exception e) {
             return false;
         }
