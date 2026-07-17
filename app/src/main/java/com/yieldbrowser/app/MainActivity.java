@@ -10481,26 +10481,23 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         try {
             String targetUrl = getSafeReloadUrlForModeChange();
             boolean wasShowingWeb = webView != null && webView.getVisibility() == View.VISIBLE;
-            desktopMode = !desktopMode;
+            desktopMode = BrowserModeTogglePolicy.nextDesktopMode(desktopMode);
             targetUrl = normalizeUrlForCurrentBrowserMode(targetUrl);
             saveSettings();
 
-            if (targetUrl != null && targetUrl.length() > 0) {
-                addressBar.setText(targetUrl);
-            }
+            BrowserModeTogglePolicy.Plan plan = BrowserModeTogglePolicy.plan(
+                    desktopMode, wasShowingWeb, targetUrl);
+            if (plan.updateAddressBar) addressBar.setText(targetUrl);
 
-            if (wasShowingWeb && targetUrl != null && targetUrl.length() > 0) {
-                // v0.9.40: Browser-professional style mode switch.
-                // Jangan pakai reload biasa, karena WebView/Google bisa mempertahankan DOM lama
-                // sehingga Desktop ON/OFF baru terasa setelah pencarian baru.
-                // Solusinya: buat ulang WebView, terapkan profile mode dulu, baru request ulang URL.
+            if (plan.hardReload) {
                 hardReloadUrlWithCurrentBrowserMode(targetUrl, true);
             } else {
-                applyBrowserSettings();
-                if (!wasShowingWeb) showHome();
+                if (plan.applySettings) applyBrowserSettings();
+                if (plan.showHome) showHome();
             }
 
-            QuietToast.makeText(this, desktopMode ? "Desktop mode aktif" : "Mode mobile aktif", QuietToast.LENGTH_SHORT).show();
+            QuietToast.makeText(
+                    this, plan.statusMessage, QuietToast.LENGTH_SHORT).show();
         } catch (Exception e) {
             desktopMode = previousDesktopMode;
             try {
