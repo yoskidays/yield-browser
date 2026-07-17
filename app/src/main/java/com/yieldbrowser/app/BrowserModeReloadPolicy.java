@@ -5,6 +5,24 @@ final class BrowserModeReloadPolicy {
     private BrowserModeReloadPolicy() {
     }
 
+    static boolean isBaseSafe(boolean httpOrHttps,
+                              boolean externalScheme,
+                              boolean imageResource,
+                              boolean mediaResource,
+                              boolean directWebViewUrl) {
+        return httpOrHttps
+                && !externalScheme
+                && !imageResource
+                && !mediaResource
+                && !directWebViewUrl;
+    }
+
+    static boolean isFallbackClassificationSafe(boolean likelyAdClick,
+                                                boolean knownPopupHost,
+                                                boolean adUrl) {
+        return !likelyAdClick && !knownPopupHost && !adUrl;
+    }
+
     static boolean isSafe(boolean httpOrHttps,
                           boolean externalScheme,
                           boolean imageResource,
@@ -14,9 +32,9 @@ final class BrowserModeReloadPolicy {
                           boolean likelyAdClick,
                           boolean knownPopupHost,
                           boolean adUrl) {
-        if (!httpOrHttps) return false;
-        if (externalScheme || imageResource || mediaResource || directWebViewUrl) return false;
+        if (!isBaseSafe(httpOrHttps, externalScheme, imageResource,
+                mediaResource, directWebViewUrl)) return false;
         if (explicitCurrentPage) return true;
-        return !likelyAdClick && !knownPopupHost && !adUrl;
+        return isFallbackClassificationSafe(likelyAdClick, knownPopupHost, adUrl);
     }
 }
