@@ -10757,20 +10757,22 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         final String expectedHost = hostOfUrl(url);
         postForActiveTab(expectedTab, expectedView, 3500L, () -> {
             try {
-                String active = extractOriginalUrl(expectedView.getUrl());
-                if (active == null || active.length() == 0) active = expectedTab.currentPageUrlForRequest;
-                String activeHost = hostOfUrl(active);
-                if (expectedHost.length() > 0 && activeHost.length() > 0
-                        && sameOrSubDomain(activeHost, expectedHost)) {
-                    cancelSmoothSearchTransition();
-                    if (progressBar != null) progressBar.setVisibility(View.GONE);
-                    if (expectedView.getVisibility() != View.VISIBLE) {
-                        if (homeScroll != null) homeScroll.setVisibility(View.GONE);
-                        expectedView.setVisibility(View.VISIBLE);
-                    }
-                    expectedView.setAlpha(1f);
-                    scheduleUniversalReaderCompatibilityRepair(active);
+                String active = CompatibilityLoadFallbackPolicy.resolve(
+                        expectedView.getUrl(),
+                        expectedTab.currentPageUrlForRequest,
+                        expectedHost,
+                        MainActivity.this::extractOriginalUrl,
+                        MainActivity.this::hostOfUrl,
+                        MainActivity.this::sameOrSubDomain);
+                if (active == null) return;
+                cancelSmoothSearchTransition();
+                if (progressBar != null) progressBar.setVisibility(View.GONE);
+                if (expectedView.getVisibility() != View.VISIBLE) {
+                    if (homeScroll != null) homeScroll.setVisibility(View.GONE);
+                    expectedView.setVisibility(View.VISIBLE);
                 }
+                expectedView.setAlpha(1f);
+                scheduleUniversalReaderCompatibilityRepair(active);
             } catch (Exception ignored) {
             }
         });
