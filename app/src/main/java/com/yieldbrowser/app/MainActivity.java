@@ -10806,16 +10806,18 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         try {
             String host = hostOfUrl(url);
             if (host == null || host.length() == 0) return false;
-            String key = navigationLoopKey(url);
-            long now = System.currentTimeMillis();
-            if (host.equals(autoCompatibilityRecoveryHost)
-                    && key.equals(autoCompatibilityRecoveryKey)
-                    && now < autoCompatibilityRecoveryUntilMs) {
-                return false;
-            }
-            autoCompatibilityRecoveryHost = host;
-            autoCompatibilityRecoveryKey = key;
-            autoCompatibilityRecoveryUntilMs = now + 300000L;
+            CompatibilityRecoveryThrottlePolicy.Plan plan =
+                    CompatibilityRecoveryThrottlePolicy.plan(
+                            host,
+                            navigationLoopKey(url),
+                            autoCompatibilityRecoveryHost,
+                            autoCompatibilityRecoveryKey,
+                            autoCompatibilityRecoveryUntilMs,
+                            System.currentTimeMillis());
+            if (!plan.retry) return false;
+            autoCompatibilityRecoveryHost = plan.host;
+            autoCompatibilityRecoveryKey = plan.key;
+            autoCompatibilityRecoveryUntilMs = plan.untilMs;
             return true;
         } catch (Exception e) {
             return false;
