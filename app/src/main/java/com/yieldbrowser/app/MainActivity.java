@@ -11355,16 +11355,22 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private void upgradeBookmarksAfterHttpsSuccess(String originalHttpUrl, String finalHttpsUrl) {
-        if (!isHttpUrl(originalHttpUrl) || !isHttpsUrl(finalHttpsUrl)) return;
+        if (!HttpsBookmarkUpgradePolicy.isEligible(
+                originalHttpUrl,
+                finalHttpsUrl,
+                MainActivity.this::isHttpUrl,
+                MainActivity.this::isHttpsUrl)) return;
         boolean changed = false;
         for (BookmarkItemData item : bookmarkData) {
-            if (item == null || !isHttpUrl(item.url)) continue;
-            String candidate = buildHttpsUpgradeUrl(item.url);
-            if (equivalentUrlIgnoringSchemeAndFragment(item.url, originalHttpUrl)
-                    || equivalentUrlIgnoringSchemeAndFragment(candidate, finalHttpsUrl)) {
-                item.url = finalHttpsUrl;
-                changed = true;
-            }
+            if (item == null || !HttpsBookmarkUpgradePolicy.shouldUpgrade(
+                    item.url,
+                    originalHttpUrl,
+                    finalHttpsUrl,
+                    MainActivity.this::isHttpUrl,
+                    MainActivity.this::buildHttpsUpgradeUrl,
+                    MainActivity.this::equivalentUrlIgnoringSchemeAndFragment)) continue;
+            item.url = finalHttpsUrl;
+            changed = true;
         }
         if (changed) saveBookmarkData();
     }
