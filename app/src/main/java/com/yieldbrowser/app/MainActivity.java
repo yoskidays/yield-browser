@@ -11144,26 +11144,15 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private boolean isTrustedDownloadIntentUrl(String url) {
         try {
-            if (url == null) return false;
-            String raw = url.trim();
-            if (!isHttpOrHttpsUrl(raw)) return false;
-
-            String u = raw.toLowerCase(Locale.US);
-            String decoded = u;
-            try { decoded = URLDecoder.decode(u, "UTF-8").toLowerCase(Locale.US); } catch (Exception ignored) {}
-            String host = normalizeHostForAdBlock(raw);
-            if (host.length() == 0) return false;
-
-            boolean trustedHost = isTrustedDownloadHostForAllow(host);
-            boolean marker = hasTrustedDownloadMarker(u) || hasTrustedDownloadMarker(decoded);
-            boolean file = hasDirectFileDownloadExtension(u) || hasDirectFileDownloadExtension(decoded);
-            boolean hardAdToken = hasHardAdClickToken(u) || hasHardAdClickToken(decoded);
-            boolean suspiciousHost = isSuspiciousAdHostForDownloadAllow(host);
-
-            // Universal download-safe lane: tombol download asli tidak boleh ikut keblokir AdBlock.
-            if (trustedHost && (marker || file)) return true;
-            if ((marker || file) && !suspiciousHost && !hardAdToken) return true;
-            return false;
+            return TrustedDownloadIntentPolicy.isTrusted(
+                    url,
+                    MainActivity.this::isHttpOrHttpsUrl,
+                    MainActivity.this::normalizeHostForAdBlock,
+                    MainActivity.this::isTrustedDownloadHostForAllow,
+                    MainActivity.this::hasTrustedDownloadMarker,
+                    MainActivity.this::hasDirectFileDownloadExtension,
+                    MainActivity.this::hasHardAdClickToken,
+                    MainActivity.this::isSuspiciousAdHostForDownloadAllow);
         } catch (Exception e) {
             return false;
         }
