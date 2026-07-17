@@ -1,0 +1,67 @@
+name: Safe Stage 32 Mobile Mode Migration
+
+on:
+  push:
+    branches:
+      - refactor/mobile-mode-migration
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Test and build mobile mode migration extraction
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Apply guarded MainActivity migration delegation
+        run: python3 scripts/apply_mobile_mode_migration_refactor.py
+
+      - name: Run all unit tests
+        run: gradle testDebugUnitTest --stacktrace
+
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Commit validated MainActivity delegation
+        if: github.event_name == 'push'
+        env:
+          HEAD_BRANCH: refactor/mobile-mode-migration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/yieldbrowser/app/MainActivity.java
+          if git diff --cached --quiet; then
+            echo "Mobile mode migration delegation already committed."
+          else
+            git commit -m "Stage 32: delegate mobile mode migration"
+            git push origin HEAD:${HEAD_BRANCH}
+          fi
+
+      - name: Upload validated APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: YieldBrowser-mobile-mode-migration-apk
+          path: app/build/outputs/apk/debug/*.apk
