@@ -10656,10 +10656,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private boolean isCompatibilityNavigationFlow(String targetUrl, String sourceUrl) {
         try {
-            boolean compatibility = isSiteCompatibilityModeActiveForUrl(targetUrl)
-                    || isSiteCompatibilityModeActiveForUrl(sourceUrl)
-                    || isStrictSiteCompatibilityUrl(targetUrl)
-                    || isStrictSiteCompatibilityUrl(sourceUrl);
+            boolean compatibility = CompatibilityNavigationContextPolicy.any(
+                    () -> isSiteCompatibilityModeActiveForUrl(targetUrl),
+                    () -> isSiteCompatibilityModeActiveForUrl(sourceUrl),
+                    () -> isStrictSiteCompatibilityUrl(targetUrl),
+                    () -> isStrictSiteCompatibilityUrl(sourceUrl));
             if (!compatibility) return false;
             return CompatibilityNavigationPolicy.isFlow(
                     true,
