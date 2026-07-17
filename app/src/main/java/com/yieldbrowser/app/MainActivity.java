@@ -171,21 +171,9 @@ public class MainActivity extends Activity
     private final AtomicBoolean downloadUiRefreshPosted = new AtomicBoolean(false);
 
     // ===== History Engine V2 =====
-    private static final int HISTORY_PAGE_SIZE = 50;
     private static final String KEY_HISTORY_ENGINE_V2_INITIALIZED = "history_engine_v2_initialized";
     private HistoryRepository historyRepository;
-    private Dialog activeHistoryDialog;
-    private HistoryListAdapter activeHistoryAdapter;
-    private RecyclerView activeHistoryRecyclerView;
-    private TextView activeHistoryEmptyView;
-    private ProgressBar activeHistoryProgress;
-    private String activeHistoryQuery = "";
-    private long activeHistoryBeforeTime = Long.MAX_VALUE;
-    private long activeHistoryBeforeId = Long.MAX_VALUE;
-    private boolean activeHistoryLoading = false;
-    private boolean activeHistoryEndReached = false;
-    private int activeHistoryGeneration = 0;
-    private Runnable pendingHistorySearch;
+    private HistoryPanelController historyPanelController;
     private boolean historyV2InitializationStarted = false;
 
     // A bounded favicon pipeline prevents one thread/request per history row.
@@ -4124,299 +4112,35 @@ private void showDownloadSettingsPanel() {
         }
         initializeHistoryEngineV2();
         recordCurrentPageToHistory();
-
-        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(COLOR_BG);
-        root.setPadding(dp(18), dp(18), dp(18), dp(10));
-
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView title = new TextView(this);
-        title.setText("Riwayat");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-
-        ImageButton close = plainIconButton(R.drawable.ic_exit, v -> dialog.dismiss());
-        top.addView(close, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        root.addView(top);
-
-        EditText searchInput = darkSearchInput("Cari judul, situs, atau alamat");
-        LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, dp(50));
-        searchParams.setMargins(0, dp(14), 0, dp(10));
-        root.addView(searchInput, searchParams);
-
-        TextView clearText = new TextView(this);
-        clearText.setText("Hapus semua riwayat");
-        clearText.setTextColor(Color.parseColor("#F97352"));
-        clearText.setTextSize(14);
-        clearText.setTypeface(Typeface.DEFAULT_BOLD);
-        clearText.setGravity(Gravity.CENTER_VERTICAL);
-        clearText.setPadding(0, dp(4), 0, dp(10));
-        root.addView(clearText, new LinearLayout.LayoutParams(-1, -2));
-
-        FrameLayout listFrame = new FrameLayout(this);
-        RecyclerView recycler = new RecyclerView(this);
-        LinearLayoutManager layoutManager = new LinearLayoutManager(this);
-        recycler.setLayoutManager(layoutManager);
-        recycler.setItemAnimator(null);
-        recycler.setHasFixedSize(false);
-        recycler.setClipToPadding(false);
-        recycler.setPadding(0, 0, 0, dp(18));
-
-        TextView empty = new TextView(this);
-        empty.setText("Riwayat masih kosong.");
-        empty.setTextColor(COLOR_SUBTEXT);
-        empty.setTextSize(16);
-        empty.setGravity(Gravity.CENTER);
-        empty.setVisibility(View.GONE);
-
-        ProgressBar loading = new ProgressBar(this);
-        loading.setIndeterminate(true);
-        loading.setVisibility(View.GONE);
-
-        listFrame.addView(recycler, new FrameLayout.LayoutParams(-1, -1));
-        FrameLayout.LayoutParams emptyParams = new FrameLayout.LayoutParams(-1, -1);
-        emptyParams.gravity = Gravity.CENTER;
-        listFrame.addView(empty, emptyParams);
-        FrameLayout.LayoutParams loadingParams = new FrameLayout.LayoutParams(dp(44), dp(44));
-        loadingParams.gravity = Gravity.CENTER;
-        listFrame.addView(loading, loadingParams);
-        root.addView(listFrame, new LinearLayout.LayoutParams(-1, 0, 1));
-
-        HistoryListAdapter adapter = new HistoryListAdapter(this, new HistoryListAdapter.Listener() {
-            @Override
-            public void onOpen(HistoryItemData item) {
-                if (item == null || item.url == null || item.url.trim().isEmpty()) return;
-                dialog.dismiss();
-                addressBar.setText(item.url);
-                openAddressBarUrl();
-            }
-
-            @Override
-            public void onDelete(HistoryItemData item) {
-                if (item == null || historyRepository == null) return;
-                if (activeHistoryAdapter != null) activeHistoryAdapter.removeById(item.id);
-                updateActiveHistoryEmptyState();
-                historyRepository.deleteById(item.id, success -> {
-                    if (!success) {
-                        QuietToast.makeText(MainActivity.this,
-                                "Riwayat gagal dihapus. Daftar dimuat ulang.", QuietToast.LENGTH_SHORT).show();
-                        resetActiveHistoryQuery(activeHistoryQuery);
-                    }
-                });
-            }
-
-            @Override
-            public void onBindFavicon(String url, ImageView target, TextView fallback) {
-                loadFavicon(url, target, fallback);
-            }
-        });
-        recycler.setAdapter(adapter);
-
-        activeHistoryDialog = dialog;
-        activeHistoryAdapter = adapter;
-        activeHistoryRecyclerView = recycler;
-        activeHistoryEmptyView = empty;
-        activeHistoryProgress = loading;
-
-        recycler.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                super.onScrolled(rv, dx, dy);
-                int last = layoutManager.findLastVisibleItemPosition();
-                if (HistoryPanelPresentation.shouldLoadNextPage(
-                        dy,
-                        activeHistoryLoading,
-                        activeHistoryEndReached,
-                        last,
-                        adapter.getItemCount())) {
-                    loadNextHistoryPage();
-                }
-            }
-        });
-
-        searchInput.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-            }
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                if (pendingHistorySearch != null) mainHandler.removeCallbacks(pendingHistorySearch);
-                String query = HistoryPanelPresentation.normalizeQuery(
-                        s == null ? "" : s.toString());
-                pendingHistorySearch = () -> resetActiveHistoryQuery(query);
-                mainHandler.postDelayed(pendingHistorySearch,
-                        HistoryPanelPresentation.SEARCH_DEBOUNCE_MS);
-            }
-
-            @Override
-            public void afterTextChanged(Editable s) {
-            }
-        });
-
-        clearText.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle("Hapus semua riwayat?")
-                .setMessage("Riwayat browsing akan dihapus permanen. Tab yang sedang terbuka tidak ditutup.")
-                .setPositiveButton("Hapus", (d, which) -> clearBrowserHistoryManually(() -> {
-                    if (activeHistoryAdapter != null) activeHistoryAdapter.clear();
-                    activeHistoryEndReached = true;
-                    updateActiveHistoryEmptyState();
-                }))
-                .setNegativeButton("Batal", null)
-                .show());
-
-        dialog.setContentView(root);
-        dialog.setOnKeyListener((d, keyCode, event) -> {
-            if (keyCode == KeyEvent.KEYCODE_BACK && event != null
-                    && event.getAction() == KeyEvent.ACTION_UP) {
-                d.dismiss();
-                return true;
-            }
-            return false;
-        });
-        dialog.setOnDismissListener(d -> {
-            activeHistoryGeneration++;
-            if (pendingHistorySearch != null) mainHandler.removeCallbacks(pendingHistorySearch);
-            if (activeHistoryDialog == dialog) {
-                activeHistoryDialog = null;
-                activeHistoryAdapter = null;
-                activeHistoryRecyclerView = null;
-                activeHistoryEmptyView = null;
-                activeHistoryProgress = null;
-                activeHistoryLoading = false;
-            }
-        });
-        dialog.show();
-        applyDarkFullscreenDialog(dialog);
-        resetActiveHistoryQuery("");
+        historyPanelController = new HistoryPanelController(
+                this,
+                mainHandler,
+                historyRepository,
+                url -> {
+                    addressBar.setText(url);
+                    openAddressBarUrl();
+                },
+                MainActivity.this::loadFavicon,
+                MainActivity.this::clearBrowserHistoryManually);
+        historyPanelController.show();
     }
 
-    private void resetActiveHistoryQuery(String query) {
-        if (activeHistoryDialog == null || !activeHistoryDialog.isShowing()) return;
-        activeHistoryGeneration++;
-        activeHistoryQuery = HistoryPanelPresentation.normalizeQuery(query);
-        activeHistoryBeforeTime = Long.MAX_VALUE;
-        activeHistoryBeforeId = Long.MAX_VALUE;
-        activeHistoryEndReached = false;
-        activeHistoryLoading = false;
-        if (activeHistoryAdapter != null) activeHistoryAdapter.clear();
-        if (activeHistoryRecyclerView != null) activeHistoryRecyclerView.scrollToPosition(0);
-        updateActiveHistoryEmptyState();
-        loadNextHistoryPage();
+    private void refreshHistoryPanelIfShowing() {
+        if (historyPanelController == null || !historyPanelController.isShowing()) return;
+        mainHandler.postDelayed(historyPanelController::refresh, 120L);
     }
 
-    private void loadNextHistoryPage() {
-        if (historyRepository == null || activeHistoryAdapter == null
-                || activeHistoryDialog == null || !activeHistoryDialog.isShowing()
-                || activeHistoryLoading || activeHistoryEndReached) return;
 
-        activeHistoryLoading = true;
-        int generation = activeHistoryGeneration;
-        setActiveHistoryLoading(true);
-        historyRepository.queryPage(
-                activeHistoryQuery,
-                activeHistoryBeforeTime,
-                activeHistoryBeforeId,
-                HISTORY_PAGE_SIZE,
-                page -> {
-                    if (generation != activeHistoryGeneration || activeHistoryDialog == null
-                            || !activeHistoryDialog.isShowing() || activeHistoryAdapter == null) return;
-                    activeHistoryLoading = false;
-                    setActiveHistoryLoading(false);
-                    if (page == null || page.isEmpty()) {
-                        activeHistoryEndReached = true;
-                        updateActiveHistoryEmptyState();
-                        return;
-                    }
-                    activeHistoryAdapter.appendPage(page);
-                    HistoryItemData last = page.get(page.size() - 1);
-                    activeHistoryBeforeTime = last.time;
-                    activeHistoryBeforeId = last.id;
-                    activeHistoryEndReached = HistoryPanelPresentation.isEndReached(
-                            page.size(), HISTORY_PAGE_SIZE);
-                    updateActiveHistoryEmptyState();
-                }
-        );
-    }
 
-    private void setActiveHistoryLoading(boolean loading) {
-        if (activeHistoryProgress == null) return;
-        boolean adapterEmpty = activeHistoryAdapter == null || activeHistoryAdapter.isEmpty();
-        activeHistoryProgress.setVisibility(
-                HistoryPanelPresentation.shouldShowInitialLoading(loading, adapterEmpty)
-                        ? View.VISIBLE : View.GONE);
-    }
 
-    private void updateActiveHistoryEmptyState() {
-        if (activeHistoryEmptyView == null || activeHistoryAdapter == null) return;
-        boolean adapterEmpty = activeHistoryAdapter.isEmpty();
-        boolean show = HistoryPanelPresentation.shouldShowEmpty(
-                activeHistoryLoading, adapterEmpty);
-        activeHistoryEmptyView.setText(
-                HistoryPanelPresentation.emptyMessage(activeHistoryQuery));
-        activeHistoryEmptyView.setVisibility(show ? View.VISIBLE : View.GONE);
-    }
+
+
+
+
 
 
     private void applyDarkFullscreenDialog(Dialog dialog) {
-        // Panel tetap full layar, tetapi status bar TETAP terlihat dengan background hitam.
-        try {
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-                getWindow().setStatusBarColor(COLOR_BG);
-                getWindow().setNavigationBarColor(Color.parseColor("#15171C"));
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                int activityFlags = getWindow().getDecorView().getSystemUiVisibility();
-                activityFlags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    activityFlags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-                }
-                getWindow().getDecorView().setSystemUiVisibility(activityFlags);
-            }
-        } catch (Exception ignored) {
-        }
-
-        Window window = dialog.getWindow();
-        if (window == null) return;
-
-        window.setBackgroundDrawable(new ColorDrawable(COLOR_BG));
-        window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
-        window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
-        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
-
-        WindowManager.LayoutParams lp = window.getAttributes();
-        lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-        lp.height = WindowManager.LayoutParams.MATCH_PARENT;
-        lp.gravity = Gravity.TOP;
-        lp.dimAmount = 0f;
-        window.setAttributes(lp);
-        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-            window.setStatusBarColor(COLOR_BG);
-            window.setNavigationBarColor(Color.parseColor("#15171C"));
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            int flags = window.getDecorView().getSystemUiVisibility();
-            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-            }
-            flags |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
-            window.getDecorView().setSystemUiVisibility(flags);
-        }
+        FullscreenDialogStyler.apply(this, dialog);
     }
 
     private void showBookmarkHomePanel() {
@@ -5003,9 +4727,7 @@ private void showDownloadSettingsPanel() {
             if (success) {
                 prefs.edit().putBoolean(KEY_HISTORY_ENGINE_V2_INITIALIZED, true).apply();
                 recordCurrentPageToHistory();
-                if (activeHistoryDialog != null && activeHistoryDialog.isShowing()) {
-                    mainHandler.postDelayed(() -> resetActiveHistoryQuery(activeHistoryQuery), 120L);
-                }
+                refreshHistoryPanelIfShowing();
             }
         });
     }
@@ -5114,7 +4836,7 @@ private void showDownloadSettingsPanel() {
                 if (afterClear != null) afterClear.run();
             } else {
                 QuietToast.makeText(this, "Riwayat gagal dihapus", QuietToast.LENGTH_SHORT).show();
-                resetActiveHistoryQuery(activeHistoryQuery);
+                refreshHistoryPanelIfShowing();
             }
         });
     }
