@@ -1,4 +1,4 @@
-# Stage 83 guarded bookmark-panel extraction.
+# Stage 83 guarded bookmark-panel extraction; rerun with captured Gradle logs.
 from pathlib import Path
 
 PATH = Path("app/src/main/java/com/yieldbrowser/app/MainActivity.java")
