@@ -12867,83 +12867,32 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private Set<String> getBookmarks() {
-        LinkedHashSet<String> set = new LinkedHashSet<>();
-        for (BookmarkItemData item : bookmarkData) {
-            if (item.url != null && item.url.length() > 0) set.add(item.url);
-        }
-        if (!set.isEmpty()) return new HashSet<>(set);
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        Set<String> saved = prefs.getStringSet(KEY_BOOKMARKS, new HashSet<>());
-        return new HashSet<>(saved);
+        return BookmarkStore.getBookmarks(
+                bookmarkData, getSharedPreferences(PREFS, MODE_PRIVATE));
     }
     private BookmarkItemData findBookmarkByUrl(String url) {
-        if (url == null) return null;
-        for (BookmarkItemData item : bookmarkData) {
-            if (url.equals(item.url)) return item;
-        }
-        return null;
+        return BookmarkStore.findByUrl(bookmarkData, url);
     }
 
     private List<String> getBookmarkFolders() {
-        LinkedHashSet<String> folders = new LinkedHashSet<>();
-        folders.add("Bookmark seluler");
-        folders.add("Daftar bacaan");
-        try {
-            Set<String> saved = getSharedPreferences(PREFS, MODE_PRIVATE).getStringSet(KEY_BOOKMARK_FOLDERS, new LinkedHashSet<>());
-            if (saved != null) folders.addAll(saved);
-        } catch (Exception ignored) {}
-        for (BookmarkItemData item : bookmarkData) {
-            if (item.folder != null && item.folder.trim().length() > 0) folders.add(item.folder.trim());
-        }
-        return new ArrayList<>(folders);
+        return BookmarkStore.getFolders(
+                bookmarkData, getSharedPreferences(PREFS, MODE_PRIVATE));
     }
 
     private int countBookmarksInFolder(String folder) {
-        int count = 0;
-        for (BookmarkItemData item : bookmarkData) {
-            if (folder.equals(item.folder)) count++;
-        }
-        return count;
+        return BookmarkStore.countInFolder(bookmarkData, folder);
     }
 
     private void loadBookmarkData() {
-        bookmarkData.clear();
-        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String raw = prefs.getString(KEY_BOOKMARK_DATA, "");
-        if (raw != null && raw.trim().length() > 0) {
-            for (String line : raw.split("\n")) {
-                String[] parts = line.split("\\|");
-                if (parts.length >= 4) {
-                    try {
-                        bookmarkData.add(new BookmarkItemData(decode(parts[0]), decode(parts[1]), decode(parts[2]), Long.parseLong(parts[3])));
-                    } catch (Exception ignored) {}
-                }
-            }
-        }
-        if (bookmarkData.isEmpty()) {
-            Set<String> legacy = prefs.getStringSet(KEY_BOOKMARKS, new HashSet<>());
-            for (String url : legacy) {
-                bookmarkData.add(new BookmarkItemData(guessLabelFromUrl(url), url, "Bookmark seluler", System.currentTimeMillis()));
-            }
-            saveBookmarkData();
-        }
+        BookmarkStore.load(
+                bookmarkData,
+                getSharedPreferences(PREFS, MODE_PRIVATE),
+                MainActivity.this::guessLabelFromUrl);
     }
 
     private void saveBookmarkData() {
-        ArrayList<String> saved = new ArrayList<>();
-        LinkedHashSet<String> urls = new LinkedHashSet<>();
-        LinkedHashSet<String> folders = new LinkedHashSet<>(getBookmarkFolders());
-        for (BookmarkItemData item : bookmarkData) {
-            if (item.url == null || item.url.trim().length() == 0) continue;
-            saved.add(encode(item.title) + "|" + encode(item.url) + "|" + encode(item.folder) + "|" + item.time);
-            urls.add(item.url);
-            if (item.folder != null && item.folder.trim().length() > 0) folders.add(item.folder.trim());
-        }
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString(KEY_BOOKMARK_DATA, TextUtils.join("\n", saved))
-                .putStringSet(KEY_BOOKMARKS, new HashSet<>(urls))
-                .putStringSet(KEY_BOOKMARK_FOLDERS, new LinkedHashSet<>(folders))
-                .apply();
+        BookmarkStore.save(
+                bookmarkData, getSharedPreferences(PREFS, MODE_PRIVATE));
     }
 
     private void loadSettings() {
