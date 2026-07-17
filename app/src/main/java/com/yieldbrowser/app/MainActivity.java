@@ -11199,9 +11199,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean isHttpOrHttpsUrl(String url) {
-        if (url == null) return false;
-        String u = url.trim().toLowerCase(Locale.US);
-        return u.startsWith("http://") || u.startsWith("https://");
+        return UrlSchemePolicy.isHttpOrHttps(url);
     }
 
     // ===== HTTPS-First Navigation (v0.9.98) =====
@@ -11225,11 +11223,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean isHttpUrl(String url) {
-        return url != null && url.trim().toLowerCase(Locale.US).startsWith("http://");
+        return UrlSchemePolicy.isHttp(url);
     }
 
     private boolean isHttpsUrl(String url) {
-        return url != null && url.trim().toLowerCase(Locale.US).startsWith("https://");
+        return UrlSchemePolicy.isHttps(url);
     }
 
     private boolean isPrivateIpv4Host(String host) {
