@@ -10598,18 +10598,21 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private void enableSiteCompatibilityModeForUrl(String url) {
         try {
             if (!isHttpOrHttpsUrl(url)) return;
-            String host = hostOfUrl(url);
-            if (host == null || host.length() == 0) return;
-            long until = System.currentTimeMillis() + 300000L;
-            siteCompatibilityHost = host;
-            siteCompatibilityUntilMs = until;
+            SiteCompatibilityActivationPolicy.Plan plan =
+                    SiteCompatibilityActivationPolicy.plan(
+                            true,
+                            hostOfUrl(url),
+                            System.currentTimeMillis(),
+                            System.currentTimeMillis(),
+                            siteCompatibilityToastLastMs);
+            if (!plan.activate) return;
+            siteCompatibilityHost = plan.host;
+            siteCompatibilityUntilMs = plan.untilMs;
             try {
-                String normalized = host.toLowerCase(Locale.US);
-                if (normalized.startsWith("www.")) normalized = normalized.substring(4);
-                siteCompatibilityHosts.put(normalized, until);
+                siteCompatibilityHosts.put(plan.host, plan.untilMs);
             } catch (Exception ignored) {
             }
-            if (System.currentTimeMillis() - siteCompatibilityToastLastMs > 8000L) {
+            if (plan.showToast) {
                 siteCompatibilityToastLastMs = System.currentTimeMillis();
                 QuietToast.makeText(this, "Mode kompatibel aktif untuk situs ini", QuietToast.LENGTH_SHORT).show();
             }
