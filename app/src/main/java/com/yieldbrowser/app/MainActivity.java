@@ -10116,20 +10116,14 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             }
         });
 
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onProgressChanged(WebView view, int newProgress) {
-                BrowserChromeProgressHandler.handle(
+        webView.setWebChromeClient(new BrowserChromeClient(
+                (view, newProgress) -> BrowserChromeProgressHandler.handle(
                         webView,
                         view,
                         newProgress,
                         homeScroll != null && homeScroll.getVisibility() == View.VISIBLE,
-                        progressBar);
-            }
-
-            @Override
-            public void onShowCustomView(View view, CustomViewCallback callback) {
-                BrowserChromeFullscreenHandler.show(
+                        progressBar),
+                (view, callback) -> BrowserChromeFullscreenHandler.show(
                         fullscreenVideoView,
                         view,
                         callback,
@@ -10144,21 +10138,15 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         MainActivity.this::setRequestedOrientation,
                         MainActivity.this::moveVideoControlsToFullscreenOverlay,
                         MainActivity.this::updateVideoModeToggleButton,
-                        MainActivity.this::checkAndShowVideoControls);
-            }
-
-            @Override
-            public void onHideCustomView() {
-                BrowserChromeFullscreenHandler.hide(
+                        MainActivity.this::checkAndShowVideoControls),
+                () -> BrowserChromeFullscreenHandler.hide(
                         fullscreenVideoView,
                         fullscreenVideoCallback,
                         getWindow(),
                         () -> fullscreenVideoView = null,
                         () -> fullscreenVideoCallback = null,
                         MainActivity.this::restoreAfterVideoFullscreen,
-                        MainActivity.this::updateVideoModeToggleButton);
-            }
-        });
+                        MainActivity.this::updateVideoModeToggleButton)));
     }
 
     @SuppressLint("SetJavaScriptEnabled")
