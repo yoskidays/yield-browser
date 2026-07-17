@@ -11122,7 +11122,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         if (ShieldEngineV2.isReaderOrContentPage(currentUrl)
                 || ShieldEngineV2.isPopupIsolationContentPage(currentUrl)
                 || ReaderCompatibilityPolicy.hasReaderPathHint(currentUrl)) return false;
-        return hasGesture && !isKnownPopupHost(targetUrl) && !isAdUrl(targetUrl) && !isLikelyAdClickUrl(targetUrl);
+        return NormalMainFrameContextPolicy.allowUnknownCrossSite(
+                hasGesture,
+                isKnownPopupHost(targetUrl),
+                isAdUrl(targetUrl),
+                isLikelyAdClickUrl(targetUrl));
     }
 
     private boolean isFirstPartyResourceForCurrentPage(String resourceUrl, String pageUrl) {
