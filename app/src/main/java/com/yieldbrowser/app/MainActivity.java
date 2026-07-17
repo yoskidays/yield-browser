@@ -2440,249 +2440,95 @@ content.addView(space(dp(36)));
     }
 
     private void showSettingsPanel() {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(14), dp(16), dp(14), dp(16));
-        panel.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(24), dp(1), Color.parseColor("#3A3D45")));
-        scroll.addView(panel);
-
-        TextView title = new TextView(this);
-        title.setText("Setelan Yield");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(22);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setPadding(dp(8), 0, 0, dp(8));
-        panel.addView(title);
-
-        TextView hint = new TextView(this);
-        hint.setText("Pusat semua fitur. Kalau shortcut menu dimatikan, fitur tetap bisa dibuka dari sini.");
-        hint.setTextColor(COLOR_SUBTEXT);
-        hint.setTextSize(13);
-        hint.setPadding(dp(8), 0, dp(8), dp(12));
-        panel.addView(hint);
-
-        panel.addView(actionRow(R.drawable.ic_translate, "Translate", "Pilihan translate, hide bar Google Translate, dan translate teks halaman.", v -> {
-            showTranslateOptionsDialog();
-        }));
-
-        panel.addView(sectionTitle("Pusat fitur"));
-        panel.addView(actionRow(R.drawable.ic_download_modern, "Unduhan Yield", "Riwayat, progress, lokasi penyimpanan, dan engine 2 koneksi.", v -> {
-            switchDialogSmooth(dialog, () -> showDownloadSettingsPanel());
-        }));
-        panel.addView(actionRow(R.drawable.ic_bookmark, "Bookmark", "Buka daftar bookmark yang tersimpan.", v -> {
-            switchDialogSmooth(dialog, () -> showBookmarkList());
-        }));
-        panel.addView(actionRow(R.drawable.ic_private,
-                dedicatedPrivateProfile ? "Tab umum" : "Ruang privat",
-                dedicatedPrivateProfile
-                        ? "Kembali ke profil umum tanpa mencampur data sesi privat."
-                        : "Buka profil terisolasi tanpa menyimpan riwayat ke sesi umum.", v -> {
-            dialog.dismiss();
-            if (dedicatedPrivateProfile) openNormalBrowserSpace();
-            else openPrivateBrowserSpace();
-        }));
-        panel.addView(actionRow(R.drawable.ic_customize, "Sesuaikan menu", "Atur shortcut yang muncul di menu utama.", v -> {
-            switchDialogSmooth(dialog, () -> showCustomizeMenuPanel());
-        }));
-        panel.addView(actionRow(R.drawable.ic_qr_scan, "Pindai QR Code", "Scan QR untuk membuka link atau mencari teks.", v -> {
-            dialog.dismiss();
-            openQrScanner();
-        }));
-        panel.addView(actionRow(R.drawable.ic_search_engine, "Search engine: " + searchEngine, "Pilih Google, Bing, DuckDuckGo, Yahoo, atau Yandex.", v -> {
-            showSearchEngineDialog();
-        }));
-
-        panel.addView(sectionTitle("Alat halaman"));
-        panel.addView(actionRow(R.drawable.ic_block_element, "Blokir elemen", "Pilih elemen pada halaman aktif untuk disembunyikan. Tetap tersedia di Setelan meski shortcut menu utama dimatikan.", v -> {
-            dialog.dismiss();
-            startElementPicker();
-        }));
-        panel.addView(actionRow(R.drawable.ic_safe, "Filter situs ini", "Kelola filter dan elemen yang diblokir untuk situs aktif. Tetap tersedia di Setelan meski shortcut menu utama dimatikan.", v -> {
-            switchDialogSmooth(dialog, () -> showUserFiltersManager());
-        }));
-        panel.addView(actionRow(R.drawable.ic_history, "Riwayat browsing", "Lihat dan buka kembali halaman yang pernah dikunjungi.", v -> {
-            switchDialogSmooth(dialog, () -> showHistoryPanel());
-        }));
-        panel.addView(actionRow(R.drawable.ic_find_page, "Cari di halaman", "Cari teks pada halaman web yang sedang terbuka.", v -> {
-            showFindInPageDialog();
-        }));
-        panel.addView(actionRow(R.drawable.ic_share, "Bagikan halaman", "Bagikan link halaman saat ini ke aplikasi lain.", v -> {
-            shareCurrentPage();
-        }));
-        panel.addView(actionRow(R.drawable.ic_copy_link, "Salin link halaman", "Salin URL halaman saat ini ke clipboard.", v -> {
-            copyCurrentLink();
-        }));
-        panel.addView(actionRow(R.drawable.ic_page_info, "Info halaman", "Tampilkan judul dan URL halaman.", v -> {
-            showPageInfoDialog();
-        }));
-        panel.addView(actionRow(R.drawable.ic_fullscreen, "Mode layar penuh", "Sembunyikan toolbar dan navigasi sementara.", v -> {
-            toggleFullscreenMode();
-        }));
-        panel.addView(settingRow(R.drawable.ic_video_control, "Kontrol video online", "Tampilkan tombol Play, Pause, Stop, dan Speed pada player web.", videoControlsEnabled, v -> {
-            videoControlsEnabled = !videoControlsEnabled;
-            updateVideoControlsVisibility();
-            saveSettings();
-            switchDialogSmooth(dialog, () -> showSettingsPanel());
-        }));
-        panel.addView(actionRow(R.drawable.ic_video_control, "Optimasi video online", "Buffer booster, HLS prefetch, kualitas, floating player, dan background play.", v -> {
-            showVideoOptimizationDialog();
-        }));
-        panel.addView(actionRow(R.drawable.ic_save_page, "Simpan halaman offline", "Simpan halaman saat ini sebagai web archive.", v -> {
-            saveCurrentPageOffline();
-        }));
-
-        panel.addView(sectionTitle("Fitur browsing"));
-        panel.addView(settingRow(R.drawable.ic_speed, "Mode cepat", "Optimasi cache, gambar, dan resource.", speedMode, v -> { speedMode = !speedMode; applyBrowserSettings(); saveSettings(); }));
-        panel.addView(settingRow(R.drawable.ic_safe, "Safe browsing", "Blokir URL berisiko sederhana.", safeMode, v -> { safeMode = !safeMode; saveSettings(); }));
-        panel.addView(settingRow(R.drawable.ic_safe, "HTTPS-First", "Coba koneksi HTTPS lebih dulu. Jika HTTPS benar-benar tidak tersedia, kembali ke HTTP dengan perlindungan loop. Alamat lokal dan port khusus dikecualikan.", httpsFirstEnabled, v -> {
-            httpsFirstEnabled = !httpsFirstEnabled;
-            if (!httpsFirstEnabled) clearAllHttpsFirstRuntimeState();
-            saveSettings();
-        }));
-        panel.addView(actionRow(R.drawable.ic_night, "Mode Malam: " + nightModeLabel(), "OFF, ON, Auto ikut sistem, dan pengecualian situs. Tidak menutup menu setelan.", v -> {
-            showNightModeSettingsDialog();
-        }));
-        panel.addView(settingRow(R.drawable.ic_reader, "Reader / novel mode", "Mode baca ringan untuk artikel.", readerMode, v -> { readerMode = !readerMode; saveSettings(); }));
-        panel.addView(actionRow(R.drawable.ic_shield, "AdBlock: " + (adBlock ? "ON" : "OFF"), getAdBlockSummary(), v -> {
-            showAdBlockSettingsDialog();
-        }));
-        panel.addView(settingRow(R.drawable.ic_data_saver, "Hemat data", "Matikan gambar otomatis saat browsing.", dataSaver, v -> { dataSaver = !dataSaver; applyBrowserSettings(); saveSettings(); }));
-        panel.addView(settingRow(R.drawable.ic_desktop, "Desktop mode", "Paksa tampilan lebar seperti PC/laptop.", desktopMode, v -> {
-            toggleDesktopModeSafely();
-        }));
-        panel.addView(actionRow(R.drawable.ic_text_size, "Ukuran teks: " + textZoom + "%", "Atur ukuran teks dengan slider persentase.", v -> {
-            showTextZoomDialog(dialog);
-        }));
-        panel.addView(actionRow(R.drawable.ic_clear, "Bersihkan cache", "Hapus cache WebView.", v -> { if (webView != null) webView.clearCache(true); QuietToast.makeText(this, "Cache dibersihkan", QuietToast.LENGTH_SHORT).show(); }));
-
-
-        panel.addView(sectionTitle("Informasi"));
-        panel.addView(actionRow(R.drawable.ic_info, "Tentang Yield", "Versi aplikasi dan informasi developer.", v -> {
-            showAboutYieldDialog();
-        }));
-        dialog.setContentView(scroll);
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.gravity = Gravity.BOTTOM;
-            lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-            lp.height = (int) (getResources().getDisplayMetrics().heightPixels * 0.82f);
-            window.setAttributes(lp);
-        }
-        dialog.show();
-    }
-
-    private String getAdBlockSummary() {
-        return adBlock
-                ? "Perlindungan otomatis tanpa notifikasi yang mengganggu."
-                : "Perlindungan situs sedang nonaktif.";
+        SettingsPanelController.MainState state = new SettingsPanelController.MainState(
+                dedicatedPrivateProfile, searchEngine, videoControlsEnabled, speedMode,
+                safeMode, httpsFirstEnabled, nightModeLabel(), readerMode, adBlock,
+                adBlock ? "Perlindungan otomatis tanpa notifikasi yang mengganggu."
+                        : "Perlindungan situs sedang nonaktif.",
+                dataSaver, desktopMode, textZoom);
+        new SettingsPanelController(this, mainHandler).showMain(state, (action, owner) -> {
+            switch (action) {
+                case TRANSLATE: showTranslateOptionsDialog(); break;
+                case DOWNLOAD_SETTINGS: showDownloadSettingsPanel(); break;
+                case BOOKMARKS: showBookmarkList(); break;
+                case PROFILE:
+                    if (dedicatedPrivateProfile) openNormalBrowserSpace();
+                    else openPrivateBrowserSpace();
+                    break;
+                case CUSTOMIZE: showCustomizeMenuPanel(); break;
+                case QR_SCAN: openQrScanner(); break;
+                case SEARCH_ENGINE: showSearchEngineDialog(); break;
+                case BLOCK_ELEMENT: startElementPicker(); break;
+                case SITE_FILTER: showUserFiltersManager(); break;
+                case HISTORY: showHistoryPanel(); break;
+                case FIND_PAGE: showFindInPageDialog(); break;
+                case SHARE: shareCurrentPage(); break;
+                case COPY_LINK: copyCurrentLink(); break;
+                case PAGE_INFO: showPageInfoDialog(); break;
+                case FULLSCREEN: toggleFullscreenMode(); break;
+                case VIDEO_CONTROLS:
+                    videoControlsEnabled = !videoControlsEnabled;
+                    updateVideoControlsVisibility();
+                    saveSettings();
+                    showSettingsPanel();
+                    break;
+                case VIDEO_OPTIMIZATION: showVideoOptimizationDialog(); break;
+                case SAVE_OFFLINE: saveCurrentPageOffline(); break;
+                case SPEED_MODE:
+                    speedMode = !speedMode;
+                    applyBrowserSettings();
+                    saveSettings();
+                    break;
+                case SAFE_MODE: safeMode = !safeMode; saveSettings(); break;
+                case HTTPS_FIRST:
+                    httpsFirstEnabled = !httpsFirstEnabled;
+                    if (!httpsFirstEnabled) clearAllHttpsFirstRuntimeState();
+                    saveSettings();
+                    break;
+                case NIGHT_MODE: showNightModeSettingsDialog(); break;
+                case READER_MODE: readerMode = !readerMode; saveSettings(); break;
+                case AD_BLOCK_SETTINGS: showAdBlockSettingsDialog(); break;
+                case DATA_SAVER:
+                    dataSaver = !dataSaver;
+                    applyBrowserSettings();
+                    saveSettings();
+                    break;
+                case DESKTOP_MODE: toggleDesktopModeSafely(); break;
+                case TEXT_ZOOM: showTextZoomDialog(owner); break;
+                case CLEAR_CACHE:
+                    if (webView != null) webView.clearCache(true);
+                    QuietToast.makeText(this, "Cache dibersihkan",
+                            QuietToast.LENGTH_SHORT).show();
+                    break;
+                case ABOUT: showAboutYieldDialog(); break;
+            }
+        });
     }
 
     private void showAdBlockSettingsDialog() {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(false);
-        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        scroll.setBackground(roundRect(Color.parseColor("#26292F"), dp(24), dp(1), COLOR_BORDER));
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(18), dp(20), dp(14));
-        scroll.addView(box, new ScrollView.LayoutParams(-1, -2));
-
-        TextView title = new TextView(this);
-        title.setText("AdBlock");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(22);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setIncludeFontPadding(false);
-        box.addView(title);
-
-        TextView info = new TextView(this);
-        info.setText("Semua perlindungan iklan tetap berada di dalam AdBlock: popup, redirect, click hijack, script, iframe, dan tracker. Media utama tetap diprioritaskan.");
-        info.setTextColor(COLOR_SUBTEXT);
-        info.setTextSize(13);
-        info.setLineSpacing(0, 1.05f);
-        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(-1, -2);
-        infoLp.setMargins(0, dp(8), 0, dp(12));
-        box.addView(info, infoLp);
-
-        box.addView(adBlockSwitchRow("AdBlock aktif", "Master ON/OFF semua proteksi iklan.", adBlock, v -> {
-            adBlock = !adBlock;
-            if (!adBlock) stopYouTubeAutoAssistantNow();
+        SettingsPanelController.AdBlockState state = new SettingsPanelController.AdBlockState(
+                adBlock, adBlockPopupBlocker, adBlockRedirectBlocker,
+                adBlockScriptIframeBlocker, adBlockClickHijackBlocker,
+                adBlockRedirectToTempTab, adBlockAutoCloseAdTabs);
+        new SettingsPanelController(this, mainHandler).showAdBlock(state, (action, owner) -> {
+            switch (action) {
+                case MASTER:
+                    adBlock = !adBlock;
+                    if (!adBlock) stopYouTubeAutoAssistantNow();
+                    break;
+                case POPUP: adBlockPopupBlocker = !adBlockPopupBlocker; break;
+                case REDIRECT: adBlockRedirectBlocker = !adBlockRedirectBlocker; break;
+                case SCRIPT_IFRAME:
+                    adBlockScriptIframeBlocker = !adBlockScriptIframeBlocker;
+                    break;
+                case CLICK_HIJACK:
+                    adBlockClickHijackBlocker = !adBlockClickHijackBlocker;
+                    break;
+                case TEMP_TAB: adBlockRedirectToTempTab = !adBlockRedirectToTempTab; break;
+                case AUTO_CLOSE: adBlockAutoCloseAdTabs = !adBlockAutoCloseAdTabs; break;
+            }
             onShieldSettingsChanged();
-        }));
-
-        box.addView(adBlockSwitchRow("Blokir popup iklan", "Matikan window.open dan pop-up otomatis.", adBlockPopupBlocker, v -> {
-            adBlockPopupBlocker = !adBlockPopupBlocker;
-            onShieldSettingsChanged();
-        }));
-
-        box.addView(adBlockSwitchRow("Blokir redirect iklan", "Cegah halaman pindah ke domain iklan random.", adBlockRedirectBlocker, v -> {
-            adBlockRedirectBlocker = !adBlockRedirectBlocker;
-            onShieldSettingsChanged();
-        }));
-
-        box.addView(adBlockSwitchRow("Blokir script/iframe iklan", "Blokir resource iklan, script, iframe, dan tracker.", adBlockScriptIframeBlocker, v -> {
-            adBlockScriptIframeBlocker = !adBlockScriptIframeBlocker;
-            onShieldSettingsChanged();
-        }));
-
-        box.addView(adBlockSwitchRow("Proteksi click hijack", "Cegah klik area web membuka link iklan tersembunyi.", adBlockClickHijackBlocker, v -> {
-            adBlockClickHijackBlocker = !adBlockClickHijackBlocker;
-            onShieldSettingsChanged();
-        }));
-
-        box.addView(adBlockSwitchRow("Alihkan iklan ke tab sementara", "Jika web memaksa redirect iklan, buka sebagai tab iklan sementara agar tab utama tetap aman.", adBlockRedirectToTempTab, v -> {
-            adBlockRedirectToTempTab = !adBlockRedirectToTempTab;
-            onShieldSettingsChanged();
-        }));
-
-        box.addView(adBlockSwitchRow("Auto close tab iklan", "Tab hasil redirect/popup iklan otomatis ditutup agar tab tidak menumpuk.", adBlockAutoCloseAdTabs, v -> {
-            adBlockAutoCloseAdTabs = !adBlockAutoCloseAdTabs;
-            onShieldSettingsChanged();
-        }));
-
-        TextView note = new TextView(this);
-        note.setText("Catatan: video playback tidak diberi tombol khusus karena selalu dilindungi otomatis agar file video/YouTube/GoogleVideo tidak terblokir.");
-        note.setTextColor(COLOR_SUBTEXT);
-        note.setTextSize(12);
-        note.setLineSpacing(0, 1.05f);
-        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2);
-        noteLp.setMargins(0, dp(8), 0, dp(4));
-        box.addView(note, noteLp);
-
-        LinearLayout bottom = new LinearLayout(this);
-        bottom.setGravity(Gravity.END);
-        bottom.setPadding(0, dp(8), 0, 0);
-
-        TextView close = dialogTextButton("TUTUP");
-        close.setOnClickListener(v -> dialog.dismiss());
-        bottom.addView(close);
-        box.addView(bottom);
-
-        dialog.setContentView(scroll);
-        dialog.show();
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.9f);
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            window.setAttributes(lp);
-        }
-    }
-
-
-    private View adBlockSwitchRow(String title, String desc, boolean enabled, View.OnClickListener listener) {
-        return SettingsUi.adBlockSwitchRow(this, title, desc, enabled, listener);
+        });
     }
 
     private void openQrScanner() {
@@ -2791,105 +2637,37 @@ content.addView(space(dp(36)));
     }
 
     private void showCustomizeMenuPanel() {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(14), dp(16), dp(14), dp(18));
-        panel.setBackgroundColor(Color.parseColor("#1E2024"));
-        scroll.addView(panel);
-
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(0, 0, 0, dp(18));
-
-        TextView back = new TextView(this);
-        back.setText("‹");
-        back.setTextColor(Color.WHITE);
-        back.setTextSize(42);
-        back.setGravity(Gravity.CENTER);
-        back.setOnClickListener(v -> dialog.dismiss());
-        header.addView(back, new LinearLayout.LayoutParams(dp(44), dp(44)));
-
-        TextView title = new TextView(this);
-        title.setText("Sesuaikan menu");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(24);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-
-        TextView close = new TextView(this);
-        close.setText("×");
-        close.setTextColor(Color.WHITE);
-        close.setTextSize(36);
-        close.setGravity(Gravity.CENTER);
-        close.setOnClickListener(v -> dialog.dismiss());
-        header.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
-
-        panel.addView(header);
-
-        TextView topSub = new TextView(this);
-        topSub.setText("Icon atas");
-        topSub.setTextColor(COLOR_SUBTEXT);
-        topSub.setTextSize(16);
-        topSub.setTypeface(Typeface.DEFAULT_BOLD);
-        topSub.setPadding(dp(8), 0, 0, dp(12));
-        panel.addView(topSub);
-
-        panel.addView(customizeToggleRow(R.drawable.ic_refresh, "Reload di address bar", topIconReload, v -> {
-            topIconReload = !topIconReload;
+        SettingsPanelController.CustomizeState state =
+                new SettingsPanelController.CustomizeState(
+                        topIconReload, topIconBookmark, topIconTranslate,
+                        shortcutReloadWebsite, shortcutDownload, shortcutBookmark,
+                        shortcutPrivate, shortcutAdBlock, shortcutReader, shortcutNightMode,
+                        shortcutQrScan, shortcutHistory, shortcutFindPage, shortcutShare,
+                        shortcutFullscreen, shortcutBlockElement, shortcutSiteFilter,
+                        shortcutVideoControls);
+        new SettingsPanelController(this, mainHandler).showCustomize(state, (action, owner) -> {
+            switch (action) {
+                case TOP_RELOAD: topIconReload = !topIconReload; updateTopActionStates(); break;
+                case TOP_BOOKMARK: topIconBookmark = !topIconBookmark; updateTopActionStates(); break;
+                case TOP_TRANSLATE: topIconTranslate = !topIconTranslate; updateTopActionStates(); break;
+                case RELOAD: shortcutReloadWebsite = !shortcutReloadWebsite; break;
+                case DOWNLOAD: shortcutDownload = !shortcutDownload; break;
+                case BOOKMARK: shortcutBookmark = !shortcutBookmark; break;
+                case PRIVATE: shortcutPrivate = !shortcutPrivate; break;
+                case AD_BLOCK: shortcutAdBlock = !shortcutAdBlock; break;
+                case READER: shortcutReader = !shortcutReader; break;
+                case NIGHT_MODE: shortcutNightMode = !shortcutNightMode; break;
+                case QR_SCAN: shortcutQrScan = !shortcutQrScan; break;
+                case HISTORY: shortcutHistory = !shortcutHistory; break;
+                case FIND_PAGE: shortcutFindPage = !shortcutFindPage; break;
+                case SHARE: shortcutShare = !shortcutShare; break;
+                case FULLSCREEN: shortcutFullscreen = !shortcutFullscreen; break;
+                case BLOCK_ELEMENT: shortcutBlockElement = !shortcutBlockElement; break;
+                case SITE_FILTER: shortcutSiteFilter = !shortcutSiteFilter; break;
+                case VIDEO_CONTROLS: shortcutVideoControls = !shortcutVideoControls; break;
+            }
             saveSettings();
-            updateTopActionStates();
-        }));
-        panel.addView(customizeToggleRow(R.drawable.ic_bookmark, "Bookmark di address bar", topIconBookmark, v -> {
-            topIconBookmark = !topIconBookmark;
-            saveSettings();
-            updateTopActionStates();
-        }));
-        panel.addView(customizeToggleRow(R.drawable.ic_translate, "Translate di address bar", topIconTranslate, v -> {
-            topIconTranslate = !topIconTranslate;
-            saveSettings();
-            updateTopActionStates();
-        }));
-
-        TextView sub = new TextView(this);
-        sub.setText("Menu utama");
-        sub.setTextColor(COLOR_SUBTEXT);
-        sub.setTextSize(16);
-        sub.setTypeface(Typeface.DEFAULT_BOLD);
-        sub.setPadding(dp(8), 0, 0, dp(12));
-        panel.addView(sub);
-
-        panel.addView(customizeToggleRow(R.drawable.ic_refresh, "Reload website", shortcutReloadWebsite, v -> { shortcutReloadWebsite = !shortcutReloadWebsite; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_download_modern, "Unduhan Yield", shortcutDownload, v -> { shortcutDownload = !shortcutDownload; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_bookmark, "Bookmark", shortcutBookmark, v -> { shortcutBookmark = !shortcutBookmark; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_private, "Privat", shortcutPrivate, v -> { shortcutPrivate = !shortcutPrivate; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_shield, "AdBlock", shortcutAdBlock, v -> { shortcutAdBlock = !shortcutAdBlock; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_reader, "Reader / Novel Mode", shortcutReader, v -> { shortcutReader = !shortcutReader; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_night, "Night Mode", shortcutNightMode, v -> { shortcutNightMode = !shortcutNightMode; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_qr_scan, "Pindai QR Code", shortcutQrScan, v -> { shortcutQrScan = !shortcutQrScan; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_history, "Riwayat", shortcutHistory, v -> { shortcutHistory = !shortcutHistory; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_find_page, "Cari di halaman", shortcutFindPage, v -> { shortcutFindPage = !shortcutFindPage; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_share, "Bagikan halaman", shortcutShare, v -> { shortcutShare = !shortcutShare; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_fullscreen, "Layar penuh", shortcutFullscreen, v -> { shortcutFullscreen = !shortcutFullscreen; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_block_element, "Blokir elemen", shortcutBlockElement, v -> { shortcutBlockElement = !shortcutBlockElement; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_safe, "Filter situs ini", shortcutSiteFilter, v -> { shortcutSiteFilter = !shortcutSiteFilter; saveSettings(); }));
-        panel.addView(customizeToggleRow(R.drawable.ic_video_control, "Kontrol video", shortcutVideoControls, v -> { shortcutVideoControls = !shortcutVideoControls; saveSettings(); }));
-
-        dialog.setContentView(scroll);
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.gravity = Gravity.BOTTOM;
-            lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-            lp.height = (int) (getResources().getDisplayMetrics().heightPixels * 0.9f);
-            window.setAttributes(lp);
-        }
-        dialog.show();
+        });
     }
 
 private void showDownloadSettingsPanel() {
