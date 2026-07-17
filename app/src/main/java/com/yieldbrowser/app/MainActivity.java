@@ -10941,12 +10941,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private void runPageScript(String js) {
-        if (webView == null || js == null || js.length() == 0) return;
+        if (webView == null) return;
+        PageScriptExecutionPolicy.Plan plan = PageScriptExecutionPolicy.plan(
+                js, Build.VERSION.SDK_INT >= 19);
+        if (!plan.execute) return;
         try {
-            String code = js;
-            if (code.startsWith("javascript:")) code = code.substring("javascript:".length());
-            if (Build.VERSION.SDK_INT >= 19) webView.evaluateJavascript(code, null);
-            else webView.loadUrl("javascript:" + code);
+            if (plan.evaluateJavascript) webView.evaluateJavascript(plan.payload, null);
+            else webView.loadUrl(plan.payload);
         } catch (Exception ignored) {
         }
     }
