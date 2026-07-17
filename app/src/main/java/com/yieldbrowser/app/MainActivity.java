@@ -10509,37 +10509,26 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private String getSafeReloadUrlForModeChange() {
         String currentWebUrl = webView != null ? webView.getUrl() : "";
         String currentAddressUrl = addressBar != null ? addressBar.getText().toString() : "";
-        String[] candidates = new String[]{
-                currentWebUrl,
-                currentAddressUrl,
-                lastSafeHttpUrl
-        };
-
-        for (int i = 0; i < candidates.length; i++) {
-            String candidate = candidates[i];
-            String clean = extractOriginalUrl(candidate);
-            if (clean == null || clean.trim().length() == 0) clean = candidate;
-            boolean explicitCurrentPage = i < 2;
-            if (isSafeUrlForModeReload(clean, explicitCurrentPage)) return clean;
-        }
-        return null;
+        return BrowserModeReloadSelector.select(
+                new String[]{currentWebUrl, currentAddressUrl, lastSafeHttpUrl},
+                MainActivity.this::extractOriginalUrl,
+                MainActivity.this::isSafeUrlForModeReload);
     }
 
 
     private boolean isSafeUrlForModeReload(String url, boolean explicitCurrentPage) {
-        if (!isHttpOrHttpsUrl(url)) return false;
-        if (isExternalSchemeUrl(url)) return false;
-        if (isImageResourceUrl(url) || isMediaResourceUrl(url)) return false;
-        String lower = url == null ? "" : url.toLowerCase(Locale.US);
-        if (lower.startsWith("javascript:") || lower.startsWith("data:") || lower.startsWith("about:")) return false;
-        // v0.9.67: Desktop/Mobile toggle adalah aksi user eksplisit.
-        // Untuk halaman yang sedang dibuka seperti invest-tracing.com, jangan ditolak hanya
-        // karena host-nya masuk daftar popup/ad. Jika ditolak, toggle tidak reload dan UA lama tersisa.
+        boolean baseSafe = BrowserModeReloadPolicy.isBaseSafe(
+                isHttpOrHttpsUrl(url),
+                isExternalSchemeUrl(url),
+                isImageResourceUrl(url),
+                isMediaResourceUrl(url),
+                BrowserLoadRequestPolicy.isDirectWebViewUrl(url));
+        if (!baseSafe) return false;
         if (explicitCurrentPage) return true;
-        if (isLikelyAdClickUrl(url)) return false;
-        if (isKnownPopupHost(url)) return false;
-        if (isAdUrl(url)) return false;
-        return true;
+        return BrowserModeReloadPolicy.isFallbackClassificationSafe(
+                isLikelyAdClickUrl(url),
+                isKnownPopupHost(url),
+                isAdUrl(url));
     }
 
     private String normalizeUrlForCurrentBrowserMode(String url) {
