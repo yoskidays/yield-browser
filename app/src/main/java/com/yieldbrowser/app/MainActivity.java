@@ -10422,7 +10422,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         if (url == null) return;
         try { activateTabWebView(getCurrentTab(), true); } catch (Exception ignored) {}
         if (webView == null) return;
-        String cleanUrl = url.trim();
+        String cleanUrl = BrowserLoadRequestPolicy.trimInput(url);
         cleanUrl = normalizeUrlForCurrentBrowserMode(cleanUrl);
         if (cleanUrl == null || cleanUrl.length() == 0) return;
         TabInfo activeLoadTab = getCurrentTab();
@@ -10433,8 +10433,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             activeLoadTab.currentPageUrlForRequest = cleanUrl;
         }
 
-        String lower = cleanUrl.toLowerCase(Locale.US);
-        if (lower.startsWith("javascript:") || lower.startsWith("about:") || lower.startsWith("data:")) {
+        if (BrowserLoadRequestPolicy.isDirectWebViewUrl(cleanUrl)) {
             webView.loadUrl(cleanUrl);
             return;
         }
@@ -10462,18 +10461,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             }
 
             applyBrowserSettings();
-            Map<String, String> headers = new LinkedHashMap<>();
-            if (desktopMode) {
-                headers.put("User-Agent", getDesktopUserAgent());
-                headers.put("Sec-CH-UA-Mobile", "?0");
-                headers.put("Sec-CH-UA-Platform", "\"Windows\"");
-            } else {
-                headers.put("User-Agent", getMobileUserAgent());
-                headers.put("Sec-CH-UA-Mobile", "?1");
-                headers.put("Sec-CH-UA-Platform", "\"Android\"");
-            }
-            headers.put("Upgrade-Insecure-Requests", "1");
-            headers.put("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7");
+            Map<String, String> headers = BrowserLoadRequestPolicy.requestHeaders(
+                    desktopMode, getMobileUserAgent(), getDesktopUserAgent());
             webView.loadUrl(cleanUrl, headers);
         } catch (Exception e) {
             try { webView.loadUrl(cleanUrl); } catch (Exception ignored) {}
