@@ -11012,11 +11012,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean isSearchEngineResultNavigation(String targetUrl, String currentUrl) {
-        if (!isHttpOrHttpsUrl(targetUrl)) return false;
         // v0.10.07: universal search-result allow lane. Do not depend on a fixed list of
         // .com domains: regional Google/Yahoo/Yandex domains and self-hosted SearX/SearXNG
         // pages are recognized from their search URL shape by ShieldEngineV2.
-        return ShieldEngineV2.isSearchResultsPage(currentUrl);
+        return SearchResultNavigationPolicy.isAllowed(
+                isHttpOrHttpsUrl(targetUrl),
+                ShieldEngineV2.isSearchResultsPage(currentUrl));
     }
 
     private boolean isCompatibilityAdNavigation(String targetUrl, String currentUrl, boolean hasGesture) {
