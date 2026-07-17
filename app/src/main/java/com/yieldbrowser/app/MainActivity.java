@@ -11052,9 +11052,8 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private boolean isCompatibilityContentAssetUrl(String url) {
         if (url == null) return false;
         String u = url.toLowerCase(Locale.US);
-        return isImageResourceUrl(u)
-                || isMediaResourceUrl(u)
-                || u.matches(".*\\.(?:woff2?|ttf|otf)(?:$|[?#]).*");
+        if (isImageResourceUrl(u) || isMediaResourceUrl(u)) return true;
+        return CompatibilityContentAssetPolicy.isFontAsset(u);
     }
 
     private boolean isCompatibilityThirdPartyAdResource(String resourceUrl, String pageUrl) {
