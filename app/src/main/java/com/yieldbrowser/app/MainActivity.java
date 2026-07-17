@@ -11290,9 +11290,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean startHttpsFirstOverrideIfNeeded(WebView view, String targetUrl, TabInfo tab) {
-        if (view == null || !isHttpUrl(targetUrl)) return false;
-        String secure = prepareHttpsFirstNavigation(targetUrl, tab);
-        if (secure == null || secure.equals(targetUrl)) return false;
+        String secure = HttpsOverrideStartPolicy.resolve(
+                view != null,
+                targetUrl,
+                MainActivity.this::isHttpUrl,
+                url -> prepareHttpsFirstNavigation(url, tab));
+        if (secure == null) return false;
         markTrustedMainFrameNavigation(secure);
         prepareTabForMainFrameNavigation(tab, secure);
         if (tab != null) {
