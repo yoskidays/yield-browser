@@ -11253,10 +11253,14 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean isHttpsFallbackGuardActive(TabInfo tab, String httpUrl) {
-        if (tab == null || !isHttpUrl(httpUrl)) return false;
-        if (System.currentTimeMillis() > tab.httpsFallbackAllowedUntilMs) return false;
-        String host = hostOfUrl(httpUrl);
-        return host.length() > 0 && host.equals(tab.httpsFallbackHost);
+        if (tab == null) return false;
+        return HttpsFallbackGuardPolicy.isActive(
+                httpUrl,
+                tab.httpsFallbackAllowedUntilMs,
+                System.currentTimeMillis(),
+                tab.httpsFallbackHost,
+                MainActivity.this::isHttpUrl,
+                MainActivity.this::hostOfUrl);
     }
 
     private String prepareHttpsFirstNavigation(String rawUrl, TabInfo tab) {
