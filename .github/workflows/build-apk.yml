@@ -10,6 +10,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Test and Build Debug APK
@@ -18,6 +21,9 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Apply pending guarded refactor
         if: ${{ hashFiles('scripts/apply_pending_refactor.py') != '' }}
@@ -46,6 +52,17 @@ jobs:
 
       - name: Build Debug APK
         run: gradle assembleDebug --stacktrace
+
+      - name: Commit validated MainActivity refactor
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('scripts/apply_pending_refactor.py') != '' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/yieldbrowser/app/MainActivity.java
+          if ! git diff --cached --quiet; then
+            git commit -m "Apply validated MainActivity refactor"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi
 
       - name: Upload generated MainActivity
         if: ${{ hashFiles('scripts/apply_pending_refactor.py') != '' }}
