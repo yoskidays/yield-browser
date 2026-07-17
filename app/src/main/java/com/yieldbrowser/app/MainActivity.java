@@ -10840,14 +10840,16 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             final long generation = expectedTab.webViewGeneration;
             postForActiveTab(expectedTab, expectedView, 1600L, () -> {
                 try {
-                    String activeUrl = extractOriginalUrl(expectedView.getUrl());
-                    if (activeUrl == null || activeUrl.length() == 0) {
-                        activeUrl = expectedTab.currentPageUrlForRequest;
-                    }
-                    String activeHost = hostOfUrl(activeUrl);
-                    String activeKey = navigationLoopKey(activeUrl);
-                    if (!sameOrSubDomain(activeHost, expectedHost)) return;
-                    if (!expectedKey.equals(activeKey)) return;
+                    String activeUrl = BlankRecoveryTargetPolicy.resolve(
+                            expectedView.getUrl(),
+                            expectedTab.currentPageUrlForRequest,
+                            expectedHost,
+                            expectedKey,
+                            MainActivity.this::extractOriginalUrl,
+                            MainActivity.this::hostOfUrl,
+                            MainActivity.this::navigationLoopKey,
+                            MainActivity.this::sameOrSubDomain);
+                    if (activeUrl == null) return;
                     if (isStrictSiteCompatibilityUrl(activeUrl)
                             || isSiteCompatibilityModeActiveForUrl(activeUrl)) return;
                     String js = "(function(){try{var b=document.body, d=document.documentElement; if(!b){return '0|0|0|0|0|0|'+document.readyState;}"
@@ -10863,14 +10865,16 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         try {
                             if (!isLiveTabWebView(expectedTab, expectedView, generation)
                                     || !isCurrentTabInfo(expectedTab)) return;
-                            String currentUrl = extractOriginalUrl(expectedView.getUrl());
-                            if (currentUrl == null || currentUrl.length() == 0) {
-                                currentUrl = expectedTab.currentPageUrlForRequest;
-                            }
-                            String currentHost = hostOfUrl(currentUrl);
-                            String currentKey = navigationLoopKey(currentUrl);
-                            if (!sameOrSubDomain(currentHost, expectedHost)) return;
-                            if (!expectedKey.equals(currentKey)) return;
+                            String currentUrl = BlankRecoveryTargetPolicy.resolve(
+                                    expectedView.getUrl(),
+                                    expectedTab.currentPageUrlForRequest,
+                                    expectedHost,
+                                    expectedKey,
+                                    MainActivity.this::extractOriginalUrl,
+                                    MainActivity.this::hostOfUrl,
+                                    MainActivity.this::navigationLoopKey,
+                                    MainActivity.this::sameOrSubDomain);
+                            if (currentUrl == null) return;
                             String decoded = decodeEvaluateJavascriptString(value);
                             if (!isLikelyBlankCompatibilityReport(decoded)) return;
                             if (!shouldRetryCompatibilityRecovery(currentUrl)) return;
