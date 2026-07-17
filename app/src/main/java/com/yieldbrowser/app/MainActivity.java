@@ -10622,35 +10622,18 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private boolean isSiteCompatibilityModeActiveForUrl(String url) {
         try {
-            long now = System.currentTimeMillis();
-            String host = hostOfUrl(url);
-            if (host == null || host.length() == 0) return false;
-            String h = host.toLowerCase(Locale.US);
-            if (h.startsWith("www.")) h = h.substring(4);
-
-            // Legacy single-host guard tetap didukung.
-            if (siteCompatibilityHost != null && siteCompatibilityHost.length() > 0 && now <= siteCompatibilityUntilMs) {
-                String legacy = siteCompatibilityHost.toLowerCase(Locale.US);
-                if (legacy.startsWith("www.")) legacy = legacy.substring(4);
-                if (h.equals(legacy) || h.endsWith("." + legacy)) return true;
-            }
-
-            // v0.9.78: multi-host compatibility untuk banyak tab.
+            SiteCompatibilityActivePolicy.Result result =
+                    SiteCompatibilityActivePolicy.evaluate(
+                            hostOfUrl(url),
+                            siteCompatibilityHost,
+                            siteCompatibilityUntilMs,
+                            siteCompatibilityHosts,
+                            System.currentTimeMillis());
             try {
-                ArrayList<String> expired = new ArrayList<>();
-                for (Map.Entry<String, Long> e : siteCompatibilityHosts.entrySet()) {
-                    String base = e.getKey();
-                    long until = e.getValue() == null ? 0L : e.getValue();
-                    if (now > until) {
-                        expired.add(base);
-                        continue;
-                    }
-                    if (base != null && base.length() > 0 && (h.equals(base) || h.endsWith("." + base))) return true;
-                }
-                for (String dead : expired) siteCompatibilityHosts.remove(dead);
+                for (String dead : result.expiredHosts) siteCompatibilityHosts.remove(dead);
             } catch (Exception ignored) {
             }
-            return false;
+            return result.active;
         } catch (Exception e) {
             return false;
         }
