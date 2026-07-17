@@ -1,14 +1,8 @@
 package com.yieldbrowser.app;
 
-/** Pure context decisions for normal user main-frame navigations. */
+/** Pure final context decision for normal user main-frame navigations. */
 final class NormalMainFrameContextPolicy {
     private NormalMainFrameContextPolicy() {
-    }
-
-    static boolean isEarlyAllowed(boolean sameSite,
-                                  boolean fromSearchResults,
-                                  boolean contextAllowedSuspicious) {
-        return sameSite || fromSearchResults || contextAllowedSuspicious;
     }
 
     static boolean allowUnknownCrossSite(boolean hasGesture,
