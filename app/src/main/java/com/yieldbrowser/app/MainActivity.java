@@ -10986,20 +10986,26 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private void markTrustedMainFrameNavigation(String url) {
         try {
             if (!isHttpOrHttpsUrl(url)) return;
-            String host = normalizeHostForAdBlock(url);
-            if (host.length() == 0) return;
-            trustedMainFrameHost = host;
-            trustedMainFrameUntilMs = System.currentTimeMillis() + 10000L;
+            TrustedMainFramePolicy.Activation activation =
+                    TrustedMainFramePolicy.activation(
+                            true,
+                            normalizeHostForAdBlock(url),
+                            System.currentTimeMillis());
+            if (!activation.activate) return;
+            trustedMainFrameHost = activation.host;
+            trustedMainFrameUntilMs = activation.untilMs;
         } catch (Exception ignored) {
         }
     }
 
     private boolean isTrustedMainFrameNavigation(String url) {
         try {
-            if (trustedMainFrameHost == null || trustedMainFrameHost.length() == 0) return false;
-            if (System.currentTimeMillis() > trustedMainFrameUntilMs) return false;
-            String host = normalizeHostForAdBlock(url);
-            return host.length() > 0 && sameOrSubDomain(host, trustedMainFrameHost);
+            return TrustedMainFramePolicy.isTrusted(
+                    trustedMainFrameHost,
+                    trustedMainFrameUntilMs,
+                    System.currentTimeMillis(),
+                    normalizeHostForAdBlock(url),
+                    MainActivity.this::sameOrSubDomain);
         } catch (Exception e) {
             return false;
         }
