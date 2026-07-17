@@ -10532,26 +10532,12 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private String normalizeUrlForCurrentBrowserMode(String url) {
-        try {
-            if (url == null) return null;
-            String clean = extractOriginalUrl(url);
-            if (clean == null || clean.trim().length() == 0) clean = url;
-            if (!isHttpOrHttpsUrl(clean)) return clean;
-            if (isYouTubePageUrl(clean)) {
-                if (desktopMode) {
-                    clean = clean.replace("https://m.youtube.com", "https://www.youtube.com")
-                            .replace("http://m.youtube.com", "https://www.youtube.com");
-                } else {
-                    clean = clean.replace("https://www.youtube.com", "https://m.youtube.com")
-                            .replace("http://www.youtube.com", "https://m.youtube.com")
-                            .replace("https://youtube.com", "https://m.youtube.com")
-                            .replace("http://youtube.com", "https://m.youtube.com");
-                }
-            }
-            return clean;
-        } catch (Exception e) {
-            return url;
-        }
+        return BrowserModeUrlNormalizer.normalize(
+                url,
+                desktopMode,
+                MainActivity.this::extractOriginalUrl,
+                MainActivity.this::isHttpOrHttpsUrl,
+                MainActivity.this::isYouTubePageUrl);
     }
 
     private void applyBrowserSettings() {
