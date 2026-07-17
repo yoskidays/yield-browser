@@ -1,4 +1,4 @@
-# Stage 83 guarded bookmark-panel extraction; rerun with captured Gradle logs.
+# Stage 83 guarded bookmark-panel extraction; retain shared dialog-transition helper.
 from pathlib import Path
 
 PATH = Path("app/src/main/java/com/yieldbrowser/app/MainActivity.java")
@@ -66,7 +66,6 @@ replacements = [
     ("    private void showCreateBookmarkFolderDialog(Runnable onDone) {", ""),
     ("    private void showBookmarkSortMenu(View anchor) {", ""),
     ("    private void showBookmarkMainMenu(View anchor, Dialog dialog) {", ""),
-    ("    private void switchDialogSmooth(Dialog currentDialog, Runnable openNext) {", ""),
     ("    private void refreshDialogSmooth(Dialog dialog, Runnable render) {", ""),
     ("    private ImageButton plainIconButton(int iconRes, View.OnClickListener listener) {", ""),
     ("    private EditText darkSearchInput(String hint) {", ""),
