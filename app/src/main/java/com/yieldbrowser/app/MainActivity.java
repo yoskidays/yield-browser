@@ -11318,10 +11318,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             if (tab == null || tab.pendingHttpsOriginalUrl == null || tab.pendingHttpsOriginalUrl.length() == 0) return false;
             String expectedHost = hostOfUrl(tab.pendingHttpsUpgradeUrl);
             String failedHost = hostOfUrl(failedUrl);
-            if (expectedHost.length() == 0 || failedHost.length() == 0
-                    || (!sameOrSubDomain(failedHost, expectedHost) && !sameOrSubDomain(expectedHost, failedHost))) {
-                return false;
-            }
+            if (!HttpsHostRelationPolicy.areRelated(
+                    expectedHost,
+                    failedHost,
+                    MainActivity.this::sameOrSubDomain)) return false;
 
             String fallback = tab.pendingHttpsOriginalUrl;
             tab.httpsFallbackHost = hostOfUrl(fallback);
@@ -11376,8 +11376,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
         String expectedHost = hostOfUrl(tab.pendingHttpsUpgradeUrl);
         String finalHost = hostOfUrl(finalUrl);
-        boolean related = expectedHost.length() > 0 && finalHost.length() > 0
-                && (sameOrSubDomain(finalHost, expectedHost) || sameOrSubDomain(expectedHost, finalHost));
+        boolean related = HttpsHostRelationPolicy.areRelated(
+                expectedHost,
+                finalHost,
+                MainActivity.this::sameOrSubDomain);
         if (related) upgradeBookmarksAfterHttpsSuccess(original, finalUrl);
         clearHttpsFirstPendingState(tab, related);
     }
