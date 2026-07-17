@@ -10915,21 +10915,23 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             return key.equals(reloadLoopGuardKey);
         }
 
-        if (key.equals(reloadLoopLastKey) && (now - reloadLoopWindowStartMs) <= 12000L) {
-            reloadLoopCount++;
-        } else {
-            reloadLoopLastKey = key;
-            reloadLoopWindowStartMs = now;
-            reloadLoopCount = 1;
-        }
+        ReloadLoopRegistrationPolicy.Plan plan = ReloadLoopRegistrationPolicy.plan(
+                key,
+                reloadLoopLastKey,
+                reloadLoopWindowStartMs,
+                reloadLoopCount,
+                reloadLoopToastLastMs,
+                now);
+        reloadLoopLastKey = plan.lastKey;
+        reloadLoopWindowStartMs = plan.windowStartMs;
+        reloadLoopCount = plan.count;
 
-        if (reloadLoopCount >= 4) {
+        if (plan.guardTriggered) {
             reloadLoopGuardHost = host;
             reloadLoopGuardKey = key;
-            reloadLoopGuardUntilMs = now + 120000L;
+            reloadLoopGuardUntilMs = plan.guardUntilMs;
             enableSiteCompatibilityModeForUrl(url);
-            reloadLoopCount = 0;
-            if ((now - reloadLoopToastLastMs) > 6000L) {
+            if (plan.showToast) {
                 reloadLoopToastLastMs = now;
                 QuietToast.makeText(this, "Reload loop dicegah untuk situs ini", QuietToast.LENGTH_SHORT).show();
             }
