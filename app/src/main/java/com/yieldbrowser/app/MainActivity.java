@@ -10463,11 +10463,13 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private void scheduleMobileViewportReset() {
-        if (desktopMode) return;
-        int token = browserModeToken;
-        mainHandler.postDelayed(() -> { if (token == browserModeToken && !desktopMode) applyMobileViewportIfNeeded(); }, 120);
-        mainHandler.postDelayed(() -> { if (token == browserModeToken && !desktopMode) applyMobileViewportIfNeeded(); }, 500);
-        mainHandler.postDelayed(() -> { if (token == browserModeToken && !desktopMode) applyMobileViewportIfNeeded(); }, 1200);
+        MobileViewportResetCoordinator.schedule(
+                desktopMode,
+                browserModeToken,
+                (action, delay) -> mainHandler.postDelayed(action, delay),
+                () -> browserModeToken,
+                () -> desktopMode,
+                MainActivity.this::applyMobileViewportIfNeeded);
     }
 
     void forceMobileModeAfterUpdateIfNeeded(SharedPreferences p) {
