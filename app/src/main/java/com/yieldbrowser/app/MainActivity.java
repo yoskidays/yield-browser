@@ -11231,41 +11231,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean isPrivateIpv4Host(String host) {
-        try {
-            String[] parts = host.split("\\.");
-            if (parts.length != 4) return false;
-            int[] octets = new int[4];
-            for (int i = 0; i < 4; i++) {
-                if (parts[i].length() == 0 || parts[i].length() > 3) return false;
-                octets[i] = Integer.parseInt(parts[i]);
-                if (octets[i] < 0 || octets[i] > 255) return false;
-            }
-            return octets[0] == 10
-                    || octets[0] == 127
-                    || (octets[0] == 169 && octets[1] == 254)
-                    || (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31)
-                    || (octets[0] == 192 && octets[1] == 168)
-                    || octets[0] == 0;
-        } catch (Exception ignored) {
-            return false;
-        }
+        return LocalHostPolicy.isPrivateIpv4(host);
     }
 
     private boolean isLocalOrPrivateHost(String host) {
-        if (host == null || host.trim().length() == 0) return true;
-        String h = host.trim().toLowerCase(Locale.US);
-        if (h.startsWith("[") && h.endsWith("]")) h = h.substring(1, h.length() - 1);
-        if (h.equals("localhost") || h.equals("::1") || h.equals("0:0:0:0:0:0:0:1")) return true;
-        if (h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".lan")
-                || h.endsWith(".home") || h.endsWith(".internal") || h.endsWith(".test")
-                || h.endsWith(".invalid") || h.endsWith(".onion")) return true;
-        if (!h.contains(".") && !h.contains(":")) return true;
-        if (isPrivateIpv4Host(h)) return true;
-        if (h.contains(":")) {
-            return h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe8")
-                    || h.startsWith("fe9") || h.startsWith("fea") || h.startsWith("feb");
-        }
-        return false;
+        return LocalHostPolicy.isLocalOrPrivate(host);
     }
 
     private boolean isHttpsFirstExemptUrl(String url) {
