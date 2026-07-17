@@ -10953,9 +10953,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private void applyViewportForCurrentMode() {
-        if (webView == null) return;
+        ViewportModeApplyPolicy.Mode mode = ViewportModeApplyPolicy.mode(
+                webView != null, desktopMode);
+        if (mode == ViewportModeApplyPolicy.Mode.NONE) return;
         applyBrowserSettings();
-        if (desktopMode) applyDesktopViewportIfNeeded();
+        if (mode == ViewportModeApplyPolicy.Mode.DESKTOP) applyDesktopViewportIfNeeded();
         else applyMobileViewportIfNeeded();
     }
 
