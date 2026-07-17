@@ -7,7 +7,6 @@ import static com.yieldbrowser.app.StorageCodec.decode;
 import static com.yieldbrowser.app.StorageCodec.encode;
 
 import android.content.SharedPreferences;
-import android.text.TextUtils;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -146,6 +145,6 @@ final class BookmarkStore {
                         + "|" + item.time);
             }
         }
-        return TextUtils.join("\n", lines);
+        return String.join("\n", lines);
     }
 }
