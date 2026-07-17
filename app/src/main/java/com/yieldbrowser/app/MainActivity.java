@@ -11310,16 +11310,20 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private boolean handleHttpsFirstMainFrameFailure(WebView view, String failedUrl, int errorCode) {
         try {
-            if (!httpsFirstEnabled || view == null || !isHttpsUrl(failedUrl)
-                    || !isHttpsFallbackEligibleError(errorCode)) return false;
+            if (!HttpsNavigationFailurePolicy.passesPreflight(
+                    httpsFirstEnabled,
+                    view != null,
+                    failedUrl,
+                    errorCode,
+                    MainActivity.this::isHttpsUrl,
+                    MainActivity.this::isHttpsFallbackEligibleError)) return false;
             TabInfo tab = findTabByWebView(view);
             if (tab == null && view == webView) tab = getCurrentTab();
-            if (tab == null || tab.pendingHttpsOriginalUrl == null || tab.pendingHttpsOriginalUrl.length() == 0) return false;
-            String expectedHost = hostOfUrl(tab.pendingHttpsUpgradeUrl);
-            String failedHost = hostOfUrl(failedUrl);
-            if (!HttpsHostRelationPolicy.areRelated(
-                    expectedHost,
-                    failedHost,
+            if (tab == null || !HttpsNavigationFailurePolicy.hasRelatedPendingFailure(
+                    tab.pendingHttpsOriginalUrl,
+                    tab.pendingHttpsUpgradeUrl,
+                    failedUrl,
+                    MainActivity.this::hostOfUrl,
                     MainActivity.this::sameOrSubDomain)) return false;
 
             String fallback = tab.pendingHttpsOriginalUrl;
