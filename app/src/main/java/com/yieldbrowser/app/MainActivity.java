@@ -10691,13 +10691,15 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         for (long delay : schedule) {
             postForActiveTab(expectedTab, expectedView, delay, () -> {
                 try {
-                    String active = extractOriginalUrl(expectedView.getUrl());
-                    if (active == null || active.length() == 0) active = expectedTab.currentPageUrlForRequest;
-                    if (!ReaderCompatibilityPolicy.isEligiblePageUrl(active)) return;
-                    String activeHost = hostOfUrl(active);
-                    if (expectedHost.length() > 0 && activeHost.length() > 0
-                            && !sameOrSubDomain(activeHost, expectedHost)
-                            && !sameOrSubDomain(expectedHost, activeHost)) return;
+                    String active = ReaderRepairTargetPolicy.resolve(
+                            expectedView.getUrl(),
+                            expectedTab.currentPageUrlForRequest,
+                            expectedHost,
+                            MainActivity.this::extractOriginalUrl,
+                            ReaderCompatibilityPolicy::isEligiblePageUrl,
+                            MainActivity.this::hostOfUrl,
+                            MainActivity.this::sameOrSubDomain);
+                    if (active == null) return;
                     repairUniversalReaderPage(active);
                 } catch (Exception ignored) {
                 }
