@@ -10438,35 +10438,28 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             return;
         }
 
-        try {
-            currentPageUrlForRequest = cleanUrl;
-            if (activeLoadTab != null) activeLoadTab.currentPageUrlForRequest = cleanUrl;
-            markTrustedMainFrameNavigation(cleanUrl);
-            prepareTabForMainFrameNavigation(activeLoadTab, cleanUrl);
-
-            // v0.9.46: untuk situs sensitif seperti lordborg.com, jangan pakai header buatan
-            // dan jangan inject/restore agresif. Beberapa situs anti-security menganggap custom
-            // Sec-CH/User-Agent header sebagai request tidak normal lalu loading/blank terus.
-            if (isStrictSiteCompatibilityUrl(cleanUrl)) {
-                enableSiteCompatibilityModeForUrl(cleanUrl);
-                applyPlainCompatibilitySettings();
-                loadCompatibilityUrlWithCurrentMode(cleanUrl);
-                if (desktopMode) {
-                    mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 350);
-                    mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 1300);
-                    mainHandler.postDelayed(() -> applyDesktopViewportIfNeeded(), 2800);
-                }
-                scheduleCompatibilityLoadFallback(cleanUrl);
-                return;
-            }
-
-            applyBrowserSettings();
-            Map<String, String> headers = BrowserLoadRequestPolicy.requestHeaders(
-                    desktopMode, getMobileUserAgent(), getDesktopUserAgent());
-            webView.loadUrl(cleanUrl, headers);
-        } catch (Exception e) {
-            try { webView.loadUrl(cleanUrl); } catch (Exception ignored) {}
-        }
+        final String targetUrl = cleanUrl;
+        BrowserLoadExecutionCoordinator.execute(
+                targetUrl,
+                isStrictSiteCompatibilityUrl(targetUrl),
+                desktopMode,
+                () -> {
+                    currentPageUrlForRequest = targetUrl;
+                    if (activeLoadTab != null) activeLoadTab.currentPageUrlForRequest = targetUrl;
+                },
+                () -> markTrustedMainFrameNavigation(targetUrl),
+                () -> prepareTabForMainFrameNavigation(activeLoadTab, targetUrl),
+                () -> enableSiteCompatibilityModeForUrl(targetUrl),
+                MainActivity.this::applyPlainCompatibilitySettings,
+                MainActivity.this::loadCompatibilityUrlWithCurrentMode,
+                delay -> mainHandler.postDelayed(
+                        MainActivity.this::applyDesktopViewportIfNeeded, delay),
+                MainActivity.this::scheduleCompatibilityLoadFallback,
+                MainActivity.this::applyBrowserSettings,
+                () -> BrowserLoadRequestPolicy.requestHeaders(
+                        desktopMode, getMobileUserAgent(), getDesktopUserAgent()),
+                (target, headers) -> webView.loadUrl(target, headers),
+                target -> webView.loadUrl(target));
     }
 
     private void scheduleMobileViewportReset() {
