@@ -4,31 +4,12 @@ from pathlib import Path
 PATH = Path("app/src/main/java/com/yieldbrowser/app/MainActivity.java")
 
 
-def replace_method(source: str, signature: str, replacement: str) -> str:
-    start = source.find(signature)
-    if start < 0:
-        if replacement and replacement in source:
-            return source
-        if not replacement:
-            return source
-        raise SystemExit(f"Missing method signature: {signature}")
-    brace = source.find("{", start)
-    if brace < 0:
-        raise SystemExit(f"Missing opening brace: {signature}")
-    depth = 0
-    end = -1
-    for index in range(brace, len(source)):
-        char = source[index]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                end = index + 1
-                break
-    if end < 0:
-        raise SystemExit(f"Unbalanced method: {signature}")
-    return source[:start] + replacement + source[end:]
+def replace_between(source: str, start_marker: str, end_marker: str, replacement: str) -> str:
+    start = source.find(start_marker)
+    end = source.find(end_marker, start + len(start_marker))
+    if start < 0 or end < 0:
+        raise SystemExit(f"Missing guarded markers: {start_marker} -> {end_marker}")
+    return source[:start] + replacement + "\n\n" + source[end:]
 
 
 text = PATH.read_text()
@@ -96,14 +77,17 @@ quick_menu = """    private void showQuickMenu() {
         }).show();
     }"""
 
-text = replace_method(text, "    private void showQuickMenu() {", quick_menu)
-text = replace_method(text, "    private String getAppVersionName() {", "")
-text = replace_method(
+text = replace_between(
         text,
-        "    private void showAboutYieldDialog() {",
-        """    private void showAboutYieldDialog() {
+        "    private void showQuickMenu() {",
+        "    private String getAppVersionName() {",
+        quick_menu)
+about_wrapper = """    private void showAboutYieldDialog() {
         QuickMenuController.showAbout(this);
-    }""
-)
-text = replace_method(text, "    private View aboutInfoCard(String heading, String value) {", "")
+    }"""
+text = replace_between(
+        text,
+        "    private String getAppVersionName() {",
+        "    private void showSettingsPanel() {",
+        about_wrapper)
 PATH.write_text(text)
