@@ -10661,10 +10661,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                     || isStrictSiteCompatibilityUrl(targetUrl)
                     || isStrictSiteCompatibilityUrl(sourceUrl);
             if (!compatibility) return false;
-            String targetHost = hostOfUrl(targetUrl);
-            String sourceHost = hostOfUrl(sourceUrl);
-            if (targetHost.length() == 0 || sourceHost.length() == 0) return compatibility;
-            return sameOrSubDomain(targetHost, sourceHost) || sameOrSubDomain(sourceHost, targetHost);
+            return CompatibilityNavigationPolicy.isFlow(
+                    true,
+                    hostOfUrl(targetUrl),
+                    hostOfUrl(sourceUrl),
+                    MainActivity.this::sameOrSubDomain);
         } catch (Exception e) {
             return false;
         }
