@@ -11364,23 +11364,24 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private void handleHttpsFirstNavigationSuccess(TabInfo tab, String finalUrl) {
-        if (tab == null || !isHttpsUrl(finalUrl)) return;
-        String original = tab.pendingHttpsOriginalUrl;
-        if (original == null || original.length() == 0) {
-            String finalHost = hostOfUrl(finalUrl);
-            if (finalHost.equals(tab.httpsFallbackHost)) {
-                tab.httpsFallbackHost = "";
-                tab.httpsFallbackAllowedUntilMs = 0L;
-            }
+        if (tab == null) return;
+        HttpsNavigationSuccessPolicy.Action action = HttpsNavigationSuccessPolicy.evaluate(
+                finalUrl,
+                tab.pendingHttpsOriginalUrl,
+                tab.pendingHttpsUpgradeUrl,
+                tab.httpsFallbackHost,
+                MainActivity.this::isHttpsUrl,
+                MainActivity.this::hostOfUrl,
+                MainActivity.this::sameOrSubDomain);
+        if (action == HttpsNavigationSuccessPolicy.Action.IGNORE
+                || action == HttpsNavigationSuccessPolicy.Action.KEEP_FALLBACK) return;
+        if (action == HttpsNavigationSuccessPolicy.Action.CLEAR_FALLBACK) {
+            tab.httpsFallbackHost = "";
+            tab.httpsFallbackAllowedUntilMs = 0L;
             return;
         }
-        String expectedHost = hostOfUrl(tab.pendingHttpsUpgradeUrl);
-        String finalHost = hostOfUrl(finalUrl);
-        boolean related = HttpsHostRelationPolicy.areRelated(
-                expectedHost,
-                finalHost,
-                MainActivity.this::sameOrSubDomain);
-        if (related) upgradeBookmarksAfterHttpsSuccess(original, finalUrl);
+        boolean related = action == HttpsNavigationSuccessPolicy.Action.COMPLETE_RELATED;
+        if (related) upgradeBookmarksAfterHttpsSuccess(tab.pendingHttpsOriginalUrl, finalUrl);
         clearHttpsFirstPendingState(tab, related);
     }
     private boolean isExternalSchemeUrl(String url) {
