@@ -11184,22 +11184,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private String normalizeHostForAdBlock(String url) {
-        try {
-            if (url == null || url.length() == 0) return "";
-            Uri uri = Uri.parse(url);
-            String host = uri.getHost();
-            if (host == null) return "";
-            host = host.toLowerCase(Locale.US);
-            if (host.startsWith("www.")) host = host.substring(4);
-            return host;
-        } catch (Exception e) {
-            return "";
-        }
+        return AdBlockHostPolicy.normalize(url, BrowserUtils::getHostLower);
     }
 
     private boolean sameOrSubDomain(String host, String baseHost) {
-        if (host == null || baseHost == null || host.length() == 0 || baseHost.length() == 0) return false;
-        return host.equals(baseHost) || host.endsWith("." + baseHost);
+        return AdBlockHostPolicy.sameOrSubDomain(host, baseHost);
     }
 
     // v0.9.92: dipindah ke konstanta static (lihat catatan AD_URL_HOST_PATTERNS).
