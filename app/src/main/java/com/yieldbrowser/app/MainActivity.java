@@ -11239,16 +11239,10 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean isHttpsFirstExemptUrl(String url) {
-        try {
-            if (!isHttpUrl(url)) return true;
-            URI uri = new URI(url.trim());
-            String host = uri.getHost();
-            if (host == null || isLocalOrPrivateHost(host)) return true;
-            int port = uri.getPort();
-            return port != -1 && port != 80 && port != 443;
-        } catch (Exception ignored) {
-            return true;
-        }
+        return HttpsFirstExemptionPolicy.isExempt(
+                url,
+                MainActivity.this::isHttpUrl,
+                MainActivity.this::isLocalOrPrivateHost);
     }
 
     private String buildHttpsUpgradeUrl(String httpUrl) {
