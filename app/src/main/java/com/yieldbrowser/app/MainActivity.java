@@ -10651,16 +10651,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private boolean isKnownStrictCompatibilityHost(String host) {
-        try {
-            if (host == null || host.length() == 0) return false;
-            String h = host.toLowerCase(Locale.US);
-            if (h.startsWith("www.")) h = h.substring(4);
-            for (String base : STRICT_COMPAT_HOSTS) {
-                if (h.equals(base) || h.endsWith("." + base)) return true;
-            }
-        } catch (Exception ignored) {
-        }
-        return false;
+        return StrictCompatibilityHostPolicy.isKnownHost(host, STRICT_COMPAT_HOSTS);
     }
 
     private boolean isCompatibilityNavigationFlow(String targetUrl, String sourceUrl) {
