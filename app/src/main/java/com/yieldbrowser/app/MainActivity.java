@@ -11022,8 +11022,15 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private boolean isCompatibilityAdNavigation(String targetUrl, String currentUrl, boolean hasGesture) {
         try {
-            if (!adBlock || !isHttpOrHttpsUrl(targetUrl)) return isExternalSchemeUrl(targetUrl);
-            if (isTrustedDownloadIntentUrl(targetUrl) || isSearchEngineResultNavigation(targetUrl, currentUrl)) return false;
+            CompatibilityAdNavigationPreflightPolicy.Decision preflight =
+                    CompatibilityAdNavigationPreflightPolicy.initial(
+                            adBlock,
+                            isHttpOrHttpsUrl(targetUrl),
+                            isExternalSchemeUrl(targetUrl));
+            if (preflight.resolved) return preflight.block;
+            if (CompatibilityAdNavigationPreflightPolicy.isExplicitlyAllowed(
+                    isTrustedDownloadIntentUrl(targetUrl),
+                    isSearchEngineResultNavigation(targetUrl, currentUrl))) return false;
 
             String targetHost = normalizeHostForAdBlock(targetUrl);
             String currentHost = normalizeHostForAdBlock(currentUrl);
