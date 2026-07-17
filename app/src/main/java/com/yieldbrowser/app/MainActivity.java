@@ -10741,16 +10741,11 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private void loadCompatibilityUrlWithCurrentMode(String cleanUrl) {
         if (webView == null || cleanUrl == null || cleanUrl.trim().length() == 0) return;
         try {
-            if (desktopMode) {
-                // Minimal desktop request untuk situs compatibility: cukup UA desktop + bahasa.
-                // Hindari header Sec-CH custom yang dulu bisa memicu security/blank di situs berat iklan.
-                Map<String, String> headers = new LinkedHashMap<>();
-                headers.put("User-Agent", getDesktopUserAgent());
-                headers.put("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7");
-                webView.loadUrl(cleanUrl, headers);
-            } else {
-                webView.loadUrl(cleanUrl);
-            }
+            Map<String, String> headers = CompatibilityLoadRequestPolicy.requestHeaders(
+                    desktopMode,
+                    desktopMode ? getDesktopUserAgent() : null);
+            if (headers.isEmpty()) webView.loadUrl(cleanUrl);
+            else webView.loadUrl(cleanUrl, headers);
         } catch (Exception e) {
             try { webView.loadUrl(cleanUrl); } catch (Exception ignored) {}
         }
