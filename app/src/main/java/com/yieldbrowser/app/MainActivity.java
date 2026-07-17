@@ -10473,16 +10473,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     void forceMobileModeAfterUpdateIfNeeded(SharedPreferences p) {
-        try {
-            if (!p.getBoolean("forceMobileModeV0939", false)) {
-                desktopMode = false;
-                p.edit()
-                        .putBoolean("desktopMode", false)
-                        .putBoolean("forceMobileModeV0939", true)
-                        .apply();
-            }
-        } catch (Exception ignored) {
-        }
+        MobileModeMigration.apply(p, () -> desktopMode = false);
     }
 
     private void toggleDesktopModeSafely() {
