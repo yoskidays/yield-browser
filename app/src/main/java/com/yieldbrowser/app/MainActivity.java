@@ -11382,38 +11382,15 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         clearHttpsFirstPendingState(tab, related);
     }
     private boolean isExternalSchemeUrl(String url) {
-        if (url == null || url.trim().length() == 0) return false;
-        String u = url.trim().toLowerCase(Locale.US);
-        if (u.startsWith("http://") || u.startsWith("https://")) return false;
-        if (u.startsWith("about:") || u.startsWith("javascript:") || u.startsWith("data:")
-                || u.startsWith("blob:") || u.startsWith("file:")) return false;
-        return u.matches("^[a-z][a-z0-9+.-]*:.*");
+        return NavigationUrlSignalPolicy.isExternalScheme(url);
     }
 
     private boolean isLikelyAdClickUrl(String url) {
-        if (url == null) return false;
-        String u = url.toLowerCase(Locale.US);
-        if (isMediaResourceUrl(u) || isYoutubeCoreUrl(u) || isTrustedDownloadIntentUrl(u)) return false;
-        return isExternalSchemeUrl(u)
-                || u.contains("utm_medium=affiliates")
-                || u.contains("utm_source=an_")
-                || u.contains("affiliate")
-                || u.contains("aff_sub")
-                || u.contains("deep_and_deferred")
-                || u.contains("navigate_url=")
-                || u.contains("reactpath")
-                || u.contains("click_id")
-                || u.contains("adclick")
-                || u.contains("ad_click")
-                || u.contains("adurl=")
-                || u.contains("af_click")
-                || u.contains("tracking_id")
-                || u.contains("campaign_id")
-                || u.startsWith("shopeeid:")
-                || u.startsWith("lazada:")
-                || u.startsWith("tokopedia:")
-                || u.startsWith("intent:")
-                || u.startsWith("market:");
+        return NavigationUrlSignalPolicy.isLikelyAdClick(
+                url,
+                MainActivity.this::isMediaResourceUrl,
+                MainActivity.this::isYoutubeCoreUrl,
+                MainActivity.this::isTrustedDownloadIntentUrl);
     }
 
     private void restoreAfterBlockedNavigation(WebView view, String blockedUrl) {
