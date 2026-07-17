@@ -19,6 +19,14 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Apply pending guarded refactor
+        if: ${{ hashFiles('scripts/apply_pending_refactor.py') != '' }}
+        run: python3 scripts/apply_pending_refactor.py
+
+      - name: Verify generated patch formatting
+        if: ${{ hashFiles('scripts/apply_pending_refactor.py') != '' }}
+        run: git diff --check
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -38,6 +46,13 @@ jobs:
 
       - name: Build Debug APK
         run: gradle assembleDebug --stacktrace
+
+      - name: Upload generated MainActivity
+        if: ${{ hashFiles('scripts/apply_pending_refactor.py') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Guarded-refactor-MainActivity
+          path: app/src/main/java/com/yieldbrowser/app/MainActivity.java
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
