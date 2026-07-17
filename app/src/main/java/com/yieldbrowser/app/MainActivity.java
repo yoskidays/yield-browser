@@ -10969,20 +10969,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private void injectMobileViewportReset() {
         if (desktopMode || webView == null) return;
-        String js = "javascript:(function(){try{"
-                + "var h=document.head||document.getElementsByTagName('head')[0]||document.documentElement;"
-                + "var m=document.querySelector('meta[name=viewport]');"
-                + "if(!m){m=document.createElement('meta');m.name='viewport';h.appendChild(m);}"
-                + "m.setAttribute('content','width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes');"
-                + "document.documentElement.style.removeProperty('min-width');"
-                + "document.documentElement.style.removeProperty('width');"
-                + "if(document.body){document.body.style.removeProperty('min-width');document.body.style.removeProperty('width');}"
-                + "try{window.dispatchEvent(new Event('resize'));}catch(e){}"
-                + "}catch(e){}})()";
-        try {
-            if (Build.VERSION.SDK_INT >= 19) webView.evaluateJavascript(js.replace("javascript:", ""), null);
-            else webView.loadUrl(js);
-        } catch (Exception ignored) {}
+        runPageScript(ViewportScriptPolicy.mobileResetScript());
     }
 
     private void applyDesktopViewportIfNeeded() {
@@ -10993,19 +10980,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     private void injectDesktopViewportLock() {
         if (!desktopMode || webView == null) return;
-        String js = "javascript:(function(){try{"
-                + "var w=1200;"
-                + "var h=document.head||document.getElementsByTagName('head')[0]||document.documentElement;"
-                + "var m=document.querySelector('meta[name=viewport]');"
-                + "if(!m){m=document.createElement('meta');m.name='viewport';h.appendChild(m);}"
-                + "m.setAttribute('content','width='+w+', initial-scale=1.0, maximum-scale=5.0, user-scalable=yes');"
-                + "document.documentElement.style.minWidth=w+'px';"
-                + "if(document.body){document.body.style.minWidth=w+'px';}"
-                + "}catch(e){}})()";
-        try {
-            if (Build.VERSION.SDK_INT >= 19) webView.evaluateJavascript(js.replace("javascript:", ""), null);
-            else webView.loadUrl(js);
-        } catch (Exception ignored) {}
+        runPageScript(ViewportScriptPolicy.desktopLockScript());
     }
 
     private void markTrustedMainFrameNavigation(String url) {
