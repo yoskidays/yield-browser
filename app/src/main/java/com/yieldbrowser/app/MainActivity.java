@@ -10584,31 +10584,15 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     }
 
     private String hostOfUrl(String url) {
-        try {
-            String clean = extractOriginalUrl(url);
-            if (clean == null || clean.trim().length() == 0) clean = url;
-            Uri uri = Uri.parse(clean);
-            String host = uri.getHost();
-            if (host == null) return "";
-            host = host.toLowerCase(Locale.US);
-            if (host.startsWith("www.")) host = host.substring(4);
-            return host;
-        } catch (Exception e) {
-            return "";
-        }
+        return BrowserUrlIdentityPolicy.normalizedHost(
+                url,
+                MainActivity.this::extractOriginalUrl,
+                value -> Uri.parse(value).getHost());
     }
 
     private String navigationLoopKey(String url) {
-        try {
-            String clean = extractOriginalUrl(url);
-            if (clean == null || clean.trim().length() == 0) clean = url;
-            if (clean == null) return "";
-            int hash = clean.indexOf('#');
-            if (hash >= 0) clean = clean.substring(0, hash);
-            return clean.trim().toLowerCase(Locale.US);
-        } catch (Exception e) {
-            return url == null ? "" : url.trim().toLowerCase(Locale.US);
-        }
+        return BrowserUrlIdentityPolicy.navigationLoopKey(
+                url, MainActivity.this::extractOriginalUrl);
     }
 
     private void enableSiteCompatibilityModeForUrl(String url) {
