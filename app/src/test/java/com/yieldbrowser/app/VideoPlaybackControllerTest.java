@@ -19,4 +19,11 @@ public class VideoPlaybackControllerTest {
         assertTrue(BrowserPageScripts.videoControl("pause").contains("v.pause()"));
         assertTrue(BrowserPageScripts.videoControl("toggle").contains("v.paused"));
     }
+
+    @Test
+    public void queueLimitIsRestrictedToSupportedChoices() {
+        assertEquals(2, DownloadQueueDialogController.normalizeMaxActive(1));
+        assertEquals(3, DownloadQueueDialogController.normalizeMaxActive(3));
+        assertEquals(4, DownloadQueueDialogController.normalizeMaxActive(8));
+    }
 }
