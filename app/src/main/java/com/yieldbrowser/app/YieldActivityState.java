@@ -203,11 +203,13 @@ abstract class YieldActivityState extends Activity
 
         lastTrustedDownloadGestureAtMs = 0L;
         lastTrustedDownloadSourceUrl = "";
-        newTabInCurrentProfile();
-        markTrustedMainFrameNavigation(clean);
-        prepareTabForMainFrameNavigation(getCurrentTab(), clean);
-        if (addressBar != null) addressBar.setText(clean);
-        openAddressBarUrl();
+
+        // Seed the destination before the WebView starts. A blank tab has no lastSafeUrl or
+        // isolationHost, so recovery guards can incorrectly restore the source download page.
+        TabInfo trustedTab = createProfileTab(
+                "Download", "Download privat", clean, false);
+        tabs.add(trustedTab);
+        switchToTab(trustedTab);
         return true;
     }
 
