@@ -103,12 +103,14 @@ root=imports+'''abstract class YieldActivityState extends Activity {\n\n'''+stat
 down=imports+'''abstract class YieldDownloadActivity extends YieldActivityState {\n\n'''+ '\n\n'.join(download).strip()+'\n}\n'
 webs=imports+'''abstract class YieldWebRuntimeActivity extends YieldDownloadActivity {\n\n'''+ '\n\n'.join(web).strip()+'\n}\n'
 mainf=imports+'''public class MainActivity extends YieldWebRuntimeActivity\n        implements TranslateBridge.Callback, VideoBridge.Callback, AdBlockBridge.Callback {\n\n'''+ '\n\n'.join(main).strip()+'\n}\n'
+outputs={}
 for name,data in [('YieldActivityState.java',root),('YieldDownloadActivity.java',down),('YieldWebRuntimeActivity.java',webs),('MainActivity.java',mainf)]:
     data=re.sub(r'\n[ \t]*\n(?:[ \t]*\n)+','\n\n',data)
+    outputs[name]=data
     (OUT/name).write_text(data)
     print(name,len(data.splitlines()),len(data))
 print('method groups',len(main),len(download),len(web),len(root_static),'decls',len(uniq))
-if len(mainf.splitlines()) > 3000:
-    raise SystemExit(f'MainActivity target not reached: {len(mainf.splitlines())} lines')
+if len(outputs['MainActivity.java'].splitlines()) > 3000:
+    raise SystemExit(f"MainActivity target not reached: {len(outputs['MainActivity.java'].splitlines())} lines")
 if not (download and web and main):
     raise SystemExit('Generated domain split is incomplete')
