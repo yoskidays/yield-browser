@@ -91,5 +91,10 @@ text = replace_method(
         "    private void cancelSmoothSearchTransition() {",
         """    private void cancelSmoothSearchTransition() {
         if (navigationTransitionController != null) navigationTransitionController.cancel();
+    }
+
+    private boolean isSmoothSearchTransitionActive() {
+        return navigationTransitionController != null && navigationTransitionController.isActive();
     }""")
+text = text.replace("smoothSearchTransitionActive", "isSmoothSearchTransitionActive()")
 PATH.write_text(text)
