@@ -173,7 +173,7 @@ replacement = """    private void initializeBrowserShellUi() {
             if (clean.startsWith("www.")) clean = clean.substring(4);
             int slash = clean.indexOf("/");
             if (slash > 0) clean = clean.substring(0, slash);
-            String host = clean.split("\\.")[0];
+            String host = clean.split("[.]")[0];
             if (host.length() == 0) return "Web";
             return host.substring(0, 1).toUpperCase() + host.substring(1);
         } catch (Exception e) {
