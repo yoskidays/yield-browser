@@ -122,7 +122,6 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-
 public class MainActivity extends Activity
         implements TranslateBridge.Callback, VideoBridge.Callback, AdBlockBridge.Callback {
 
@@ -474,8 +473,6 @@ public class MainActivity extends Activity
         });
     }
 
-
-
     // ===== Activity lifecycle =====
     /** Overridden by PrivateBrowserActivity, which runs in a separate WebView data-directory process. */
     protected boolean useDedicatedPrivateProfile() {
@@ -580,7 +577,6 @@ public class MainActivity extends Activity
         handleOpenDownloadsIntent(intent);
         handleProfileSpaceIntent(intent);
     }
-
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -728,8 +724,6 @@ public class MainActivity extends Activity
             showDownloadManager();
         }
     }
-
-
 
     // ===== Main UI =====
     private void initializeBrowserShellUi() {
@@ -1523,7 +1517,6 @@ public class MainActivity extends Activity
         }
     }
 
-
     private void newPrivateTab() {
         // Android 9+ supports a dedicated WebView data directory per process. This is the only
         // safe way to keep cookies, service workers, cache, DOM storage and HTTP auth separate
@@ -1705,7 +1698,6 @@ public class MainActivity extends Activity
         QuietToast.makeText(this, removed.privateTab ? "Tab privat ditutup" : "Tab ditutup",
                 QuietToast.LENGTH_SHORT).show();
     }
-
 
     private void showTabsPanel() {
         TabInfo current = getCurrentTab();
@@ -2265,7 +2257,6 @@ public class MainActivity extends Activity
         chip.setTextColor(selected ? Color.parseColor("#111111") : Color.WHITE);
         chip.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20232A"), dp(18), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
     }
-
 
     private void showVideoControlsIfAllowed() {
         if (!videoControlsEnabled || videoControlsManualHidden || webView == null || webView.getVisibility() != View.VISIBLE) {
@@ -2954,17 +2945,6 @@ public class MainActivity extends Activity
         mainHandler.postDelayed(historyPanelController::refresh, 120L);
     }
 
-
-
-
-
-
-
-
-
-
-
-
     private void showBookmarkHomePanel() {
         BookmarkPanelController controller = new BookmarkPanelController(
                 this,
@@ -2986,24 +2966,6 @@ public class MainActivity extends Activity
         controller.showHome();
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     private void switchDialogSmooth(Dialog currentDialog, Runnable openNext) {
         try {
             if (openNext != null) openNext.run();
@@ -3020,25 +2982,6 @@ public class MainActivity extends Activity
             }, 120);
         }
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     private void showFindInPageDialog() {
         if (webView == null || webView.getVisibility() != View.VISIBLE) {
@@ -3298,7 +3241,6 @@ public class MainActivity extends Activity
             }
         });
     }
-
 
     private void showTextZoomDialog(Dialog parentDialog) {
         Dialog dialog = new Dialog(this);
@@ -3597,41 +3539,33 @@ public class MainActivity extends Activity
         }
     }
 
-
     private TextView sectionTitle(String text) {
         return SettingsUi.sectionTitle(this, text);
     }
-
 
     private View menuDivider() {
         return SettingsUi.menuDivider(this);
     }
 
-
     private View customizeToggleRow(int iconRes, String label, boolean enabled, View.OnClickListener listener) {
         return SettingsUi.customizeToggleRow(this, iconRes, label, enabled, listener);
     }
-
 
     private View settingRow(int iconRes, String title, String desc, boolean enabled, View.OnClickListener listener) {
         return SettingsUi.settingRow(this, iconRes, title, desc, enabled, listener);
     }
 
-
     private View actionRow(int iconRes, String title, String desc, View.OnClickListener listener) {
         return SettingsUi.actionRow(this, iconRes, title, desc, listener);
     }
-
 
     private LinearLayout baseSettingsRow(int iconRes, String title, String desc, View.OnClickListener listener) {
         return SettingsUi.baseSettingsRow(this, iconRes, title, desc, listener);
     }
 
-
     private View menuRow(int iconRes, String label, View.OnClickListener listener) {
         return SettingsUi.menuRow(this, iconRes, label, listener);
     }
-
 
     // ===== Download manager UI =====
     private void showDownloadManager() {
@@ -3920,17 +3854,9 @@ public class MainActivity extends Activity
                         downloadMaxActive));
     }
 
-
-
-
-
-
-
     private TextView downloadToolButton(String text) {
         return DownloadControlsFactory.createButton(this, text);
     }
-
-
 
     private String getDownloadCategory(DownloadItem item) {
         return DownloadItemUtils.getDownloadCategory(item);
@@ -3944,17 +3870,12 @@ public class MainActivity extends Activity
         return DownloadItemUtils.inferDownloadCategoryFromData(fileName, url, mimeType);
     }
 
-
-
-
-
     private DownloadItem findDownloadItemById(int id) {
         synchronized (downloadItems) {
             for (DownloadItem item : downloadItems) if (item.id == id) return item;
         }
         return null;
     }
-
 
     private long getDownloadSize(DownloadItem item) {
         return DownloadItemUtils.getDownloadSize(item);
@@ -4113,7 +4034,6 @@ public class MainActivity extends Activity
                 .show();
     }
 
-
     // ===== Download queue manager =====
     private boolean isActiveDownloadStatus(String status) {
         return BrowserUtils.isActiveDownloadStatus(status);
@@ -4193,7 +4113,6 @@ public class MainActivity extends Activity
         } catch (Exception ignored) {
         }
     }
-
 
     private int countQueuedDownloads() {
         int count = 0;
@@ -4776,8 +4695,6 @@ public class MainActivity extends Activity
         return "";
     }
 
-
-
     // ===== Download engine =====
 
     private void beginDownloadFromWeb(String url, String contentDisposition, String mimeType, String userAgent) {
@@ -4821,8 +4738,6 @@ public class MainActivity extends Activity
             QuietToast.makeText(this, "Gagal memulai unduhan: " + e.getMessage(), QuietToast.LENGTH_SHORT).show();
         }
     }
-
-
 
     private void showDownloadStartedBanner(DownloadItem item) {
         runOnUiThread(() -> {
@@ -5387,7 +5302,6 @@ public class MainActivity extends Activity
             startDynamicMultiConnectionDownload(item, out);
         }
     }
-
 
     private void startSingleConnectionDownloadAsync(DownloadItem item, File out) {
         if (item == null || out == null || "removed".equals(item.status)) return;
@@ -6661,7 +6575,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
     }
 
-
     private String getMimeTypeForName(String fileName) {
         try {
             String extension = MimeTypeMap.getFileExtensionFromUrl(fileName);
@@ -6726,7 +6639,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 "Unduhan gagal. Buka Download untuk reload/detail.", QuietToast.LENGTH_LONG).show());
         mainHandler.postDelayed(this::pumpDownloadQueue, 300);
     }
-
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -6853,7 +6765,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         saveDownloadHistory();
         updateDownloadKeepAliveState();
     }
-
 
     private void toggleBookmark() {
         String url = getEffectiveCurrentUrl();
@@ -8424,7 +8335,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
     }
 
-
     private View nightChoiceRow(String label, boolean checked, View.OnClickListener listener) {
         return SettingsUi.nightChoiceRow(this, label, checked, listener);
     }
@@ -8563,7 +8473,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 MainActivity.this::extractOriginalUrl,
                 MainActivity.this::isSafeUrlForModeReload);
     }
-
 
     private boolean isSafeUrlForModeReload(String url, boolean explicitCurrentPage) {
         boolean baseSafe = BrowserModeReloadPolicy.isBaseSafe(
@@ -8785,7 +8694,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         } catch (Exception ignored) {
         }
     }
-
 
     private void loadCompatibilityUrlWithCurrentMode(String cleanUrl) {
         if (webView == null || cleanUrl == null || cleanUrl.trim().length() == 0) return;
@@ -9790,7 +9698,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 || u.contains("vpaid");
     }
 
-
     // ===== AdBlock / video ad handling =====
     // v0.9.92: cosmetic filtering profesional (gaya Brave/UC).
     // Daftar selector ini KURATIF dan aman: tidak lagi memakai pola blanket seperti
@@ -9830,7 +9737,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
 
     // ===== v0.9.92: "Blokir elemen" (element picker, gaya uBlock/Brave) =====
     // Escape string agar aman ditempel di dalam literal JS berkutip-ganda.
-
 
     private void loadUserElementFilters() {
         if (userElementFiltersLoaded) return;
@@ -10030,7 +9936,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 });
     }
 
-
     private void injectPremiumAdBlock() {
         if (webView == null || !adBlock) return;
         // v0.9.54: YouTube punya engine adblock khusus yang lebih aman.
@@ -10182,7 +10087,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                 + "})();\n";
         runPageScript(js);
     }
-
 
     private void stopYouTubeAutoAssistantNow() {
         if (webView == null) return;
@@ -10459,8 +10363,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         swipeNavigationController.install(root);
     }
 
-
-
     private boolean shouldProtectWebHorizontalSwipeGesture() {
         try {
             if (webView == null || webView.getVisibility() != View.VISIBLE) return false;
@@ -10485,10 +10387,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
         return false;
     }
-
-
-
-
 
     private void restoreHiddenWebPage() {
         try {
@@ -10521,8 +10419,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             QuietToast.makeText(this, "Tidak ada halaman untuk dibuka", QuietToast.LENGTH_SHORT).show();
         }
     }
-
-
 
     private void startSmoothSearchTransition() {
         if (navigationTransitionController != null) navigationTransitionController.start();
@@ -10723,7 +10619,6 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
             super.onBackPressed();
         }
     }
-
 
     // ===== Small UI helpers =====
     // Implementations live in YieldUi so future extracted UI classes can reuse them without
