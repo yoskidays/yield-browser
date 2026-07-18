@@ -161,12 +161,43 @@ abstract class YieldActivityState extends Activity
     final Handler mainHandler = new Handler(Looper.getMainLooper());
     final LifecycleCallbackGate lifecycleCallbackGate = new LifecycleCallbackGate();
     final AtomicBoolean downloadUiRefreshPosted = new AtomicBoolean(false);
+    volatile long lastTrustedDownloadGestureAtMs = 0L;
 
     void runOnUiThreadIfAlive(Runnable action) {
         if (action == null || !lifecycleCallbackGate.isActive()) return;
         runOnUiThread(() -> {
             if (lifecycleCallbackGate.isActive()) action.run();
         });
+    }
+
+    @Override
+    public void onTrustedDownloadGesture() {
+        lastTrustedDownloadGestureAtMs = System.currentTimeMillis();
+    }
+
+    @Override
+    public void onTrustedDownloadOpen(String url) {
+        runOnUiThreadIfAlive(() -> openTrustedDownloadPopupIfAllowed(url));
+    }
+
+    boolean openTrustedDownloadPopupIfAllowed(String url) {
+        String clean = url == null ? "" : url.trim();
+        if (clean.length() == 0) return false;
+        long now = System.currentTimeMillis();
+        boolean allowed = TrustedDownloadPopupPolicy.canOpen(
+                ShieldEngineV2.isDownloadPage(getEffectiveCurrentUrl()),
+                isTrustedDownloadIntentUrl(clean),
+                lastTrustedDownloadGestureAtMs,
+                now);
+        if (!allowed) return false;
+
+        lastTrustedDownloadGestureAtMs = 0L;
+        newTabInCurrentProfile();
+        markTrustedMainFrameNavigation(clean);
+        prepareTabForMainFrameNavigation(getCurrentTab(), clean);
+        if (addressBar != null) addressBar.setText(clean);
+        openAddressBarUrl();
+        return true;
     }
 
     // ===== History Engine V2 =====

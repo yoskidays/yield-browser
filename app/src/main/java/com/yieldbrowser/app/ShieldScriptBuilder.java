@@ -18,7 +18,7 @@ final class ShieldScriptBuilder {
         return "(function(){'use strict';try{"
                 + "var W=window,D=document;"
                 + "var C=" + config + ";"
-                + "var S=W.__yieldShieldV2State||{installed:false,observer:null,timer:0};W.__yieldShieldV2State=S;S.config=C;"
+                + "var S=W.__yieldShieldV2State||{installed:false,observer:null,timer:0,downloadClickUntil:0};W.__yieldShieldV2State=S;S.config=C;"
                 + ShieldScriptPartOne.value()
                 + ShieldScriptPartTwo.value()
                 + ShieldScriptPartThree.value()
