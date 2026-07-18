@@ -126,13 +126,20 @@ public class MainActivity extends YieldWebRuntimeActivity
         implements TranslateBridge.Callback, VideoBridge.Callback, AdBlockBridge.Callback {
 
 // ===== WebView JavaScript bridge callbacks =====
+    void runOnUiThreadIfAlive(Runnable action) {
+        if (action == null || !lifecycleCallbackGate.isActive()) return;
+        runOnUiThread(() -> {
+            if (lifecycleCallbackGate.isActive()) action.run();
+        });
+    }
+
     // The JS bridges (TranslateBridge, VideoBridge, AdBlockBridge) are now top-level forwarding
     // shells; MainActivity implements their callback interfaces. The bodies below are unchanged from
     // the former inner-class implementations, so behavior is identical.
 
     @Override
     public void translateText(int index, String text) {
-        if (text == null) return;
+        if (!lifecycleCallbackGate.isActive() || text == null) return;
         final String clean = text.trim();
         if (clean.length() < 2 || clean.length() > 450) return;
         final int token = translateSessionToken;
@@ -141,7 +148,7 @@ public class MainActivity extends YieldWebRuntimeActivity
         new Thread(() -> {
             String translated = translateTextViaGoogle(clean);
             if (translated == null || translated.trim().length() == 0) return;
-            runOnUiThread(() -> {
+            runOnUiThreadIfAlive(() -> {
                 if (isCompatibleTranslateAllowed(token)) applyCompatibleTranslation(index, translated);
             });
         }).start();
@@ -150,7 +157,7 @@ public class MainActivity extends YieldWebRuntimeActivity
     @Override
     public void onCollected(int count) {
         final int token = translateSessionToken;
-        runOnUiThread(() -> {
+        runOnUiThreadIfAlive(() -> {
             if (isCompatibleTranslateAllowed(token)) {
                 QuietToast.makeText(this, "Translate kompatibel berjalan: " + count + " teks", QuietToast.LENGTH_SHORT).show();
             }
@@ -159,7 +166,7 @@ public class MainActivity extends YieldWebRuntimeActivity
 
     @Override
     public void onVideoPlaying() {
-        runOnUiThread(() -> {
+        runOnUiThreadIfAlive(() -> {
             updateVideoPlayPauseButtonState(true);
             showVideoControlsIfAllowed();
         });
@@ -167,7 +174,7 @@ public class MainActivity extends YieldWebRuntimeActivity
 
     @Override
     public void onVideoTapped() {
-        runOnUiThread(() -> {
+        runOnUiThreadIfAlive(() -> {
             videoControlsManualHidden = false;
             showVideoControlsIfAllowed();
         });
@@ -175,7 +182,7 @@ public class MainActivity extends YieldWebRuntimeActivity
 
     @Override
     public void onVideoStopped() {
-        runOnUiThread(() -> {
+        runOnUiThreadIfAlive(() -> {
             // Jangan sembunyikan kontrol saat user menekan Pause.
             // Tombol Play/Pause cukup berubah ikon agar kontrol tetap bisa dipakai lagi.
             updateVideoPlayPauseButtonState(false);
@@ -187,27 +194,27 @@ public class MainActivity extends YieldWebRuntimeActivity
 
     @Override
     public void tapAtRatio(double xRatio, double yRatio) {
-        runOnUiThread(() -> nativeTapWebViewAtRatio(xRatio, yRatio));
+        runOnUiThreadIfAlive(() -> nativeTapWebViewAtRatio(xRatio, yRatio));
     }
 
     @Override
     public void onAdRedirect(String url) {
-        runOnUiThread(() -> captureAdRedirectToTempTab(url));
+        runOnUiThreadIfAlive(() -> captureAdRedirectToTempTab(url));
     }
 
     @Override
     public void onElementPicked(String selector, String preview) {
-        runOnUiThread(() -> onPickerElementSelected(selector, preview, -1, ""));
+        runOnUiThreadIfAlive(() -> onPickerElementSelected(selector, preview, -1, ""));
     }
 
     @Override
     public void onElementPickedV2(String selector, String preview, int matchCount, String tagName) {
-        runOnUiThread(() -> onPickerElementSelected(selector, preview, matchCount, tagName));
+        runOnUiThreadIfAlive(() -> onPickerElementSelected(selector, preview, matchCount, tagName));
     }
 
     @Override
     public void onPickerExited() {
-        runOnUiThread(() -> {
+        runOnUiThreadIfAlive(() -> {
             elementPickerActive = false;
             if (elementPickerDialog != null) {
                 try { elementPickerDialog.dismiss(); } catch (Exception ignored) {}
@@ -238,6 +245,7 @@ public class MainActivity extends YieldWebRuntimeActivity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        lifecycleCallbackGate.markActive();
         dedicatedPrivateProfile = useDedicatedPrivateProfile();
         if (dedicatedPrivateProfile && !YieldBrowserApplication.isIncognitoProfileReady()) {
             QuietToast.makeText(this, "Profil privat terisolasi tidak tersedia pada perangkat ini",
@@ -326,10 +334,21 @@ public class MainActivity extends YieldWebRuntimeActivity
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_PICK_DOWNLOAD_FOLDER && resultCode == RESULT_OK && data != null && data.getData() != null) {
             Uri treeUri = data.getData();
+            int takeFlags = PersistableUriPermissionPolicy.takeFlags(
+                    data.getFlags(),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            if (!PersistableUriPermissionPolicy.hasAccess(takeFlags)) {
+                QuietToast.makeText(this, "Izin folder tidak diberikan",
+                        QuietToast.LENGTH_SHORT).show();
+                return;
+            }
             try {
-                getContentResolver().takePersistableUriPermission(treeUri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-            } catch (Exception ignored) {
+                getContentResolver().takePersistableUriPermission(treeUri, takeFlags);
+            } catch (Exception e) {
+                QuietToast.makeText(this, "Izin folder tidak dapat disimpan",
+                        QuietToast.LENGTH_SHORT).show();
+                return;
             }
             selectedDownloadTreeUri = treeUri.toString();
             saveSettings();
@@ -399,8 +418,9 @@ public class MainActivity extends YieldWebRuntimeActivity
 
     @Override
     protected void onDestroy() {
+        lifecycleCallbackGate.markDestroyed();
         downloadUiTickerRunning = false;
-        mainHandler.removeCallbacks(downloadUiTicker);
+        mainHandler.removeCallbacksAndMessages(null);
         try {
             if (activeDownloadDialog != null && activeDownloadDialog.isShowing()) {
                 activeDownloadDialog.dismiss();
