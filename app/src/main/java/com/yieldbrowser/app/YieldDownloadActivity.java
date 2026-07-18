@@ -1809,7 +1809,7 @@ void restoreVideoControlsFromFullscreenOverlay() {
     }
 
     void showDownloadStartedBanner(DownloadItem item) {
-        runOnUiThread(() -> {
+        runOnUiThreadIfAlive(() -> {
             if (contentFrame == null || item == null) {
                 QuietToast.makeText(this, "Unduhan dimulai", QuietToast.LENGTH_SHORT).show();
                 return;
@@ -3491,7 +3491,7 @@ void restoreVideoControlsFromFullscreenOverlay() {
             updateDownloadKeepAliveState();
             showDownloadNotification(item, exported
                     ? "Unduhan selesai" : "Unduhan selesai • penyimpanan lokal", false);
-            runOnUiThread(() -> QuietToast.makeText(this, "Unduhan selesai: " + item.fileName,
+            runOnUiThreadIfAlive(() -> QuietToast.makeText(this, "Unduhan selesai: " + item.fileName,
                     QuietToast.LENGTH_SHORT).show());
             completed = true;
         } catch (Throwable error) {
@@ -3704,7 +3704,7 @@ void restoreVideoControlsFromFullscreenOverlay() {
         refreshDownloadPanel();
         updateDownloadKeepAliveState();
         showDownloadNotification(item, "Unduhan gagal • buka detail", false);
-        runOnUiThread(() -> QuietToast.makeText(this,
+        runOnUiThreadIfAlive(() -> QuietToast.makeText(this,
                 "Unduhan gagal. Buka Download untuk reload/detail.", QuietToast.LENGTH_LONG).show());
         mainHandler.postDelayed(this::pumpDownloadQueue, 300);
     }

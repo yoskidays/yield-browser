@@ -162,6 +162,13 @@ abstract class YieldActivityState extends Activity
     final LifecycleCallbackGate lifecycleCallbackGate = new LifecycleCallbackGate();
     final AtomicBoolean downloadUiRefreshPosted = new AtomicBoolean(false);
 
+    void runOnUiThreadIfAlive(Runnable action) {
+        if (action == null || !lifecycleCallbackGate.isActive()) return;
+        runOnUiThread(() -> {
+            if (lifecycleCallbackGate.isActive()) action.run();
+        });
+    }
+
     // ===== History Engine V2 =====
     static final String KEY_HISTORY_ENGINE_V2_INITIALIZED = "history_engine_v2_initialized";
     HistoryRepository historyRepository;
