@@ -235,9 +235,8 @@ public class MainActivity extends Activity
     private boolean downloadSelectMode = false;
     private final Set<Integer> selectedDownloadIds = new HashSet<>();
     private final Object downloadHistoryLock = new Object();
-    private String lastDownloadControlsSignature = "";
-    private long lastDownloadStorageUiMs;
-    private String cachedDownloadStorageText = "Penyimpanan tersedia";
+    private DownloadPanelPresenter downloadPanelPresenter;
+    private DownloadItemMenuController downloadItemMenuController;
 
     private int tabCount = 1;
     private int nextDownloadId = 1000;
@@ -3707,7 +3706,7 @@ public class MainActivity extends Activity
                         activeDownloadSection = section;
                         downloadSelectMode = false;
                         selectedDownloadIds.clear();
-                        lastDownloadControlsSignature = "";
+                        invalidateDownloadControls();
                         renderDownloadSectionTabs();
                         renderDownloadList();
                     }
@@ -3717,7 +3716,7 @@ public class MainActivity extends Activity
                         activeDownloadCategory = category;
                         selectedDownloadIds.clear();
                         downloadSelectMode = false;
-                        lastDownloadControlsSignature = "";
+                        invalidateDownloadControls();
                         renderDownloadCategoryChips();
                         renderDownloadList();
                     }
@@ -3760,7 +3759,7 @@ public class MainActivity extends Activity
         activeDownloadBindings = null;
         downloadSelectMode = false;
         selectedDownloadIds.clear();
-        lastDownloadControlsSignature = "";
+        invalidateDownloadControls();
     }
 
     private void renderDownloadSectionTabs() {
@@ -3792,7 +3791,7 @@ public class MainActivity extends Activity
                         activeDownloadCategory = category;
                         selectedDownloadIds.clear();
                         downloadSelectMode = false;
-                        lastDownloadControlsSignature = "";
+                        invalidateDownloadControls();
                         renderDownloadCategoryChips();
                         renderDownloadList();
                     }
@@ -3815,111 +3814,123 @@ public class MainActivity extends Activity
         if (downloadManagerShell == null) downloadManagerShell = new DownloadManagerShell(this);
         downloadManagerShell.showSortDialog(activeDownloadSort, sort -> {
             activeDownloadSort = sort;
-            lastDownloadControlsSignature = "";
+            invalidateDownloadControls();
             renderDownloadList();
         });
     }
 
+    private void ensureDownloadPanelPresenter() {
+        if (downloadPanelPresenter != null) return;
+        downloadPanelPresenter = new DownloadPanelPresenter(
+                this,
+                downloadItems,
+                new DownloadPanelPresenter.Host() {
+                    @Override
+                    public boolean canPlay(DownloadItem item) {
+                        return canPlayDownloadInsideYield(item);
+                    }
+
+                    @Override
+                    public boolean hasFinalizingDownload() {
+                        return MainActivity.this.hasFinalizingDownload();
+                    }
+
+                    @Override
+                    public String storageUsageText() {
+                        return getStorageUsageText();
+                    }
+
+                    @Override
+                    public int activeCount() {
+                        return countActiveDownloads();
+                    }
+
+                    @Override
+                    public int queuedCount() {
+                        return countQueuedDownloads();
+                    }
+
+                    @Override
+                    public int completedHistoryCount() {
+                        return countCompletedDownloadHistory();
+                    }
+
+                    @Override
+                    public void showSort() {
+                        showDownloadSortDialog();
+                    }
+
+                    @Override
+                    public void toggleSelectMode() {
+                        downloadSelectMode = !downloadSelectMode;
+                        selectedDownloadIds.clear();
+                        invalidateDownloadControls();
+                        renderDownloadList();
+                    }
+
+                    @Override
+                    public void clearCompletedHistory() {
+                        confirmClearCompletedDownloadHistory();
+                    }
+
+                    @Override
+                    public void shareSelected() {
+                        shareSelectedDownloads();
+                    }
+
+                    @Override
+                    public void deleteSelected() {
+                        deleteSelectedDownloads();
+                    }
+
+                    @Override
+                    public void pauseAll() {
+                        pauseAllDownloads();
+                    }
+
+                    @Override
+                    public void resumeAll() {
+                        resumeAllDownloads();
+                    }
+
+                    @Override
+                    public void showQueueSettings() {
+                        showDownloadQueueSettingsDialog();
+                    }
+                });
+    }
+
+    private void invalidateDownloadControls() {
+        if (downloadPanelPresenter != null) downloadPanelPresenter.invalidateControls();
+    }
+
     private void renderDownloadList() {
-        if (activeDownloadAdapter == null) return;
-        ArrayList<DownloadItem> items = getFilteredDownloadItems();
-        ArrayList<DownloadUiItem> snapshots = new ArrayList<>(items.size());
-        for (DownloadItem item : items) snapshots.add(buildDownloadUiItem(item));
-        activeDownloadAdapter.submitList(snapshots);
-        if (activeDownloadEmptyView != null) {
-            boolean empty = snapshots.isEmpty();
-            activeDownloadEmptyView.setVisibility(empty ? View.VISIBLE : View.GONE);
-            activeDownloadEmptyView.setText(DownloadPanelPresentation.emptyMessage(
-                    activeDownloadSection, activeDownloadSearchQuery));
-        }
-
-        if (activeDownloadTitleView != null) {
-            activeDownloadTitleView.setText(DownloadPanelPresentation.title(
-                    downloadSelectMode, selectedDownloadIds.size()));
-        }
-        if (activeDownloadStorageView != null) {
-            long now = System.currentTimeMillis();
-            boolean finalizing = hasFinalizingDownload();
-            // getTotalSpace/getFreeSpace may block on slow flash while a multi-GB file is copied.
-            // Reuse the cached value until the export finishes instead of querying storage on UI.
-            if (!finalizing && now - lastDownloadStorageUiMs
-                    >= DownloadFinalizationPolicy.STORAGE_QUERY_INTERVAL_MS) {
-                cachedDownloadStorageText = getStorageUsageText();
-                lastDownloadStorageUiMs = now;
-            }
-            int active = countActiveDownloads();
-            int queued = countQueuedDownloads();
-            activeDownloadStorageView.setText(DownloadPanelPresentation.storageSummary(
-                    cachedDownloadStorageText, finalizing, active, queued));
-        }
-        renderDownloadControlsIfNeeded();
+        if (activeDownloadBindings == null) return;
+        ensureDownloadPanelPresenter();
+        downloadPanelPresenter.render(
+                activeDownloadBindings,
+                new DownloadPanelPresenter.State(
+                        activeDownloadSection,
+                        activeDownloadCategory,
+                        activeDownloadSearchQuery,
+                        activeDownloadSort,
+                        downloadSelectMode,
+                        selectedDownloadIds,
+                        downloadQueuePaused,
+                        downloadMaxActive));
     }
 
-    private void renderDownloadControlsIfNeeded() {
-        if (activeDownloadControlsPanel == null) return;
-        String signature = DownloadPanelPresentation.controlsSignature(
-                activeDownloadSection,
-                activeDownloadSort,
-                downloadSelectMode,
-                selectedDownloadIds.size(),
-                countActiveDownloads(),
-                countQueuedDownloads(),
-                downloadQueuePaused,
-                downloadMaxActive,
-                countCompletedDownloadHistory());
-        if (signature.equals(lastDownloadControlsSignature)) return;
-        lastDownloadControlsSignature = signature;
-        activeDownloadControlsPanel.removeAllViews();
-        activeDownloadControlsPanel.addView(downloadToolRow());
-        if ("Mengunduh".equals(activeDownloadSection)) {
-            activeDownloadControlsPanel.addView(downloadQueueControlRow());
-        }
-    }
 
-    private View downloadToolRow() {
-        return DownloadControlsFactory.createToolRow(
-                this,
-                activeDownloadSort,
-                downloadSelectMode,
-                activeDownloadSection,
-                countCompletedDownloadHistory(),
-                this::showDownloadSortDialog,
-                () -> {
-                    downloadSelectMode = !downloadSelectMode;
-                    selectedDownloadIds.clear();
-                    lastDownloadControlsSignature = "";
-                    renderDownloadList();
-                },
-                this::confirmClearCompletedDownloadHistory,
-                this::shareSelectedDownloads,
-                this::deleteSelectedDownloads);
-    }
 
-    private View downloadQueueControlRow() {
-        return DownloadControlsFactory.createQueueRow(
-                this,
-                countActiveDownloads(),
-                downloadMaxActive,
-                countQueuedDownloads(),
-                this::pauseAllDownloads,
-                this::resumeAllDownloads,
-                this::showDownloadQueueSettingsDialog);
-    }
+
+
+
 
     private TextView downloadToolButton(String text) {
         return DownloadControlsFactory.createButton(this, text);
     }
 
-    private ArrayList<DownloadItem> getFilteredDownloadItems() {
-        synchronized (downloadItems) {
-            return DownloadListPolicy.filterAndSort(
-                    downloadItems,
-                    activeDownloadSection,
-                    activeDownloadCategory,
-                    activeDownloadSearchQuery,
-                    activeDownloadSort);
-        }
-    }
+
 
     private String getDownloadCategory(DownloadItem item) {
         return DownloadItemUtils.getDownloadCategory(item);
@@ -3933,29 +3944,9 @@ public class MainActivity extends Activity
         return DownloadItemUtils.inferDownloadCategoryFromData(fileName, url, mimeType);
     }
 
-    private DownloadUiItem buildDownloadUiItem(DownloadItem item) {
-        return DownloadUiItemFactory.build(
-                item,
-                getDownloadCategory(item),
-                getDownloadHost(item),
-                getDownloadSize(item),
-                canPlayDownloadInsideYield(item),
-                getDownloadQueuePosition(item),
-                downloadSelectMode,
-                selectedDownloadIds.contains(item.id));
-    }
 
-    private int getDownloadQueuePosition(DownloadItem target) {
-        int position = 0;
-        synchronized (downloadItems) {
-            for (DownloadItem item : downloadItems) {
-                if (!"queued".equals(item.status)) continue;
-                position++;
-                if (item == target || item.id == target.id) return position;
-            }
-        }
-        return 0;
-    }
+
+
 
     private DownloadItem findDownloadItemById(int id) {
         synchronized (downloadItems) {
@@ -4092,7 +4083,7 @@ public class MainActivity extends Activity
             selectedDownloadIds.remove(item.id);
         }
         downloadSelectMode = false;
-        lastDownloadControlsSignature = "";
+        invalidateDownloadControls();
         saveDownloadHistory();
         renderDownloadList();
         updateDownloadKeepAliveState();
@@ -4531,83 +4522,29 @@ public class MainActivity extends Activity
     }
 
     private void showDownloadItemMenu(View anchor, DownloadItem item) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-
-        if ("running".equals(item.status)) {
-            popup.getMenu().add(0, 10, 0, "Jeda / Pause");
-        } else if ("queued".equals(item.status)) {
-            popup.getMenu().add(0, 13, 0, "Prioritaskan / mulai berikutnya");
-            popup.getMenu().add(0, 14, 1, "Naik antrian");
-            popup.getMenu().add(0, 15, 2, "Turun antrian");
-            popup.getMenu().add(0, 10, 3, "Jeda");
-        } else if ("paused".equals(item.status)) {
-            popup.getMenu().add(0, 11, 0, "Lanjutkan");
-            popup.getMenu().add(0, 12, 1, "Premium Fast • reload");
-        } else if ("failed".equals(item.status)) {
-            popup.getMenu().add(0, 12, 0, "Premium Fast • reload");
+        if (downloadItemMenuController == null) {
+            downloadItemMenuController = new DownloadItemMenuController(this);
         }
-
-        if (canPlayDownloadInsideYield(item)
-                && ("running".equals(item.status) || "paused".equals(item.status)
-                || "failed".equals(item.status) || "verifying".equals(item.status)
-                || "saving".equals(item.status))) {
-            popup.getMenu().add(0, 20, 0, "Putar sambil mengunduh");
-        }
-
-        if ("completed".equals(item.status)) {
-            if (canPlayDownloadInsideYield(item)) {
-                popup.getMenu().add(0, 20, 0, "Tonton di Yield");
-            }
-            popup.getMenu().add(0, 1, 1, "Buka dengan aplikasi lain");
-            popup.getMenu().add(0, 2, 2, "Bagikan");
-            popup.getMenu().add(0, 3, 3, "Ganti nama");
-        }
-
-        popup.getMenu().add(0, 4, 4, "Hapus riwayat");
-        popup.getMenu().add(0, 5, 5, "Hapus file + riwayat");
-
-        popup.setOnMenuItemClickListener(menuItem -> {
-            int id = menuItem.getItemId();
-            if (id == 10) {
-                pauseDownloadItem(item);
-                return true;
-            } else if (id == 11) {
-                resumeDownloadItem(item);
-                return true;
-            } else if (id == 12) {
-                reloadDownloadItem(item);
-                return true;
-            } else if (id == 13) {
-                prioritizeQueuedDownload(item, true);
-                return true;
-            } else if (id == 14) {
-                moveQueuedDownload(item, -1);
-                return true;
-            } else if (id == 15) {
-                moveQueuedDownload(item, 1);
-                return true;
-            } else if (id == 20) {
-                playDownloadInsideYield(item);
-                return true;
-            } else if (id == 1) {
-                openDownloadedFile(item);
-                return true;
-            } else if (id == 2) {
-                shareDownloadedFile(item);
-                return true;
-            } else if (id == 3) {
-                renameDownloadedFile(item);
-                return true;
-            } else if (id == 4) {
-                removeDownloadItem(item, false);
-                return true;
-            } else if (id == 5) {
-                removeDownloadItem(item, true);
-                return true;
-            }
-            return false;
-        });
-        popup.show();
+        downloadItemMenuController.show(
+                anchor,
+                item,
+                canPlayDownloadInsideYield(item),
+                action -> {
+                    switch (action) {
+                        case PAUSE: pauseDownloadItem(item); break;
+                        case RESUME: resumeDownloadItem(item); break;
+                        case RELOAD: reloadDownloadItem(item); break;
+                        case PRIORITIZE: prioritizeQueuedDownload(item, true); break;
+                        case MOVE_UP: moveQueuedDownload(item, -1); break;
+                        case MOVE_DOWN: moveQueuedDownload(item, 1); break;
+                        case PLAY: playDownloadInsideYield(item); break;
+                        case OPEN_EXTERNAL: openDownloadedFile(item); break;
+                        case SHARE: shareDownloadedFile(item); break;
+                        case RENAME: renameDownloadedFile(item); break;
+                        case REMOVE_HISTORY: removeDownloadItem(item, false); break;
+                        case DELETE_FILE: removeDownloadItem(item, true); break;
+                    }
+                });
     }
 
     private boolean canPlayDownloadInsideYield(DownloadItem item) {
