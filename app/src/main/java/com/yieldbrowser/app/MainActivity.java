@@ -160,7 +160,8 @@ public class MainActivity extends Activity
     private ScrollView homeScroll;
     private FrameLayout contentFrame;
     private FrameLayout navigationLoadingOverlay;
-    private boolean smoothSearchTransitionActive = false;
+    private NavigationTransitionController navigationTransitionController;
+    private SwipeNavigationController swipeNavigationController;
     private ImageButton reloadButton;
     private ImageButton bookmarkButton;
     private ImageButton translateButton;
@@ -199,9 +200,6 @@ public class MainActivity extends Activity
     private int originalSystemUiVisibility = 0;
 
     // ===== Navigation gesture state =====
-    private float swipeStartX = 0f;
-    private float swipeStartY = 0f;
-    private long swipeStartTime = 0L;
     // v0.9.69: situs desktop/horizontal-scroll seperti h-metrics.com tidak boleh
     // dianggap gesture Back saat user menggeser halaman ke samping.
     private boolean webHorizontalGestureGuard = false;
@@ -550,9 +548,11 @@ public class MainActivity extends Activity
         try { initialTab.webView = webView; } catch (Exception ignored) {}
         contentFrame.addView(webView, new FrameLayout.LayoutParams(-1, -1));
 
-        navigationLoadingOverlay = createNavigationLoadingOverlay();
+        navigationLoadingOverlay = NavigationTransitionController.createOverlay(this);
         navigationLoadingOverlay.setVisibility(View.GONE);
         contentFrame.addView(navigationLoadingOverlay, new FrameLayout.LayoutParams(-1, -1));
+        navigationTransitionController = new NavigationTransitionController(
+                navigationLoadingOverlay, homeScroll, webView);
 
         root.addView(contentFrame);
 
@@ -565,7 +565,7 @@ public class MainActivity extends Activity
         root.addView(bottomNavView, new LinearLayout.LayoutParams(-1, dp(64)));
 
         setContentView(root);
-        installSwipeNavigation(root);
+        initializeSwipeNavigation(root);
         restoreActiveTabAfterLaunch();
         updateTopActionStates();
         handleOpenDownloadsIntent(getIntent());
@@ -7992,7 +7992,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         MainActivity.this::isAdUrl,
                         MainActivity.this::isSuspiciousPopupNavigation,
                         MainActivity.this::restoreAfterBlockedNavigation,
-                        () -> smoothSearchTransitionActive,
+                        () -> isSmoothSearchTransitionActive(),
                         MainActivity.this::finishSmoothSearchTransition)) {
                     return;
                 }
@@ -8067,7 +8067,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         adBlock,
                         adBlockRedirectBlocker,
                         () -> {
-                            if (smoothSearchTransitionActive && navigationLoadingOverlay != null) {
+                            if (isSmoothSearchTransitionActive() && navigationLoadingOverlay != null) {
                                 navigationLoadingOverlay.bringToFront();
                             }
                         },
@@ -8220,7 +8220,7 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                         () -> pendingHideKeyboardAfterNavigation = false,
                         (action, delay) -> mainHandler.postDelayed(action, delay));
                 BrowserPageFinishCoordinator.applyFinalEffects(
-                        smoothSearchTransitionActive,
+                        isSmoothSearchTransitionActive(),
                         delay -> mainHandler.postDelayed(
                                 MainActivity.this::finishSmoothSearchTransition, delay),
                         MainActivity.this::scheduleCloseDetectedAdTabs,
@@ -10511,60 +10511,18 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
     }
 
-    private void installSwipeNavigation(View root) {
-        View.OnTouchListener listener = (v, event) -> handleSwipeTouch(event);
-        try {
-            if (root != null) root.setOnTouchListener(listener);
-            if (homeScroll != null) homeScroll.setOnTouchListener(listener);
-            if (webView != null) webView.setOnTouchListener(listener);
-        } catch (Exception ignored) {
-        }
+    private void initializeSwipeNavigation(View root) {
+        swipeNavigationController = new SwipeNavigationController(
+                this,
+                homeScroll,
+                webView,
+                MainActivity.this::shouldProtectWebHorizontalSwipeGesture,
+                MainActivity.this::restoreHiddenWebPage,
+                MainActivity.this::showHome);
+        swipeNavigationController.install(root);
     }
 
-    private boolean handleSwipeTouch(MotionEvent event) {
-        if (event == null) return false;
 
-        switch (event.getAction()) {
-            case MotionEvent.ACTION_DOWN:
-                swipeStartX = event.getX();
-                swipeStartY = event.getY();
-                swipeStartTime = System.currentTimeMillis();
-                return false;
-
-            case MotionEvent.ACTION_UP:
-                float dx = event.getX() - swipeStartX;
-                float dy = event.getY() - swipeStartY;
-                long duration = System.currentTimeMillis() - swipeStartTime;
-
-                if (duration > 900) return false;
-                if (Math.abs(dx) < dp(90)) return false;
-                if (Math.abs(dy) > dp(120)) return false;
-
-                // v0.9.71: Edge-only swipe navigation.
-                // Sebelumnya swipe horizontal dari tengah layar bisa ikut terbaca sebagai Back.
-                // Sekarang custom Back/Forward hanya aktif jika sentuhan dimulai dari pinggir layar.
-                // Pada situs desktop/horizontal-scroll, area pinggir dibuat lebih sempit lagi.
-                boolean horizontalProtected = shouldProtectWebHorizontalSwipeGesture();
-                int screenWidth = getResources() != null && getResources().getDisplayMetrics() != null
-                        ? getResources().getDisplayMetrics().widthPixels : 0;
-                int edgeLimit = horizontalProtected ? dp(16) : dp(30);
-                boolean fromLeftEdge = swipeStartX <= edgeLimit;
-                boolean fromRightEdge = screenWidth > 0 && swipeStartX >= (screenWidth - edgeLimit);
-                if (!fromLeftEdge && !fromRightEdge) return false;
-
-                // Arah lama tetap dipertahankan: swipe kiri = Back, swipe kanan = Forward.
-                // Namun harus dimulai dari edge yang searah agar scroll horizontal tengah tidak memicu navigasi.
-                if (dx < 0) {
-                    if (!fromRightEdge) return false;
-                    navigateSwipeBack();
-                } else {
-                    if (!fromLeftEdge) return false;
-                    navigateSwipeForward();
-                }
-                return false;
-        }
-        return false;
-    }
 
     private boolean shouldProtectWebHorizontalSwipeGesture() {
         try {
@@ -10591,46 +10549,9 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         return false;
     }
 
-    private void navigateSwipeBack() {
-        try {
-            boolean homeVisible = homeScroll != null
-                    && homeScroll.getVisibility() == View.VISIBLE;
-            boolean webVisible = webView != null
-                    && webView.getVisibility() == View.VISIBLE;
-            boolean canGoBack = webView != null && webView.canGoBack();
-            TabNavigationPolicy.BackAction action = TabNavigationPolicy.backAction(
-                    homeVisible, webVisible, canGoBack);
-            if (action == TabNavigationPolicy.BackAction.RESTORE_PAGE) {
-                restoreHiddenWebPage();
-            } else if (action == TabNavigationPolicy.BackAction.WEB_BACK) {
-                webView.goBack();
-            } else {
-                showHome();
-            }
-        } catch (Exception ignored) {
-        }
-    }
 
-    private void navigateSwipeForward() {
-        try {
-            boolean homeVisible = homeScroll != null
-                    && homeScroll.getVisibility() == View.VISIBLE;
-            boolean webVisible = webView != null
-                    && webView.getVisibility() == View.VISIBLE;
-            boolean canGoForward = webView != null && webView.canGoForward();
-            TabNavigationPolicy.ForwardAction action = TabNavigationPolicy.forwardAction(
-                    homeVisible, webVisible, canGoForward);
-            if (action == TabNavigationPolicy.ForwardAction.WEB_FORWARD) {
-                webView.goForward();
-            } else if (action == TabNavigationPolicy.ForwardAction.RESTORE_AND_FORWARD) {
-                restoreHiddenWebPage();
-                webView.goForward();
-            } else if (action == TabNavigationPolicy.ForwardAction.RESTORE_PAGE) {
-                restoreHiddenWebPage();
-            }
-        } catch (Exception ignored) {
-        }
-    }
+
+
 
     private void restoreHiddenWebPage() {
         try {
@@ -10664,91 +10585,22 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
         }
     }
 
-    private FrameLayout createNavigationLoadingOverlay() {
-        FrameLayout overlay = new FrameLayout(this);
-        overlay.setBackgroundColor(COLOR_BG);
-        overlay.setAlpha(0f);
 
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(Gravity.CENTER);
-        box.setPadding(dp(24), dp(24), dp(24), dp(24));
-
-        ProgressBar spinner = new ProgressBar(this);
-        try {
-            spinner.setIndeterminateTintList(ColorStateList.valueOf(COLOR_ACCENT));
-        } catch (Exception ignored) {
-        }
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(42), dp(42));
-        box.addView(spinner, sp);
-
-        TextView label = new TextView(this);
-        label.setText("Memuat halaman...");
-        label.setTextColor(COLOR_SUBTEXT);
-        label.setTextSize(14);
-        label.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-        lp.setMargins(0, dp(14), 0, 0);
-        box.addView(label, lp);
-
-        overlay.addView(box, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
-        return overlay;
-    }
 
     private void startSmoothSearchTransition() {
-        smoothSearchTransitionActive = true;
-        try {
-            if (navigationLoadingOverlay != null) {
-                navigationLoadingOverlay.bringToFront();
-                navigationLoadingOverlay.setVisibility(View.VISIBLE);
-                navigationLoadingOverlay.setAlpha(1f);
-            }
-            if (homeScroll != null) homeScroll.setVisibility(View.GONE);
-            if (webView != null) {
-                webView.setAlpha(0f);
-                webView.setVisibility(View.VISIBLE);
-            }
-        } catch (Exception ignored) {
-        }
+        if (navigationTransitionController != null) navigationTransitionController.start();
     }
 
     private void finishSmoothSearchTransition() {
-        if (!smoothSearchTransitionActive) return;
-        smoothSearchTransitionActive = false;
-        try {
-            if (webView != null) {
-                webView.setVisibility(View.VISIBLE);
-                webView.animate().alpha(1f).setDuration(180).start();
-            }
-            if (navigationLoadingOverlay != null) {
-                navigationLoadingOverlay.animate()
-                        .alpha(0f)
-                        .setDuration(180)
-                        .withEndAction(() -> {
-                            try {
-                                navigationLoadingOverlay.setVisibility(View.GONE);
-                                navigationLoadingOverlay.setAlpha(0f);
-                            } catch (Exception ignored) {
-                            }
-                        })
-                        .start();
-            }
-        } catch (Exception ignored) {
-            if (navigationLoadingOverlay != null) navigationLoadingOverlay.setVisibility(View.GONE);
-            if (webView != null) webView.setAlpha(1f);
-        }
+        if (navigationTransitionController != null) navigationTransitionController.finish();
     }
 
     private void cancelSmoothSearchTransition() {
-        smoothSearchTransitionActive = false;
-        try {
-            if (navigationLoadingOverlay != null) {
-                navigationLoadingOverlay.setVisibility(View.GONE);
-                navigationLoadingOverlay.setAlpha(0f);
-            }
-            if (webView != null) webView.setAlpha(1f);
-        } catch (Exception ignored) {
-        }
+        if (navigationTransitionController != null) navigationTransitionController.cancel();
+    }
+
+    private boolean isSmoothSearchTransitionActive() {
+        return navigationTransitionController != null && navigationTransitionController.isActive();
     }
 
     private void navigateCurrentTabHome() {
