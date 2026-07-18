@@ -2552,88 +2552,26 @@ content.addView(space(dp(36)));
     }
 
     private void showQrScannerDialog() {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(14), dp(14), dp(14), dp(14));
-        panel.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(24), dp(1), Color.parseColor("#3A3D45")));
-
-        TextView title = new TextView(this);
-        title.setText("Pindai QR Code");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(22);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        panel.addView(title);
-
-        TextView hint = new TextView(this);
-        hint.setText("Arahkan kamera ke QR. Jika QR berisi link, Yield akan langsung membukanya.");
-        hint.setTextColor(COLOR_SUBTEXT);
-        hint.setTextSize(13);
-        hint.setPadding(0, dp(6), 0, dp(10));
-        panel.addView(hint);
-
-        QrScannerView scanner = new QrScannerView(this, result -> {
-            dialog.dismiss();
-            handleQrResult(result);
+        BrowserUtilityDialogs.showQrScanner(this, result -> {
+            String value = BrowserUtilityDialogs.normalizeQrValue(result);
+            if (value.length() == 0) {
+                QuietToast.makeText(this, "QR kosong", QuietToast.LENGTH_SHORT).show();
+                return;
+            }
+            QuietToast.makeText(this, "QR terbaca", QuietToast.LENGTH_SHORT).show();
+            addressBar.setText(value);
+            openAddressBarUrl();
         });
-        panel.addView(scanner, new LinearLayout.LayoutParams(-1, dp(360)));
-
-        TextView cancel = new TextView(this);
-        cancel.setText("Tutup");
-        cancel.setTextColor(Color.WHITE);
-        cancel.setGravity(Gravity.CENTER);
-        cancel.setTextSize(16);
-        cancel.setTypeface(Typeface.DEFAULT_BOLD);
-        cancel.setPadding(0, dp(12), 0, dp(4));
-        cancel.setOnClickListener(v -> dialog.dismiss());
-        panel.addView(cancel, new LinearLayout.LayoutParams(-1, dp(52)));
-
-        dialog.setOnDismissListener(d -> scanner.stopCamera());
-
-        dialog.setContentView(panel);
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.gravity = Gravity.BOTTOM;
-            lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            window.setAttributes(lp);
-        }
-        dialog.show();
     }
 
-    private void handleQrResult(String result) {
-        if (result == null || result.trim().length() == 0) {
-            QuietToast.makeText(this, "QR kosong", QuietToast.LENGTH_SHORT).show();
-            return;
-        }
-        String value = result.trim();
-        QuietToast.makeText(this, "QR terbaca", QuietToast.LENGTH_SHORT).show();
-        addressBar.setText(value);
-        openAddressBarUrl();
-    }
     private void showSearchEngineDialog() {
-        String[] engines = new String[]{"Google", "Bing", "DuckDuckGo", "Yahoo", "Yandex"};
-        int checked = 0;
-        for (int i = 0; i < engines.length; i++) {
-            if (engines[i].equals(searchEngine)) checked = i;
-        }
-        new AlertDialog.Builder(this)
-                .setTitle("Pilih search engine")
-                .setSingleChoiceItems(engines, checked, (dialog, which) -> {
-                    searchEngine = engines[which];
-                    saveSettings();
-                    dialog.dismiss();
-                    // v0.9.68: jangan tutup/recreate panel Settings setelah memilih search engine.
-                    // Recreate dialog lama membuat efek kedip/flicker balik ke home.
-                    // Nilai search engine langsung tersimpan dan dipakai oleh pencarian berikutnya.
-                    QuietToast.makeText(this, "Search engine: " + searchEngine, QuietToast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Batal", null)
-                .show();
+        BrowserUtilityDialogs.showSearchEngine(this, searchEngine, selected -> {
+            searchEngine = selected;
+            saveSettings();
+            QuietToast.makeText(this,
+                    "Search engine: " + searchEngine,
+                    QuietToast.LENGTH_SHORT).show();
+        });
     }
 
     private void showCustomizeMenuPanel() {
@@ -3357,94 +3295,47 @@ content.addView(space(dp(36)));
         }
     }
     private void showVideoOptimizationDialog() {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(false);
-        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        scroll.setBackground(roundRect(Color.parseColor("#26292F"), dp(24), dp(1), COLOR_BORDER));
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(18), dp(20), dp(14));
-        scroll.addView(box, new ScrollView.LayoutParams(-1, -2));
-
-        TextView title = new TextView(this);
-        title.setText("Optimasi Video");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(22);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setIncludeFontPadding(false);
-        box.addView(title);
-
-        TextView info = new TextView(this);
-        info.setText("Fitur ringan untuk streaming. Yang sudah otomatis tidak digandakan agar tidak crash.");
-        info.setTextColor(COLOR_SUBTEXT);
-        info.setTextSize(13);
-        info.setLineSpacing(0, 1.05f);
-        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(-1, -2);
-        infoLp.setMargins(0, dp(8), 0, dp(12));
-        box.addView(info, infoLp);
-
-        box.addView(videoOptSwitchRow("Video preload / buffer booster", "Memaksa preload auto dan cache lebih agresif saat ada video.", videoBufferBooster, v -> {
-            videoBufferBooster = !videoBufferBooster;
-            applyBrowserSettings();
-            injectVideoOptimizationIfNeeded();
-            saveSettings();
-        }));
-
-        box.addView(videoOptSwitchRow("HLS segment prefetch", "Mendeteksi m3u8 dan mencoba prefetch ringan segmen berikutnya.", hlsSegmentPrefetch, v -> {
-            hlsSegmentPrefetch = !hlsSegmentPrefetch;
-            injectVideoOptimizationIfNeeded();
-            saveSettings();
-        }));
-
-        box.addView(videoOptSwitchRow("Minimize normal / tanpa floating", "Saat tombol Home/Recent Android ditekan, Yield tidak jadi jendela melayang dan akan balik ke tampilan terakhir.", !videoFloatingPlayer, v -> {
-            videoFloatingPlayer = false;
-            saveSettings();
-            QuietToast.makeText(this, "Minimize normal aktif", QuietToast.LENGTH_SHORT).show();
-        }));
-
-        box.addView(videoOptSwitchRow("Background play ringan", "Video tidak dipaksa pause saat aplikasi masuk background jika WebView mendukung.", videoBackgroundPlay, v -> {
-            videoBackgroundPlay = !videoBackgroundPlay;
-            applyBrowserSettings();
-            injectVideoOptimizationIfNeeded();
-            saveSettings();
-        }));
-
-        box.addView(videoOptInfoRow("Auto detect kualitas video", "Sudah aktif di tombol kualitas 240p–720p; tidak dibuat dobel."));
-        box.addView(videoOptInfoRow("Download kualitas 240p–720p", "Diperkuat via deteksi source/player. Situs yang menyembunyikan URL tetap mengikuti batas player."));
-
-        LinearLayout bottom = new LinearLayout(this);
-        bottom.setGravity(Gravity.END);
-        bottom.setPadding(0, dp(8), 0, 0);
-
-        TextView close = dialogTextButton("TUTUP");
-        close.setOnClickListener(v -> dialog.dismiss());
-        bottom.addView(close);
-        box.addView(bottom);
-
-        dialog.setContentView(scroll);
-        dialog.show();
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.9f);
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            window.setAttributes(lp);
-        }
+        VideoOptimizationDialogController.State state =
+                new VideoOptimizationDialogController.State(
+                        videoBufferBooster,
+                        hlsSegmentPrefetch,
+                        videoFloatingPlayer,
+                        videoBackgroundPlay);
+        new VideoOptimizationDialogController(this).show(state, action -> {
+            switch (action) {
+                case BUFFER_BOOSTER:
+                    videoBufferBooster = !videoBufferBooster;
+                    applyBrowserSettings();
+                    injectVideoOptimizationIfNeeded();
+                    saveSettings();
+                    break;
+                case HLS_PREFETCH:
+                    hlsSegmentPrefetch = !hlsSegmentPrefetch;
+                    injectVideoOptimizationIfNeeded();
+                    saveSettings();
+                    break;
+                case MINIMIZE_NORMAL:
+                    videoFloatingPlayer = false;
+                    saveSettings();
+                    QuietToast.makeText(this,
+                            "Minimize normal aktif",
+                            QuietToast.LENGTH_SHORT).show();
+                    break;
+                case BACKGROUND_PLAY:
+                    videoBackgroundPlay = !videoBackgroundPlay;
+                    applyBrowserSettings();
+                    injectVideoOptimizationIfNeeded();
+                    saveSettings();
+                    break;
+            }
+        });
     }
 
-
-    private View videoOptSwitchRow(String title, String desc, boolean enabled, View.OnClickListener listener) {
+    private View videoOptSwitchRow(String title,
+                                   String desc,
+                                   boolean enabled,
+                                   View.OnClickListener listener) {
         return SettingsUi.videoOptSwitchRow(this, title, desc, enabled, listener);
-    }
-
-
-    private View videoOptInfoRow(String title, String desc) {
-        return SettingsUi.videoOptInfoRow(this, title, desc);
     }
 
     private void detectVideoQualities() {
