@@ -55,7 +55,7 @@ wrapper = """    private void showTabsPanel() {
 
             @Override
             public void closeTab(TabInfo tab, boolean selectedPrivateSpace) {
-                closeTab(tab);
+                MainActivity.this.closeTab(tab);
             }
 
             @Override
