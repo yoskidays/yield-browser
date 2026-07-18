@@ -57,6 +57,10 @@ final class ShieldUrlRules {
             "(?:^|\\.)(?:doubleclick\\.net|googlesyndication\\.com|googleadservices\\.com|adservice\\.google\\.[a-z.]+|onclickads\\.net|clickadu\\.com|popads\\.net|popcash\\.net|propellerads\\.com|adsterra\\.com|hilltopads\\.net|exoclick\\.com|trafficjunky\\.net|juicyads\\.com|admaven\\.com|realsrv\\.com|taboola\\.com|outbrain\\.com|mgid\\.com|revcontent\\.com|hotterydiseur\\.[a-z.]+|sewarsremeets\\.[a-z.]+|invest-tracing\\.[a-z.]+)$",
             Pattern.CASE_INSENSITIVE);
 
+    static final Pattern TRUSTED_DOWNLOAD_HOST = Pattern.compile(
+            "(?:^|\\.)(?:drive\\.usercontent\\.google\\.com|drive\\.google\\.com|docs\\.google\\.com|googleusercontent\\.com|github\\.com|githubusercontent\\.com|sourceforge\\.net|mediafire\\.com|dropbox\\.com|dropboxusercontent\\.com|onedrive\\.live\\.com|1drv\\.ms|mega\\.nz|pixeldrain\\.com|gofile\\.io|archive\\.org)$",
+            Pattern.CASE_INSENSITIVE);
+
     static final Pattern CHEAP_AD_TLD = Pattern.compile(
             ".*\\.(?:click|cfd|cam|monster|quest|buzz|icu|cyou|xyz|top|shop|site|space|online|live|fun|lol)$",
             Pattern.CASE_INSENSITIVE);
@@ -92,6 +96,10 @@ final class ShieldUrlRules {
 
     static boolean isKnownAdHost(String host) {
         return host != null && KNOWN_AD_HOST.matcher(host).find();
+    }
+
+    static boolean isTrustedDownloadHost(String host) {
+        return host != null && TRUSTED_DOWNLOAD_HOST.matcher(host).find();
     }
 
     static boolean isCheapAdHost(String host) {
