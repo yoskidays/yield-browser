@@ -2706,6 +2706,7 @@ public class MainActivity extends YieldWebRuntimeActivity
         if (isMediaResourceUrl(url) || isYoutubeCoreUrl(url)) return false;
 
         String safeUrl = url.trim();
+        if (openTrustedDownloadPopupIfAllowed(safeUrl)) return true;
 
         if (!adBlockRedirectToTempTab) {
             scheduleCloseDetectedAdTabs();

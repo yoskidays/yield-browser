@@ -26,6 +26,12 @@ public class ShieldPageScriptTest {
         assertTrue(script.contains("function badNav"));
         assertTrue(script.contains("return reader()&&!!h&&!!c&&!same(h,c)"));
         assertTrue(script.contains("lastBlockedAt"));
+        assertTrue(script.contains("downloadClickUntil"));
+        assertTrue(script.contains("onTrustedDownloadGesture"));
+        assertTrue(script.contains("onTrustedDownloadOpen"));
+        assertTrue(script.contains("function fakeRewardAd"));
+        assertTrue(script.contains("get\\s*paid"));
+        assertTrue(script.contains("subscribe\\s*(?:&|and)?\\s*watch"));
         assertFalse(script.contains("Toast"));
         assertFalse(script.contains("blockedCount"));
     }

@@ -21,6 +21,10 @@ final class AdBlockBridge {
     interface Callback {
         void onAdRedirect(String url);
 
+        void onTrustedDownloadGesture();
+
+        void onTrustedDownloadOpen(String url);
+
         void onElementPicked(String selector, String preview);
 
         void onElementPickedV2(String selector, String preview, int matchCount, String tagName);
@@ -37,6 +41,16 @@ final class AdBlockBridge {
     @JavascriptInterface
     public void onAdRedirect(String url) {
         callback.onAdRedirect(url);
+    }
+
+    @JavascriptInterface
+    public void onTrustedDownloadGesture() {
+        callback.onTrustedDownloadGesture();
+    }
+
+    @JavascriptInterface
+    public void onTrustedDownloadOpen(String url) {
+        callback.onTrustedDownloadOpen(url);
     }
 
     @JavascriptInterface

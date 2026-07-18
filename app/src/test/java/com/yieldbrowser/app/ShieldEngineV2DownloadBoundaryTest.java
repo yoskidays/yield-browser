@@ -20,14 +20,18 @@ public class ShieldEngineV2DownloadBoundaryTest {
     public void allowsUserInitiatedTrustedDownloadDestinations() {
         String mediaFire = "https://www.mediafire.com/file/abc123/see-you-at-work-episode-8.mkv/file";
         String googleDrive = "https://drive.google.com/file/d/abc123456789/view";
+        String goFile = "https://gofile.io/d/jFEynh";
         String directFile = "https://cdn.example.org/files/see-you-at-work-episode-8-720p.mkv";
 
         assertTrue(ShieldEngineV2.isSafeDownloadNavigation(mediaFire, DOWNLOAD_PAGE, true));
         assertTrue(ShieldEngineV2.isSafeDownloadNavigation(googleDrive, DOWNLOAD_PAGE, true));
+        assertTrue(ShieldEngineV2.isSafeDownloadNavigation(goFile, DOWNLOAD_PAGE, true));
         assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
                 mediaFire, DOWNLOAD_PAGE, true, true, false, false));
         assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
                 googleDrive, DOWNLOAD_PAGE, true, true, false, false));
+        assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                goFile, DOWNLOAD_PAGE, true, true, false, false));
         assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
                 directFile, DOWNLOAD_PAGE, true, true, false, false));
     }
@@ -58,10 +62,10 @@ public class ShieldEngineV2DownloadBoundaryTest {
 
     @Test
     public void crossSiteDownloadRequiresARealUserGesture() {
-        String mediaFire = "https://www.mediafire.com/file/abc123/episode-8.mkv/file";
+        String goFile = "https://gofile.io/d/jFEynh";
 
-        assertFalse(ShieldEngineV2.isSafeDownloadNavigation(mediaFire, DOWNLOAD_PAGE, false));
+        assertFalse(ShieldEngineV2.isSafeDownloadNavigation(goFile, DOWNLOAD_PAGE, false));
         assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
-                mediaFire, DOWNLOAD_PAGE, false, true, false, false));
+                goFile, DOWNLOAD_PAGE, false, true, false, false));
     }
 }
