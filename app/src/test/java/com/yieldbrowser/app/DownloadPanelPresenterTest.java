@@ -10,15 +10,12 @@ import static org.junit.Assert.assertEquals;
 public class DownloadPanelPresenterTest {
     @Test
     public void queuePositionCountsOnlyQueuedItems() {
-        DownloadItem running = new DownloadItem();
-        running.id = 1;
-        running.status = "running";
-        DownloadItem first = new DownloadItem();
-        first.id = 2;
-        first.status = "queued";
-        DownloadItem second = new DownloadItem();
-        second.id = 3;
-        second.status = "queued";
+        DownloadItem running = new DownloadItem(
+                1, "https://one.test", "one.bin", "/tmp/one.bin", "running", 0);
+        DownloadItem first = new DownloadItem(
+                2, "https://two.test", "two.bin", "/tmp/two.bin", "queued", 0);
+        DownloadItem second = new DownloadItem(
+                3, "https://three.test", "three.bin", "/tmp/three.bin", "queued", 0);
         List<DownloadItem> items = Arrays.asList(running, first, second);
 
         assertEquals(1, DownloadPanelPresenter.queuePosition(items, first));
