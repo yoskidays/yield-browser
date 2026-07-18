@@ -76,6 +76,13 @@ video_wrapper = """    private void showVideoOptimizationDialog() {
                     break;
             }
         });
+    }
+
+    private View videoOptSwitchRow(String title,
+                                   String desc,
+                                   boolean enabled,
+                                   View.OnClickListener listener) {
+        return SettingsUi.videoOptSwitchRow(this, title, desc, enabled, listener);
     }"""
 text = replace_between(
         text,
