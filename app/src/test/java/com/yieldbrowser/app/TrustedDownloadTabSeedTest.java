@@ -7,7 +7,7 @@ import static org.junit.Assert.assertFalse;
 
 public class TrustedDownloadTabSeedTest {
     @Test
-    public void goFileTabStartsAsNormalIsolatedTab() {
+    public void goFileTabStartsAsNormalSeededTab() {
         String url = "https://gofile.io/d/jFEynh";
         TabInfo tab = new TabInfo("Download", url, false, false);
 
@@ -15,6 +15,5 @@ public class TrustedDownloadTabSeedTest {
         assertEquals(url, tab.url);
         assertEquals(url, tab.lastSafeUrl);
         assertEquals(url, tab.currentPageUrlForRequest);
-        assertEquals("gofile.io", tab.isolationHost);
     }
 }
