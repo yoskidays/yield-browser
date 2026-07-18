@@ -218,6 +218,8 @@ public class MainActivity extends Activity
     private TextView activeDownloadCompletedTab;
     private TextView activeDownloadEmptyView;
     private Dialog activeDownloadDialog;
+    private DownloadManagerShell downloadManagerShell;
+    private DownloadManagerShell.Bindings activeDownloadBindings;
     private String activeDownloadSection = "Mengunduh";
     private boolean downloadUiTickerRunning;
     private final Runnable downloadUiTicker = new Runnable() {
@@ -3637,164 +3639,103 @@ public class MainActivity extends Activity
             renderDownloadList();
             return;
         }
+        downloadManagerShell = new DownloadManagerShell(this);
+        activeDownloadBindings = downloadManagerShell.show(
+                activeDownloadSection,
+                activeDownloadCategory,
+                new DownloadListAdapter.Callback() {
+                    @Override
+                    public void onRowClick(int downloadId, View anchor) {
+                        DownloadItem item = findDownloadItemById(downloadId);
+                        if (item == null) return;
+                        if (downloadSelectMode) {
+                            toggleDownloadSelection(item);
+                        } else if (canPlayDownloadInsideYield(item)
+                                && ("running".equals(item.status)
+                                || "paused".equals(item.status)
+                                || "failed".equals(item.status)
+                                || "completed".equals(item.status)
+                                || "verifying".equals(item.status)
+                                || "saving".equals(item.status))) {
+                            playDownloadInsideYield(item);
+                        } else if ("completed".equals(item.status)) {
+                            openDownloadedFile(item);
+                        } else if ("failed".equals(item.status)
+                                || "paused".equals(item.status)
+                                || "queued".equals(item.status)
+                                || "running".equals(item.status)) {
+                            showDownloadItemMenu(anchor, item);
+                        }
+                    }
 
-        Dialog dialog = new Dialog(this);
-        activeDownloadDialog = dialog;
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+                    @Override
+                    public boolean onRowLongClick(int downloadId) {
+                        DownloadItem item = findDownloadItemById(downloadId);
+                        if (item == null) return false;
+                        downloadSelectMode = true;
+                        toggleDownloadSelection(item);
+                        return true;
+                    }
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(14), dp(16), dp(10));
-        root.setBackgroundColor(COLOR_BG);
+                    @Override
+                    public void onPrimaryAction(int downloadId) {
+                        DownloadItem item = findDownloadItemById(downloadId);
+                        if (item != null) handleDownloadPrimaryAction(item);
+                    }
 
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
+                    @Override
+                    public void onMore(int downloadId, View anchor) {
+                        DownloadItem item = findDownloadItemById(downloadId);
+                        if (item != null) showDownloadItemMenu(anchor, item);
+                    }
+                },
+                new DownloadManagerShell.Callback() {
+                    @Override
+                    public void onSearchRequested() {
+                        showDownloadSearchDialog();
+                    }
 
-        activeDownloadTitleView = new TextView(this);
-        activeDownloadTitleView.setText("Unduhan");
-        activeDownloadTitleView.setTextColor(Color.WHITE);
-        activeDownloadTitleView.setTextSize(27);
-        activeDownloadTitleView.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(activeDownloadTitleView, new LinearLayout.LayoutParams(0, dp(50), 1));
+                    @Override
+                    public void onSettingsRequested() {
+                        showDownloadSettingsPanel();
+                    }
 
-        ImageButton search = smallTopIcon(R.drawable.ic_search, "Cari unduhan", v -> showDownloadSearchDialog());
-        header.addView(search, new LinearLayout.LayoutParams(dp(42), dp(42)));
+                    @Override
+                    public void onSectionSelected(String section) {
+                        if (section.equals(activeDownloadSection)) return;
+                        activeDownloadSection = section;
+                        downloadSelectMode = false;
+                        selectedDownloadIds.clear();
+                        lastDownloadControlsSignature = "";
+                        renderDownloadSectionTabs();
+                        renderDownloadList();
+                    }
 
-        ImageButton settings = smallTopIcon(R.drawable.ic_settings, "Pengaturan unduhan", v -> showDownloadSettingsPanel());
-        header.addView(settings, new LinearLayout.LayoutParams(dp(42), dp(42)));
+                    @Override
+                    public void onCategorySelected(String category) {
+                        activeDownloadCategory = category;
+                        selectedDownloadIds.clear();
+                        downloadSelectMode = false;
+                        lastDownloadControlsSignature = "";
+                        renderDownloadCategoryChips();
+                        renderDownloadList();
+                    }
 
-        TextView close = new TextView(this);
-        close.setText("×");
-        close.setTextColor(Color.parseColor("#D7DAE0"));
-        close.setTextSize(34);
-        close.setGravity(Gravity.CENTER);
-        close.setContentDescription("Tutup Download Manager");
-        close.setOnClickListener(v -> dialog.dismiss());
-        header.addView(close, new LinearLayout.LayoutParams(dp(42), dp(42)));
-        root.addView(header);
-
-        activeDownloadStorageView = new TextView(this);
-        activeDownloadStorageView.setTextColor(COLOR_SUBTEXT);
-        activeDownloadStorageView.setTextSize(12);
-        activeDownloadStorageView.setPadding(0, 0, 0, dp(10));
-        root.addView(activeDownloadStorageView);
-
-        LinearLayout sectionTabs = new LinearLayout(this);
-        sectionTabs.setOrientation(LinearLayout.HORIZONTAL);
-        sectionTabs.setGravity(Gravity.CENTER_VERTICAL);
-        sectionTabs.setPadding(0, dp(2), 0, dp(10));
-        activeDownloadRunningTab = downloadSectionTab("Mengunduh");
-        activeDownloadCompletedTab = downloadSectionTab("Selesai");
-        sectionTabs.addView(activeDownloadRunningTab, new LinearLayout.LayoutParams(0, dp(42), 1));
-        LinearLayout.LayoutParams completedTabParams = new LinearLayout.LayoutParams(0, dp(42), 1);
-        completedTabParams.setMargins(dp(8), 0, 0, 0);
-        sectionTabs.addView(activeDownloadCompletedTab, completedTabParams);
-        root.addView(sectionTabs);
-        renderDownloadSectionTabs();
-
-        HorizontalScrollView categoryScroll = new HorizontalScrollView(this);
-        categoryScroll.setHorizontalScrollBarEnabled(false);
-        activeDownloadCategoryPanel = new LinearLayout(this);
-        activeDownloadCategoryPanel.setOrientation(LinearLayout.HORIZONTAL);
-        activeDownloadCategoryPanel.setPadding(0, 0, 0, dp(8));
-        categoryScroll.addView(activeDownloadCategoryPanel);
-        root.addView(categoryScroll, new LinearLayout.LayoutParams(-1, -2));
-        renderDownloadCategoryChips();
-
-        activeDownloadControlsPanel = new LinearLayout(this);
-        activeDownloadControlsPanel.setOrientation(LinearLayout.VERTICAL);
-        root.addView(activeDownloadControlsPanel, new LinearLayout.LayoutParams(-1, -2));
-
-        activeDownloadRecyclerView = new RecyclerView(this);
-        activeDownloadRecyclerView.setLayoutManager(new LinearLayoutManager(this));
-        activeDownloadRecyclerView.setHasFixedSize(false);
-        activeDownloadRecyclerView.setItemAnimator(null);
-        activeDownloadRecyclerView.setClipToPadding(false);
-        activeDownloadRecyclerView.setPadding(0, dp(8), 0, dp(18));
-        activeDownloadAdapter = new DownloadListAdapter(new DownloadListAdapter.Callback() {
-            @Override
-            public void onRowClick(int downloadId, View anchor) {
-                DownloadItem item = findDownloadItemById(downloadId);
-                if (item == null) return;
-                if (downloadSelectMode) {
-                    toggleDownloadSelection(item);
-                } else if (canPlayDownloadInsideYield(item)
-                        && ("running".equals(item.status) || "paused".equals(item.status)
-                        || "failed".equals(item.status) || "completed".equals(item.status)
-                        || "verifying".equals(item.status) || "saving".equals(item.status))) {
-                    playDownloadInsideYield(item);
-                } else if ("completed".equals(item.status)) {
-                    openDownloadedFile(item);
-                } else if ("failed".equals(item.status) || "paused".equals(item.status)
-                        || "queued".equals(item.status) || "running".equals(item.status)) {
-                    showDownloadItemMenu(anchor, item);
-                }
-            }
-
-            @Override
-            public boolean onRowLongClick(int downloadId) {
-                DownloadItem item = findDownloadItemById(downloadId);
-                if (item == null) return false;
-                downloadSelectMode = true;
-                toggleDownloadSelection(item);
-                return true;
-            }
-
-            @Override
-            public void onPrimaryAction(int downloadId) {
-                DownloadItem item = findDownloadItemById(downloadId);
-                if (item != null) handleDownloadPrimaryAction(item);
-            }
-
-            @Override
-            public void onMore(int downloadId, View anchor) {
-                DownloadItem item = findDownloadItemById(downloadId);
-                if (item != null) showDownloadItemMenu(anchor, item);
-            }
-        });
-        activeDownloadRecyclerView.setAdapter(activeDownloadAdapter);
-
-        FrameLayout listFrame = new FrameLayout(this);
-        listFrame.addView(activeDownloadRecyclerView, new FrameLayout.LayoutParams(-1, -1));
-        activeDownloadEmptyView = new TextView(this);
-        activeDownloadEmptyView.setTextColor(COLOR_SUBTEXT);
-        activeDownloadEmptyView.setTextSize(15);
-        activeDownloadEmptyView.setGravity(Gravity.CENTER);
-        activeDownloadEmptyView.setPadding(dp(20), dp(40), dp(20), dp(40));
-        activeDownloadEmptyView.setVisibility(View.GONE);
-        listFrame.addView(activeDownloadEmptyView, new FrameLayout.LayoutParams(-1, -1));
-        root.addView(listFrame, new LinearLayout.LayoutParams(-1, 0, 1));
-
-        dialog.setContentView(root);
-        dialog.setOnDismissListener(d -> {
-            downloadUiTickerRunning = false;
-            mainHandler.removeCallbacks(downloadUiTicker);
-            activeDownloadDialog = null;
-            activeDownloadRecyclerView = null;
-            activeDownloadAdapter = null;
-            activeDownloadCategoryPanel = null;
-            activeDownloadControlsPanel = null;
-            activeDownloadTitleView = null;
-            activeDownloadStorageView = null;
-            activeDownloadRunningTab = null;
-            activeDownloadCompletedTab = null;
-            activeDownloadEmptyView = null;
-            downloadSelectMode = false;
-            selectedDownloadIds.clear();
-            lastDownloadControlsSignature = "";
-        });
-
-        dialog.show();
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.gravity = Gravity.CENTER;
-            lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-            lp.height = WindowManager.LayoutParams.MATCH_PARENT;
-            window.setAttributes(lp);
-        }
+                    @Override
+                    public void onDismissed() {
+                        clearDownloadManagerBindings();
+                    }
+                });
+        activeDownloadDialog = activeDownloadBindings.dialog;
+        activeDownloadRecyclerView = activeDownloadBindings.recyclerView;
+        activeDownloadAdapter = activeDownloadBindings.adapter;
+        activeDownloadCategoryPanel = activeDownloadBindings.categoryPanel;
+        activeDownloadControlsPanel = activeDownloadBindings.controlsPanel;
+        activeDownloadTitleView = activeDownloadBindings.titleView;
+        activeDownloadStorageView = activeDownloadBindings.storageView;
+        activeDownloadRunningTab = activeDownloadBindings.runningTab;
+        activeDownloadCompletedTab = activeDownloadBindings.completedTab;
+        activeDownloadEmptyView = activeDownloadBindings.emptyView;
 
         renderDownloadList();
         downloadUiTickerRunning = true;
@@ -3802,88 +3743,80 @@ public class MainActivity extends Activity
         mainHandler.postDelayed(downloadUiTicker, getDownloadUiTickerDelayMs());
     }
 
-    private TextView downloadSectionTab(String label) {
-        return SettingsUi.downloadSectionTab(this, label, v -> {
-            if (label.equals(activeDownloadSection)) return;
-            activeDownloadSection = label;
-            downloadSelectMode = false;
-            selectedDownloadIds.clear();
-            lastDownloadControlsSignature = "";
-            renderDownloadSectionTabs();
-            renderDownloadList();
-        });
+    private void clearDownloadManagerBindings() {
+        downloadUiTickerRunning = false;
+        mainHandler.removeCallbacks(downloadUiTicker);
+        activeDownloadDialog = null;
+        activeDownloadRecyclerView = null;
+        activeDownloadAdapter = null;
+        activeDownloadCategoryPanel = null;
+        activeDownloadControlsPanel = null;
+        activeDownloadTitleView = null;
+        activeDownloadStorageView = null;
+        activeDownloadRunningTab = null;
+        activeDownloadCompletedTab = null;
+        activeDownloadEmptyView = null;
+        activeDownloadBindings = null;
+        downloadSelectMode = false;
+        selectedDownloadIds.clear();
+        lastDownloadControlsSignature = "";
     }
 
     private void renderDownloadSectionTabs() {
-        styleDownloadSectionTab(activeDownloadRunningTab, "Mengunduh".equals(activeDownloadSection));
-        styleDownloadSectionTab(activeDownloadCompletedTab, "Selesai".equals(activeDownloadSection));
-    }
-
-    private void styleDownloadSectionTab(TextView tab, boolean selected) {
-        if (tab == null) return;
-        tab.setTextColor(selected ? Color.parseColor("#141414") : Color.WHITE);
-        tab.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20242B"),
-                dp(17), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
+        if (downloadManagerShell != null) {
+            downloadManagerShell.styleSectionTabs(activeDownloadBindings, activeDownloadSection);
+        }
     }
 
     private void renderDownloadCategoryChips() {
-        if (activeDownloadCategoryPanel == null) return;
-        activeDownloadCategoryPanel.removeAllViews();
-        String[] labels = {"Semua", "Video", "APK", "Dokumen", "Musik", "Lainnya"};
-        for (String label : labels) activeDownloadCategoryPanel.addView(downloadCategoryChip(label));
+        if (downloadManagerShell == null) return;
+        downloadManagerShell.renderCategories(
+                activeDownloadBindings,
+                activeDownloadCategory,
+                new DownloadManagerShell.Callback() {
+                    @Override
+                    public void onSearchRequested() {
+                    }
+
+                    @Override
+                    public void onSettingsRequested() {
+                    }
+
+                    @Override
+                    public void onSectionSelected(String section) {
+                    }
+
+                    @Override
+                    public void onCategorySelected(String category) {
+                        activeDownloadCategory = category;
+                        selectedDownloadIds.clear();
+                        downloadSelectMode = false;
+                        lastDownloadControlsSignature = "";
+                        renderDownloadCategoryChips();
+                        renderDownloadList();
+                    }
+
+                    @Override
+                    public void onDismissed() {
+                    }
+                });
     }
 
-    private TextView downloadCategoryChip(String label) {
-        boolean selected = label.equals(activeDownloadCategory);
-        return SettingsUi.downloadCategoryChip(this, label, selected, v -> {
-            activeDownloadCategory = label;
-            selectedDownloadIds.clear();
-            downloadSelectMode = false;
-            lastDownloadControlsSignature = "";
-            renderDownloadCategoryChips();
+    private void showDownloadSearchDialog() {
+        if (downloadManagerShell == null) downloadManagerShell = new DownloadManagerShell(this);
+        downloadManagerShell.showSearchDialog(activeDownloadSearchQuery, query -> {
+            activeDownloadSearchQuery = query;
             renderDownloadList();
         });
     }
 
-    private void showDownloadSearchDialog() {
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setText(activeDownloadSearchQuery);
-        input.setHint("Cari nama file atau sumber");
-        input.setSelectAllOnFocus(true);
-
-        new AlertDialog.Builder(this)
-                .setTitle("Cari unduhan")
-                .setView(input)
-                .setPositiveButton("Cari", (dialog, which) -> {
-                    activeDownloadSearchQuery = input.getText().toString().trim();
-                    renderDownloadList();
-                })
-                .setNeutralButton("Reset", (dialog, which) -> {
-                    activeDownloadSearchQuery = "";
-                    renderDownloadList();
-                })
-                .setNegativeButton("Batal", null)
-                .show();
-    }
-
     private void showDownloadSortDialog() {
-        String[] options = {"Tanggal", "Antrian", "Nama", "Ukuran"};
-        int checked = 0;
-        for (int i = 0; i < options.length; i++) {
-            if (options[i].equals(activeDownloadSort)) checked = i;
-        }
-
-        new AlertDialog.Builder(this)
-                .setTitle("Urutkan unduhan")
-                .setSingleChoiceItems(options, checked, (dialog, which) -> {
-                    activeDownloadSort = options[which];
-                    lastDownloadControlsSignature = "";
-                    dialog.dismiss();
-                    renderDownloadList();
-                })
-                .setNegativeButton("Batal", null)
-                .show();
+        if (downloadManagerShell == null) downloadManagerShell = new DownloadManagerShell(this);
+        downloadManagerShell.showSortDialog(activeDownloadSort, sort -> {
+            activeDownloadSort = sort;
+            lastDownloadControlsSignature = "";
+            renderDownloadList();
+        });
     }
 
     private void renderDownloadList() {
