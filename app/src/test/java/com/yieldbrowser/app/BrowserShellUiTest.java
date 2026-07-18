@@ -10,7 +10,7 @@ public class BrowserShellUiTest {
     public void shortcutInitialHandlesBlankAcronymAndNormalLabels() {
         assertEquals("?", BrowserShellUi.shortcutInitial(null));
         assertEquals("?", BrowserShellUi.shortcutInitial("   "));
-        assertEquals("YT", BrowserShellUi.shortcutInitial("YOUTUBE"));
+        assertEquals("YO", BrowserShellUi.shortcutInitial("YOUTUBE"));
         assertEquals("G", BrowserShellUi.shortcutInitial("GitHub"));
     }
 
