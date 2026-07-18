@@ -167,6 +167,7 @@ public class MainActivity extends Activity
     private View topBarView;
     private View bottomNavView;
     private TextView tabsCountText;
+    private BrowserShellUi browserShellUi;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AtomicBoolean downloadUiRefreshPosted = new AtomicBoolean(false);
 
@@ -519,7 +520,12 @@ public class MainActivity extends Activity
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(COLOR_BG);
 
-        topBarView = createTopBar();
+        initializeBrowserShellUi();
+        topBarView = browserShellUi.createTopBar();
+        addressBar = browserShellUi.addressBar();
+        reloadButton = browserShellUi.reloadButton();
+        bookmarkButton = browserShellUi.bookmarkButton();
+        translateButton = browserShellUi.translateButton();
         root.addView(topBarView, new LinearLayout.LayoutParams(-1, -2));
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
@@ -532,7 +538,8 @@ public class MainActivity extends Activity
         contentFrame = new FrameLayout(this);
         contentFrame.setLayoutParams(new LinearLayout.LayoutParams(-1, 0, 1));
 
-        homeScroll = createHomeContent();
+        homeScroll = browserShellUi.createHomeContent();
+        homeSearchInput = browserShellUi.homeSearchInput();
         contentFrame.addView(homeScroll, new FrameLayout.LayoutParams(-1, -1));
 
         TabInfo initialTab = getCurrentTab();
@@ -550,7 +557,8 @@ public class MainActivity extends Activity
         videoControlsBar.setVisibility(View.GONE);
         root.addView(videoControlsBar, new LinearLayout.LayoutParams(-1, dp(66)));
 
-        bottomNavView = createBottomNav();
+        bottomNavView = browserShellUi.createBottomNav(tabCount);
+        tabsCountText = browserShellUi.tabsCountText();
         root.addView(bottomNavView, new LinearLayout.LayoutParams(-1, dp(64)));
 
         setContentView(root);
@@ -722,449 +730,107 @@ public class MainActivity extends Activity
 
 
     // ===== Main UI =====
-    private View createTopBar() {
-        LinearLayout wrap = new LinearLayout(this);
-        wrap.setOrientation(LinearLayout.VERTICAL);
-        wrap.setPadding(dp(14), dp(12), dp(14), dp(10));
-        wrap.setBackgroundColor(COLOR_BG);
+    private void initializeBrowserShellUi() {
+        browserShellUi = new BrowserShellUi(
+                this,
+                dedicatedPrivateProfile,
+                shortcutsData,
+                new BrowserShellUi.Host() {
+                    @Override
+                    public void hideKeyboardAndClearFocus(View view) {
+                        MainActivity.this.hideKeyboardAndClearFocus(view);
+                    }
 
-        if (dedicatedPrivateProfile) {
-            wrap.addView(createPrivateProfileStrip(), new LinearLayout.LayoutParams(-1, dp(42)));
-            wrap.addView(space(dp(8)));
-        }
+                    @Override
+                    public void openAddressBarUrl() {
+                        MainActivity.this.openAddressBarUrl();
+                    }
 
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER);
-        bar.setPadding(dp(12), dp(8), dp(8), dp(8));
-        bar.setBackground(roundRect(COLOR_SURFACE_2, dp(18), dp(1), COLOR_BORDER));
+                    @Override
+                    public void openHomeSearchUrl() {
+                        MainActivity.this.openHomeSearchUrl();
+                    }
 
-        ImageView searchIcon = new ImageView(this);
-        searchIcon.setImageResource(R.drawable.ic_search);
-        searchIcon.setColorFilter(Color.parseColor("#D3D8E0"));
-        bar.addView(searchIcon, new LinearLayout.LayoutParams(dp(22), dp(22)));
+                    @Override
+                    public void reloadCurrentWebsite() {
+                        MainActivity.this.reloadCurrentWebsite();
+                    }
 
-        addressBar = new EditText(this);
-        addressBar.setBackgroundColor(Color.TRANSPARENT);
-        addressBar.setHint("Telusuri Google atau ketik URL");
-        addressBar.setHintTextColor(Color.parseColor("#A7ADB8"));
-        addressBar.setTextColor(COLOR_TEXT);
-        addressBar.setTextSize(16);
-        addressBar.setSingleLine(true);
-        addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
-        addressBar.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
-        addressBar.setPadding(dp(10), 0, dp(8), 0);
-        addressBar.setOnEditorActionListener((v, actionId, event) -> {
-            boolean isEnter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_UP;
-            if (actionId == EditorInfo.IME_ACTION_GO || isEnter) {
-                hideKeyboardAndClearFocus(v);
-                openAddressBarUrl();
-                return true;
-            }
-            return false;
-        });
-        bar.addView(addressBar, new LinearLayout.LayoutParams(0, -2, 1));
+                    @Override
+                    public void toggleBookmark() {
+                        MainActivity.this.toggleBookmark();
+                    }
 
-        reloadButton = smallTopIcon(R.drawable.ic_refresh, "Reload website", v -> reloadCurrentWebsite());
-        LinearLayout.LayoutParams reloadParams = new LinearLayout.LayoutParams(dp(30), dp(30));
-        reloadParams.setMargins(dp(2), 0, 0, 0);
-        bar.addView(reloadButton, reloadParams);
+                    @Override
+                    public void toggleTranslate() {
+                        MainActivity.this.toggleTranslate();
+                    }
 
-        bookmarkButton = smallTopIcon(R.drawable.ic_star, "Bookmark", v -> toggleBookmark());
-        LinearLayout.LayoutParams bookmarkParams = new LinearLayout.LayoutParams(dp(30), dp(30));
-        bookmarkParams.setMargins(dp(2), 0, 0, 0);
-        bar.addView(bookmarkButton, bookmarkParams);
+                    @Override
+                    public void showQuickMenu() {
+                        MainActivity.this.showQuickMenu();
+                    }
 
-        translateButton = smallTopIcon(R.drawable.ic_translate, "Translate", v -> toggleTranslate());
-        LinearLayout.LayoutParams translateParams = new LinearLayout.LayoutParams(dp(30), dp(30));
-        translateParams.setMargins(dp(2), 0, 0, 0);
-        bar.addView(translateButton, translateParams);
+                    @Override
+                    public void openNormalBrowserSpace() {
+                        MainActivity.this.openNormalBrowserSpace();
+                    }
 
-        ImageButton menu = smallTopIcon(R.drawable.ic_menu_more, "Menu", v -> showQuickMenu());
-        LinearLayout.LayoutParams menuParams = new LinearLayout.LayoutParams(dp(30), dp(30));
-        menuParams.setMargins(dp(2), 0, 0, 0);
-        bar.addView(menu, menuParams);
+                    @Override
+                    public void newTabInCurrentProfile() {
+                        MainActivity.this.newTabInCurrentProfile();
+                    }
 
-        wrap.addView(bar, new LinearLayout.LayoutParams(-1, dp(54)));
-        return wrap;
-    }
+                    @Override
+                    public void navigateCurrentTabHome() {
+                        MainActivity.this.navigateCurrentTabHome();
+                    }
 
-    private View createPrivateProfileStrip() {
-        LinearLayout strip = new LinearLayout(this);
-        strip.setOrientation(LinearLayout.HORIZONTAL);
-        strip.setGravity(Gravity.CENTER_VERTICAL);
-        strip.setPadding(dp(12), dp(5), dp(6), dp(5));
-        strip.setBackground(roundRect(Color.parseColor("#26143D"), dp(16), dp(1),
-                Color.parseColor("#6941A5")));
+                    @Override
+                    public void showBookmarkList() {
+                        MainActivity.this.showBookmarkList();
+                    }
 
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(R.drawable.ic_private);
-        icon.setColorFilter(Color.parseColor("#D8C5FF"));
-        strip.addView(icon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+                    @Override
+                    public void showTabsPanel() {
+                        MainActivity.this.showTabsPanel();
+                    }
 
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        texts.setPadding(dp(9), 0, dp(8), 0);
-        TextView title = new TextView(this);
-        title.setText("Mode Privat");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(13);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        texts.addView(title);
-        TextView subtitle = new TextView(this);
-        subtitle.setText("Profil terisolasi");
-        subtitle.setTextColor(Color.parseColor("#BFADE2"));
-        subtitle.setTextSize(10);
-        texts.addView(subtitle);
-        strip.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+                    @Override
+                    public String currentUrl() {
+                        return MainActivity.this.getEffectiveCurrentUrl();
+                    }
 
-        TextView normal = new TextView(this);
-        normal.setText("Umum");
-        normal.setContentDescription("Beralih ke tab umum");
-        normal.setTextColor(Color.parseColor("#17121F"));
-        normal.setTextSize(12);
-        normal.setTypeface(Typeface.DEFAULT_BOLD);
-        normal.setGravity(Gravity.CENTER);
-        normal.setBackground(roundRect(Color.parseColor("#D8C5FF"), dp(14), 0, Color.TRANSPARENT));
-        normal.setOnClickListener(v -> openNormalBrowserSpace());
-        strip.addView(normal, new LinearLayout.LayoutParams(dp(72), dp(30)));
-        return strip;
-    }
+                    @Override
+                    public String normalizeShortcutUrl(String value) {
+                        return MainActivity.this.normalizeShortcutUrl(value);
+                    }
 
-    private View createPrivateHomeActions() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(14), dp(13), dp(14), dp(13));
-        card.setBackground(roundRect(Color.parseColor("#21162F"), dp(20), dp(1),
-                Color.parseColor("#5B3A82")));
+                    @Override
+                    public String guessLabelFromUrl(String url) {
+                        return MainActivity.this.guessLabelFromUrl(url);
+                    }
 
-        TextView info = new TextView(this);
-        info.setText("Tab pada ruang ini tetap privat. Gunakan ruang Umum untuk sesi browsing biasa.");
-        info.setTextColor(Color.parseColor("#D8CDE8"));
-        info.setTextSize(13);
-        card.addView(info);
+                    @Override
+                    public void saveShortcuts() {
+                        MainActivity.this.saveShortcuts();
+                    }
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, dp(42));
-        actionsParams.setMargins(0, dp(12), 0, 0);
+                    @Override
+                    public void loadFavicon(String url, ImageView target, TextView fallback) {
+                        MainActivity.this.loadFavicon(url, target, fallback);
+                    }
 
-        TextView normal = new TextView(this);
-        normal.setText("Buka tab umum");
-        normal.setTextColor(Color.WHITE);
-        normal.setTextSize(13);
-        normal.setTypeface(Typeface.DEFAULT_BOLD);
-        normal.setGravity(Gravity.CENTER);
-        normal.setBackground(roundRect(Color.parseColor("#37303F"), dp(16), dp(1),
-                Color.parseColor("#665B70")));
-        normal.setOnClickListener(v -> openNormalBrowserSpace());
-        actions.addView(normal, new LinearLayout.LayoutParams(0, -1, 1));
-
-        TextView addPrivate = new TextView(this);
-        addPrivate.setText("+ Tab privat");
-        addPrivate.setTextColor(Color.WHITE);
-        addPrivate.setTextSize(13);
-        addPrivate.setTypeface(Typeface.DEFAULT_BOLD);
-        addPrivate.setGravity(Gravity.CENTER);
-        addPrivate.setBackground(roundRect(Color.parseColor("#6D28D9"), dp(16), 0,
-                Color.TRANSPARENT));
-        addPrivate.setOnClickListener(v -> newTabInCurrentProfile());
-        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(0, -1, 1);
-        addParams.setMargins(dp(8), 0, 0, 0);
-        actions.addView(addPrivate, addParams);
-        card.addView(actions, actionsParams);
-        return card;
-    }
-
-    private ScrollView createHomeContent() {
-        ScrollView scrollView = new ScrollView(this);
-        scrollView.setFillViewport(true);
-        scrollView.setBackgroundColor(COLOR_BG);
-
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(16), dp(10), dp(16), dp(24));
-        content.setMinimumHeight(getResources().getDisplayMetrics().heightPixels - dp(120));
-        content.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{Color.parseColor("#20232A"), Color.parseColor("#15171C")}));
-
-        content.addView(space(dp(16)));
-
-        LinearLayout titleRow = new LinearLayout(this);
-        titleRow.setOrientation(LinearLayout.HORIZONTAL);
-        titleRow.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView titleYield = new TextView(this);
-        titleYield.setText("Yield");
-        titleYield.setTextColor(Color.parseColor("#F4F6FA"));
-        titleYield.setTextSize(31);
-        titleYield.setLetterSpacing(-0.01f);
-        titleYield.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        titleRow.addView(titleYield);
-
-        TextView titleBrowser = new TextView(this);
-        titleBrowser.setText(dedicatedPrivateProfile ? " Privat" : " Browser");
-        titleBrowser.setTextColor(dedicatedPrivateProfile
-                ? Color.parseColor("#C4A7FF") : Color.parseColor("#DDA13A"));
-        titleBrowser.setTextSize(31);
-        titleBrowser.setLetterSpacing(-0.01f);
-        titleBrowser.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
-        titleRow.addView(titleBrowser);
-
-        content.addView(titleRow);
-
-        TextView subtitle = new TextView(this);
-        subtitle.setText(dedicatedPrivateProfile
-                ? "Sesi terisolasi. Riwayat dan data situs tidak disimpan."
-                : "Cepat, ringan, dan siap dipakai.");
-        subtitle.setTextColor(COLOR_SUBTEXT);
-        subtitle.setTextSize(17);
-        LinearLayout.LayoutParams subParams = new LinearLayout.LayoutParams(-2, -2);
-        subParams.setMargins(0, dp(8), 0, dp(24));
-        content.addView(subtitle, subParams);
-
-        if (dedicatedPrivateProfile) {
-            content.addView(createPrivateHomeActions());
-            content.addView(space(dp(18)));
-        }
-
-        LinearLayout searchCard = new LinearLayout(this);
-        searchCard.setOrientation(LinearLayout.HORIZONTAL);
-        searchCard.setGravity(Gravity.CENTER_VERTICAL);
-        searchCard.setPadding(dp(16), dp(10), dp(10), dp(10));
-        searchCard.setBackground(roundRect(Color.parseColor("#252830"), dp(26), dp(1), Color.parseColor("#232730")));
-
-        homeSearchInput = new EditText(this);
-        homeSearchInput.setBackgroundColor(Color.TRANSPARENT);
-        homeSearchInput.setHint("Telusuri atau ketik URL");
-        homeSearchInput.setHintTextColor(Color.parseColor("#9BA2AE"));
-        homeSearchInput.setTextColor(COLOR_TEXT);
-        homeSearchInput.setTextSize(16);
-        homeSearchInput.setSingleLine(true);
-        homeSearchInput.setImeOptions(EditorInfo.IME_ACTION_GO);
-        homeSearchInput.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
-        homeSearchInput.setPadding(0, 0, dp(10), 0);
-        homeSearchInput.setOnEditorActionListener((v, actionId, event) -> {
-            boolean isEnter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_UP;
-            if (actionId == EditorInfo.IME_ACTION_GO || isEnter) {
-                hideKeyboardAndClearFocus(v);
-                openHomeSearchUrl();
-                return true;
-            }
-            return false;
-        });
-        searchCard.addView(homeSearchInput, new LinearLayout.LayoutParams(0, -2, 1));
-
-        TextView searchButton = new TextView(this);
-        searchButton.setText("Cari");
-        searchButton.setTextSize(16);
-        searchButton.setTypeface(Typeface.DEFAULT_BOLD);
-        searchButton.setGravity(Gravity.CENTER);
-        searchButton.setTextColor(Color.parseColor("#111111"));
-        searchButton.setBackground(roundRect(COLOR_ACCENT, dp(24), 0, Color.TRANSPARENT));
-        searchButton.setOnClickListener(v -> { hideKeyboardAndClearFocus(homeSearchInput); openHomeSearchUrl(); });
-        searchCard.addView(searchButton, new LinearLayout.LayoutParams(dp(96), dp(48)));
-
-        content.addView(searchCard, new LinearLayout.LayoutParams(-1, -2));
-        content.addView(space(dp(28)));
-
-        LinearLayout rowTitle = new LinearLayout(this);
-        rowTitle.setOrientation(LinearLayout.HORIZONTAL);
-        rowTitle.setGravity(Gravity.CENTER_VERTICAL);
-        TextView pintasan = new TextView(this);
-        pintasan.setText("Pintasan");
-        pintasan.setTextColor(COLOR_TEXT);
-        pintasan.setTextSize(18);
-        pintasan.setTypeface(Typeface.DEFAULT_BOLD);
-        rowTitle.addView(pintasan, new LinearLayout.LayoutParams(0, -2, 1));
-
-        TextView helper = new TextView(this);
-        helper.setText("Tekan lama untuk mengedit");
-        helper.setTextColor(COLOR_SUBTEXT);
-        helper.setTextSize(13);
-        rowTitle.addView(helper);
-        content.addView(rowTitle);
-        content.addView(space(dp(14)));
-
-        HorizontalScrollView shortcutScroll = new HorizontalScrollView(this);
-        shortcutScroll.setHorizontalScrollBarEnabled(false);
-        shortcutContainer = new LinearLayout(this);
-        shortcutContainer.setOrientation(LinearLayout.HORIZONTAL);
-        renderShortcuts();
-        shortcutScroll.addView(shortcutContainer);
-        content.addView(shortcutScroll, new LinearLayout.LayoutParams(-1, -2));
-
-        content.addView(space(dp(28)));
-content.addView(space(dp(36)));
-
-        TextView footer = new TextView(this);
-        footer.setText("Yield Browser • Modern download manager");
-        footer.setTextColor(Color.parseColor("#808794"));
-        footer.setTextSize(13);
-        content.addView(footer);
-
-        scrollView.addView(content, new ScrollView.LayoutParams(-1, -1));
-        return scrollView;
+                    @Override
+                    public void showMessage(String message) {
+                        QuietToast.makeText(MainActivity.this, message,
+                                QuietToast.LENGTH_SHORT).show();
+                    }
+                });
     }
 
     private void renderShortcuts() {
-        if (shortcutContainer == null) return;
-        shortcutContainer.removeAllViews();
-        for (ShortcutItemData item : shortcutsData) {
-            shortcutContainer.addView(shortcutItem(item));
-        }
-        shortcutContainer.addView(addShortcutItem());
-    }
-
-    private LinearLayout shortcutItem(ShortcutItemData shortcut) {
-        LinearLayout item = new LinearLayout(this);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(dp(84), -2);
-        itemParams.setMargins(0, 0, dp(10), 0);
-        item.setLayoutParams(itemParams);
-
-        FrameLayout iconWrap = new FrameLayout(this);
-        LinearLayout.LayoutParams wrapParams = new LinearLayout.LayoutParams(dp(60), dp(60));
-        item.addView(iconWrap, wrapParams);
-
-        TextView fallback = new TextView(this);
-        fallback.setText(getShortcutInitial(shortcut.label));
-        fallback.setTextColor(Color.WHITE);
-        fallback.setTypeface(Typeface.DEFAULT_BOLD);
-        fallback.setTextSize(16);
-        fallback.setGravity(Gravity.CENTER);
-        fallback.setBackground(roundRect(colorForShortcut(shortcut.label), dp(22), dp(1), Color.parseColor("#31353C")));
-        iconWrap.addView(fallback, new FrameLayout.LayoutParams(-1, -1));
-
-        ImageView favicon = new ImageView(this);
-        favicon.setPadding(dp(12), dp(12), dp(12), dp(12));
-        favicon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        favicon.setBackground(roundRect(Color.parseColor("#1C1F26"), dp(22), dp(1), Color.parseColor("#31353C")));
-        favicon.setVisibility(View.GONE);
-        iconWrap.addView(favicon, new FrameLayout.LayoutParams(-1, -1));
-        loadFavicon(shortcut.url, favicon, fallback);
-
-        TextView delete = new TextView(this);
-        delete.setText("×");
-        delete.setTextColor(Color.WHITE);
-        delete.setTextSize(15);
-        delete.setTypeface(Typeface.DEFAULT_BOLD);
-        delete.setGravity(Gravity.CENTER);
-        delete.setBackground(roundRect(Color.parseColor("#E5484D"), dp(12), 0, Color.TRANSPARENT));
-        delete.setVisibility(View.GONE);
-        FrameLayout.LayoutParams deleteParams = new FrameLayout.LayoutParams(dp(24), dp(24));
-        deleteParams.gravity = Gravity.TOP | Gravity.START;
-        deleteParams.leftMargin = dp(-2);
-        deleteParams.topMargin = dp(-2);
-        iconWrap.addView(delete, deleteParams);
-
-        TextView text = new TextView(this);
-        text.setText(shortcut.label);
-        text.setTextColor(COLOR_TEXT);
-        text.setTextSize(13);
-        text.setGravity(Gravity.CENTER);
-        text.setSingleLine(true);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-1, -2);
-        textParams.setMargins(0, dp(8), 0, 0);
-        item.addView(text, textParams);
-
-        item.setOnClickListener(v -> {
-            if (delete.getVisibility() == View.VISIBLE) {
-                delete.setVisibility(View.GONE);
-                return;
-            }
-            addressBar.setText(shortcut.url);
-            openAddressBarUrl();
-        });
-        item.setOnLongClickListener(v -> {
-            delete.setVisibility(View.VISIBLE);
-            QuietToast.makeText(this, "Ketuk X untuk hapus pintasan", QuietToast.LENGTH_SHORT).show();
-            return true;
-        });
-        delete.setOnClickListener(v -> {
-            shortcutsData.remove(shortcut);
-            saveShortcuts();
-            renderShortcuts();
-            QuietToast.makeText(this, "Pintasan dihapus", QuietToast.LENGTH_SHORT).show();
-        });
-
-        return item;
-    }
-
-    private LinearLayout addShortcutItem() {
-        LinearLayout item = new LinearLayout(this);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(dp(84), -2);
-        itemParams.setMargins(0, 0, dp(10), 0);
-        item.setLayoutParams(itemParams);
-
-        TextView circle = new TextView(this);
-        circle.setText("+");
-        circle.setTextColor(Color.WHITE);
-        circle.setTypeface(Typeface.DEFAULT_BOLD);
-        circle.setTextSize(24);
-        circle.setGravity(Gravity.CENTER);
-        circle.setBackground(roundRect(Color.parseColor("#1C1F26"), dp(22), dp(1), Color.parseColor("#31353C")));
-        item.addView(circle, new LinearLayout.LayoutParams(dp(60), dp(60)));
-
-        TextView text = new TextView(this);
-        text.setText("Tambah");
-        text.setTextColor(COLOR_TEXT);
-        text.setTextSize(13);
-        text.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-1, -2);
-        textParams.setMargins(0, dp(8), 0, 0);
-        item.addView(text, textParams);
-
-        item.setOnClickListener(v -> showAddShortcutDialog());
-        return item;
-    }
-
-    private void showAddShortcutDialog() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(8), dp(4), dp(8), 0);
-
-        EditText nameInput = new EditText(this);
-        nameInput.setHint("Nama pintasan, contoh: YouTube");
-        nameInput.setSingleLine(true);
-        box.addView(nameInput);
-
-        EditText urlInput = new EditText(this);
-        urlInput.setHint("URL website, contoh: youtube.com");
-        urlInput.setSingleLine(true);
-        urlInput.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
-        String current = getEffectiveCurrentUrl();
-        if (current != null) urlInput.setText(current);
-        box.addView(urlInput);
-
-        new AlertDialog.Builder(this)
-                .setTitle("Tambah pintasan")
-                .setView(box)
-                .setPositiveButton("Tambah", (dialog, which) -> {
-                    String url = normalizeShortcutUrl(urlInput.getText().toString().trim());
-                    if (url == null) {
-                        QuietToast.makeText(this, "URL tidak valid", QuietToast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    String label = nameInput.getText().toString().trim();
-                    if (label.length() == 0) label = guessLabelFromUrl(url);
-                    for (int i = shortcutsData.size() - 1; i >= 0; i--) {
-                        ShortcutItemData oldItem = shortcutsData.get(i);
-                        if (oldItem != null && url.equals(normalizeShortcutUrl(oldItem.url))) {
-                            shortcutsData.remove(i);
-                        }
-                    }
-                    shortcutsData.add(new ShortcutItemData(label, url));
-                    saveShortcuts();
-                    renderShortcuts();
-                    QuietToast.makeText(this, "Pintasan ditambahkan", QuietToast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Batal", null)
-                .show();
+        if (browserShellUi != null) browserShellUi.renderShortcuts();
     }
 
     private String normalizeShortcutUrl(String text) {
@@ -1183,7 +849,7 @@ content.addView(space(dp(36)));
             if (clean.startsWith("www.")) clean = clean.substring(4);
             int slash = clean.indexOf("/");
             if (slash > 0) clean = clean.substring(0, slash);
-            String host = clean.split("\\.")[0];
+            String host = clean.split("[.]")[0];
             if (host.length() == 0) return "Web";
             return host.substring(0, 1).toUpperCase() + host.substring(1);
         } catch (Exception e) {
@@ -1191,90 +857,9 @@ content.addView(space(dp(36)));
         }
     }
 
-    private String getShortcutInitial(String label) {
-        if (label == null || label.trim().length() == 0) return "?";
-        String trimmed = label.trim();
-        if (trimmed.length() >= 2 && trimmed.equals(trimmed.toUpperCase())) return trimmed.substring(0, 2);
-        return trimmed.substring(0, 1).toUpperCase();
-    }
-
-    private int colorForShortcut(String label) {
-        int[] colors = new int[]{
-                Color.parseColor("#4285F4"), Color.parseColor("#24292F"), Color.parseColor("#FF0033"),
-                Color.parseColor("#1DA1F2"), Color.parseColor("#22C55E"), Color.parseColor("#8B5CF6"),
-                Color.parseColor("#F97316")
-        };
-        int idx = Math.abs((label == null ? 0 : label.hashCode())) % colors.length;
-        return colors[idx];
-    }
-
     private void loadFavicon(String url, ImageView target, TextView fallback) {
         historyFaviconLoader.load(url, target, fallback);
     }
-
-    private View createBottomNav() {
-        LinearLayout nav = new LinearLayout(this);
-        nav.setOrientation(LinearLayout.HORIZONTAL);
-        nav.setGravity(Gravity.CENTER);
-        nav.setPadding(dp(8), dp(4), dp(8), dp(6));
-        nav.setBackgroundColor(Color.parseColor("#090A0D"));
-
-        nav.addView(bottomNavButton(R.drawable.ic_home, "Home", v -> navigateCurrentTabHome()));
-        nav.addView(bottomNavButton(R.drawable.ic_bookmark, "Bookmark", v -> showBookmarkList()));
-        nav.addView(bottomNavButton(R.drawable.ic_search, "Search", v -> {
-            if (homeScroll != null && homeScroll.getVisibility() == View.VISIBLE && homeSearchInput != null) {
-                homeSearchInput.requestFocus();
-            } else {
-                addressBar.requestFocus();
-            }
-        }));
-        nav.addView(tabsNavButton(v -> showTabsPanel()));
-        nav.addView(bottomNavButton(R.drawable.ic_menu_more, "Menu", v -> showQuickMenu()));
-        return nav;
-    }
-
-    private LinearLayout bottomNavButton(int iconRes, String description, View.OnClickListener listener) {
-        LinearLayout item = new LinearLayout(this);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER);
-        item.setOnClickListener(listener);
-        item.setContentDescription(description);
-        item.setLayoutParams(new LinearLayout.LayoutParams(0, -1, 1));
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
-        icon.setColorFilter(Color.parseColor("#F6F7FA"));
-        item.addView(icon, new LinearLayout.LayoutParams(dp(24), dp(24)));
-        return item;
-    }
-
-    private LinearLayout tabsNavButton(View.OnClickListener listener) {
-        LinearLayout item = new LinearLayout(this);
-        item.setOrientation(LinearLayout.VERTICAL);
-        item.setGravity(Gravity.CENTER);
-        item.setOnClickListener(listener);
-        item.setContentDescription("Tabs");
-        item.setLayoutParams(new LinearLayout.LayoutParams(0, -1, 1));
-
-        FrameLayout box = new FrameLayout(this);
-        item.addView(box, new LinearLayout.LayoutParams(dp(24), dp(24)));
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(R.drawable.ic_tabs);
-        icon.setColorFilter(Color.parseColor("#F6F7FA"));
-        box.addView(icon, new FrameLayout.LayoutParams(-1, -1));
-
-        tabsCountText = new TextView(this);
-        tabsCountText.setText(String.valueOf(tabCount));
-        tabsCountText.setTextColor(Color.parseColor("#F6F7FA"));
-        tabsCountText.setTextSize(10);
-        tabsCountText.setTypeface(Typeface.DEFAULT_BOLD);
-        tabsCountText.setGravity(Gravity.CENTER);
-        box.addView(tabsCountText, new FrameLayout.LayoutParams(-1, -1));
-        return item;
-    }
-
-
 
     private TabInfo findTabByWebView(WebView candidate) {
         return TabWebViewLifecycle.findOwner(tabs, candidate);
