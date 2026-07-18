@@ -279,6 +279,7 @@ public class MainActivity extends Activity
     private boolean userElementFiltersLoaded = false;
     private boolean elementPickerActive = false;
     private AlertDialog elementPickerDialog = null;
+    private ElementFilterDialogController elementFilterDialogController;
     boolean dataSaver = false;
     // v0.9.98: HTTPS-First tries the secure origin before plain HTTP for public sites.
     boolean httpsFirstEnabled = true;
@@ -9971,61 +9972,68 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
                                          int matchCount, String selectedTag) {
         if (!elementPickerActive) return;
         if (!UserElementFilterPolicy.isSafeSelector(selector, selectedTag)) {
-            QuietToast.makeText(this, "Elemen penting atau selector tidak aman tidak dapat diblokir",
+            QuietToast.makeText(this,
+                    "Elemen penting atau selector tidak aman tidak dapat diblokir",
                     QuietToast.LENGTH_SHORT).show();
             continueElementPickerAfterSelection();
             return;
         }
-        final String sel = selector.trim();
+        final String cleanSelector = selector.trim();
         final String host = hostOfUrl(getEffectiveCurrentUrl());
         if (host == null || host.length() == 0) {
-            QuietToast.makeText(this, "Tidak bisa menentukan domain halaman ini",
+            QuietToast.makeText(this,
+                    "Tidak bisa menentukan domain halaman ini",
                     QuietToast.LENGTH_SHORT).show();
             finishElementPicker(false);
             return;
         }
         if (elementPickerDialog != null) {
-            try { elementPickerDialog.dismiss(); } catch (Exception ignored) {}
+            try {
+                elementPickerDialog.dismiss();
+            } catch (Exception ignored) {
+            }
             elementPickerDialog = null;
         }
-
-        String previewText = preview == null ? "" : preview.trim();
-        if (previewText.length() > 180) previewText = previewText.substring(0, 180) + "\u2026";
-        int safeCount = UserElementFilterPolicy.normalizedMatchCount(matchCount);
-        StringBuilder msg = new StringBuilder();
-        msg.append("Selector:\n").append(sel);
-        if (safeCount > 0) {
-            msg.append("\n\nAkan menyembunyikan ")
-                    .append(safeCount)
-                    .append(safeCount == 1 ? " elemen." : " elemen pada halaman ini.");
+        if (elementFilterDialogController == null) {
+            elementFilterDialogController = new ElementFilterDialogController(this);
         }
-        if (previewText.length() > 0) msg.append("\n\nPratinjau:\n").append(previewText);
+        elementPickerDialog = elementFilterDialogController.createPickerDialog(
+                cleanSelector,
+                preview,
+                matchCount,
+                host,
+                new ElementFilterDialogController.PickerCallback() {
+                    @Override
+                    public void onBlock(String targetHost, String targetSelector) {
+                        boolean added = addUserElementFilter(targetHost, targetSelector);
+                        applyUserFiltersForCurrentPage();
+                        continueElementPickerAfterSelection();
+                        QuietToast.makeText(MainActivity.this,
+                                added ? "Elemen diblokir permanen di " + targetHost
+                                        : "Filter ini sudah tersimpan di " + targetHost,
+                                QuietToast.LENGTH_SHORT).show();
+                    }
 
-        AlertDialog.Builder b = new AlertDialog.Builder(this);
-        b.setTitle("Blokir elemen ini?");
-        b.setMessage(msg.toString());
-        b.setPositiveButton("Blokir & lanjut", (d, w) -> {
-            boolean added = addUserElementFilter(host, sel);
-            applyUserFiltersForCurrentPage();
-            continueElementPickerAfterSelection();
-            QuietToast.makeText(this,
-                    added ? "Elemen diblokir permanen di " + host
-                            : "Filter ini sudah tersimpan di " + host,
-                    QuietToast.LENGTH_SHORT).show();
+                    @Override
+                    public void onParentRequested() {
+                        elementPickerDialog = null;
+                        mainHandler.postDelayed(() -> runPageScript(
+                                "javascript:(function(){try{if(window.__yieldPickerParent)window.__yieldPickerParent();}catch(e){}})();"
+                        ), 80L);
+                    }
+
+                    @Override
+                    public void onContinueRequested() {
+                        continueElementPickerAfterSelection();
+                    }
+                });
+        elementPickerDialog.setOnDismissListener(dialog -> {
+            if (elementPickerDialog == dialog) elementPickerDialog = null;
         });
-        b.setNeutralButton("Naik 1 induk", (d, w) -> {
-            elementPickerDialog = null;
-            mainHandler.postDelayed(() -> runPageScript(
-                    "javascript:(function(){try{if(window.__yieldPickerParent)window.__yieldPickerParent();}catch(e){}})();"
-            ), 80L);
-        });
-        b.setNegativeButton("Batal pilihan", (d, w) -> continueElementPickerAfterSelection());
-        b.setOnCancelListener(d -> continueElementPickerAfterSelection());
-        elementPickerDialog = b.create();
-        elementPickerDialog.setOnDismissListener(d -> {
-            if (elementPickerDialog == d) elementPickerDialog = null;
-        });
-        try { elementPickerDialog.show(); } catch (Exception ignored) {}
+        try {
+            elementPickerDialog.show();
+        } catch (Exception ignored) {
+        }
     }
 
     private void continueElementPickerAfterSelection() {
@@ -10052,85 +10060,37 @@ private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws E
     private void showUserFiltersManager() {
         final String host = hostOfUrl(getEffectiveCurrentUrl());
         loadUserElementFilters();
-        LinkedHashSet<String> set = (host == null || host.length() == 0) ? null : userElementFilters.get(host);
+        LinkedHashSet<String> selectors =
+                host == null || host.length() == 0 ? null : userElementFilters.get(host);
+        if (elementFilterDialogController == null) {
+            elementFilterDialogController = new ElementFilterDialogController(this);
+        }
+        elementFilterDialogController.showManager(
+                host,
+                selectors,
+                new ElementFilterDialogController.ManagerCallback() {
+                    @Override
+                    public void onRemove(String targetHost, String selector) {
+                        removeUserElementFilter(targetHost, selector);
+                        applyUserFiltersForCurrentPage();
+                    }
 
-        final Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+                    @Override
+                    public void onClear(String targetHost) {
+                        if (UserElementFilterStore.clearHost(userElementFilters, targetHost)) {
+                            persistUserElementFiltersForHost(targetHost);
+                            applyUserFiltersForCurrentPage();
+                        }
+                        QuietToast.makeText(MainActivity.this,
+                                "Filter situs dihapus",
+                                QuietToast.LENGTH_SHORT).show();
+                    }
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(16), dp(16), dp(16));
-        root.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(20), dp(1), Color.parseColor("#2D333D")));
-
-        TextView title = new TextView(this);
-        title.setText("Filter elemen \u2014 " + (host == null || host.length() == 0 ? "(situs ini)" : host));
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(18);
-        title.setPadding(0, 0, 0, dp(10));
-        root.addView(title);
-
-        if (set == null || set.isEmpty()) {
-            TextView empty = new TextView(this);
-            empty.setText("Belum ada elemen yang diblokir di situs ini.\nGunakan \"Blokir elemen\" lalu ketuk iklannya.");
-            empty.setTextColor(Color.parseColor("#B7BDC8"));
-            empty.setTextSize(14);
-            root.addView(empty);
-        } else {
-            ScrollView sv = new ScrollView(this);
-            LinearLayout list = new LinearLayout(this);
-            list.setOrientation(LinearLayout.VERTICAL);
-            for (final String sel : new ArrayList<>(set)) {
-                LinearLayout rowL = new LinearLayout(this);
-                rowL.setOrientation(LinearLayout.HORIZONTAL);
-                rowL.setGravity(Gravity.CENTER_VERTICAL);
-                rowL.setPadding(0, dp(8), 0, dp(8));
-
-                TextView t = new TextView(this);
-                t.setText(sel);
-                t.setTextColor(Color.parseColor("#E6E9EF"));
-                t.setTextSize(13);
-                LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1f);
-                rowL.addView(t, tp);
-
-                TextView del = new TextView(this);
-                del.setText("Hapus");
-                del.setTextColor(Color.parseColor("#F87171"));
-                del.setTextSize(14);
-                del.setPadding(dp(12), dp(6), dp(6), dp(6));
-                del.setOnClickListener(v -> {
-                    removeUserElementFilter(host, sel);
-                    applyUserFiltersForCurrentPage();
-                    dialog.dismiss();
-                    showUserFiltersManager();
+                    @Override
+                    public void onRefreshRequested() {
+                        showUserFiltersManager();
+                    }
                 });
-                rowL.addView(del);
-                list.addView(rowL);
-            }
-            sv.addView(list);
-            LinearLayout.LayoutParams svp = new LinearLayout.LayoutParams(-1, dp(320));
-            root.addView(sv, svp);
-
-            root.addView(menuDivider());
-            root.addView(menuRow(R.drawable.ic_clear, "Hapus semua filter situs ini", v -> {
-                if (UserElementFilterStore.clearHost(userElementFilters, host)) {
-                    persistUserElementFiltersForHost(host);
-                    applyUserFiltersForCurrentPage();
-                }
-                dialog.dismiss();
-                QuietToast.makeText(this, "Filter situs dihapus", QuietToast.LENGTH_SHORT).show();
-            }));
-        }
-
-        dialog.setContentView(root);
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.width = dp(330);
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            window.setAttributes(lp);
-        }
-        dialog.show();
     }
 
 
