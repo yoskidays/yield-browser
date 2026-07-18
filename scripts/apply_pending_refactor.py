@@ -4,6 +4,7 @@ import re
 SRC=Path('app/src/main/java/com/yieldbrowser/app/MainActivity.java')
 OUT=SRC.parent
 text=SRC.read_text()
+text=text.replace('\nprivate String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws Exception {', '\n    private String buildHlsFingerprint(HlsPlaylistParser.Playlist playlist) throws Exception {', 1)
 class_marker='public class MainActivity extends Activity\n        implements TranslateBridge.Callback, VideoBridge.Callback, AdBlockBridge.Callback {'
 ci=text.find(class_marker)
 if ci<0: raise SystemExit('class marker missing')
@@ -82,7 +83,8 @@ for m in methods:
     if is_static(m):
         root_static.append(widen_method(m['text']).replace('MainActivity.this','YieldActivityState.this'))
     else:
-        decls.append(abstract_decl(m))
+        if '@Override' not in m['text']:
+            decls.append(abstract_decl(m))
         s=widen_method(m['text'])
         if 2500 <= m['sl'] < 6300:
             s=s.replace('MainActivity.this','YieldDownloadActivity.this')
@@ -99,10 +101,12 @@ for d in decls:
     if key not in seen: seen.add(key);uniq.append(d)
 
 imports=prefix
-root=imports+'''abstract class YieldActivityState extends Activity {\n\n'''+state+'\n\n'+'\n\n'.join(root_static)+'\n\n    // Cross-layer virtual contract generated from the original MainActivity methods.\n'+'\n'.join(uniq)+'\n}\n'
+root=imports+'''abstract class YieldActivityState extends Activity
+        implements TranslateBridge.Callback, VideoBridge.Callback, AdBlockBridge.Callback {\n\n'''+state+'\n\n'+'\n\n'.join(root_static)+'\n\n    // Cross-layer virtual contract generated from the original MainActivity methods.\n'+'\n'.join(uniq)+'\n}\n'
 down=imports+'''abstract class YieldDownloadActivity extends YieldActivityState {\n\n'''+ '\n\n'.join(download).strip()+'\n}\n'
 webs=imports+'''abstract class YieldWebRuntimeActivity extends YieldDownloadActivity {\n\n'''+ '\n\n'.join(web).strip()+'\n}\n'
-mainf=imports+'''public class MainActivity extends YieldWebRuntimeActivity\n        implements TranslateBridge.Callback, VideoBridge.Callback, AdBlockBridge.Callback {\n\n'''+ '\n\n'.join(main).strip()+'\n}\n'
+mainf=imports+'''public class MainActivity extends YieldWebRuntimeActivity
+        implements TranslateBridge.Callback, VideoBridge.Callback, AdBlockBridge.Callback {\n\n'''+ '\n\n'.join(main).strip()+'\n}\n'
 outputs={}
 for name,data in [('YieldActivityState.java',root),('YieldDownloadActivity.java',down),('YieldWebRuntimeActivity.java',webs),('MainActivity.java',mainf)]:
     data=re.sub(r'\n[ \t]*\n(?:[ \t]*\n)+','\n\n',data)
@@ -112,5 +116,10 @@ for name,data in [('YieldActivityState.java',root),('YieldDownloadActivity.java'
 print('method groups',len(main),len(download),len(web),len(root_static),'decls',len(uniq))
 if len(outputs['MainActivity.java'].splitlines()) > 3000:
     raise SystemExit(f"MainActivity target not reached: {len(outputs['MainActivity.java'].splitlines())} lines")
+settings=OUT/'SettingsStore.java'
+settings_text=settings.read_text()
+settings_text=settings_text.replace('static void load(MainActivity a, SharedPreferences p)', 'static void load(YieldActivityState a, SharedPreferences p)')
+settings_text=settings_text.replace('static void save(MainActivity a, SharedPreferences p)', 'static void save(YieldActivityState a, SharedPreferences p)')
+settings.write_text(settings_text)
 if not (download and web and main):
     raise SystemExit('Generated domain split is incomplete')
