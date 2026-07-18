@@ -31,4 +31,10 @@ public class BrowserUtilityDialogsTest {
         assertFalse(VideoOptimizationDialogController.displayedMinimizeNormal(floating));
         assertTrue(VideoOptimizationDialogController.displayedMinimizeNormal(normal));
     }
+
+    @Test
+    public void minimizeNormalToggleCanBeEnabledAndDisabled() {
+        assertFalse(VideoOptimizationDialogController.toggledFloatingPlayer(true));
+        assertTrue(VideoOptimizationDialogController.toggledFloatingPlayer(false));
+    }
 }
