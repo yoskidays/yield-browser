@@ -162,6 +162,7 @@ abstract class YieldActivityState extends Activity
     final LifecycleCallbackGate lifecycleCallbackGate = new LifecycleCallbackGate();
     final AtomicBoolean downloadUiRefreshPosted = new AtomicBoolean(false);
     volatile long lastTrustedDownloadGestureAtMs = 0L;
+    volatile String lastTrustedDownloadSourceUrl = "";
 
     void runOnUiThreadIfAlive(Runnable action) {
         if (action == null || !lifecycleCallbackGate.isActive()) return;
@@ -171,27 +172,37 @@ abstract class YieldActivityState extends Activity
     }
 
     @Override
-    public void onTrustedDownloadGesture() {
+    public void onTrustedDownloadGesture(String sourceUrl) {
+        lastTrustedDownloadSourceUrl = sourceUrl == null ? "" : sourceUrl.trim();
         lastTrustedDownloadGestureAtMs = System.currentTimeMillis();
     }
 
     @Override
-    public void onTrustedDownloadOpen(String url) {
-        runOnUiThreadIfAlive(() -> openTrustedDownloadPopupIfAllowed(url));
+    public void onTrustedDownloadOpen(String url, String sourceUrl) {
+        runOnUiThreadIfAlive(() -> openTrustedDownloadPopupIfAllowed(url, sourceUrl));
     }
 
     boolean openTrustedDownloadPopupIfAllowed(String url) {
+        return openTrustedDownloadPopupIfAllowed(url, lastTrustedDownloadSourceUrl);
+    }
+
+    boolean openTrustedDownloadPopupIfAllowed(String url, String callbackSourceUrl) {
         String clean = url == null ? "" : url.trim();
         if (clean.length() == 0) return false;
+        String gestureSource = lastTrustedDownloadSourceUrl == null
+                ? "" : lastTrustedDownloadSourceUrl.trim();
         long now = System.currentTimeMillis();
         boolean allowed = TrustedDownloadPopupPolicy.canOpen(
-                ShieldEngineV2.isDownloadPage(getEffectiveCurrentUrl()),
+                ShieldEngineV2.isDownloadPage(gestureSource),
+                TrustedDownloadPopupPolicy.sameSourcePage(
+                        gestureSource, callbackSourceUrl),
                 isTrustedDownloadIntentUrl(clean),
                 lastTrustedDownloadGestureAtMs,
                 now);
         if (!allowed) return false;
 
         lastTrustedDownloadGestureAtMs = 0L;
+        lastTrustedDownloadSourceUrl = "";
         newTabInCurrentProfile();
         markTrustedMainFrameNavigation(clean);
         prepareTabForMainFrameNavigation(getCurrentTab(), clean);
