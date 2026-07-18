@@ -126,13 +126,6 @@ public class MainActivity extends YieldWebRuntimeActivity
         implements TranslateBridge.Callback, VideoBridge.Callback, AdBlockBridge.Callback {
 
 // ===== WebView JavaScript bridge callbacks =====
-    void runOnUiThreadIfAlive(Runnable action) {
-        if (action == null || !lifecycleCallbackGate.isActive()) return;
-        runOnUiThread(() -> {
-            if (lifecycleCallbackGate.isActive()) action.run();
-        });
-    }
-
     // The JS bridges (TranslateBridge, VideoBridge, AdBlockBridge) are now top-level forwarding
     // shells; MainActivity implements their callback interfaces. The bodies below are unchanged from
     // the former inner-class implementations, so behavior is identical.
