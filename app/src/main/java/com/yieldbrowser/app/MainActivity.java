@@ -168,6 +168,8 @@ public class MainActivity extends Activity
     private View bottomNavView;
     private TextView tabsCountText;
     private BrowserShellUi browserShellUi;
+    private PageToolsController pageToolsController;
+    private BrowserUtilityDialogsController browserUtilityDialogsController;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AtomicBoolean downloadUiRefreshPosted = new AtomicBoolean(false);
 
@@ -2983,116 +2985,43 @@ public class MainActivity extends Activity
         }
     }
 
+    private void ensurePageToolsController() {
+        if (pageToolsController == null) pageToolsController = new PageToolsController(this);
+    }
+
     private void showFindInPageDialog() {
-        if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            QuietToast.makeText(this, "Buka halaman dulu untuk mencari teks", QuietToast.LENGTH_SHORT).show();
-            return;
-        }
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(8), 0, dp(8), 0);
-
-        EditText input = new EditText(this);
-        input.setHint("Cari teks di halaman");
-        input.setSingleLine(true);
-        box.addView(input);
-
-        new AlertDialog.Builder(this)
-                .setTitle("Cari di halaman")
-                .setView(box)
-                .setPositiveButton("Cari", (dialog, which) -> {
-                    String q = input.getText().toString().trim();
-                    if (q.length() == 0) return;
-                    webView.setFindListener((activeMatchOrdinal, numberOfMatches, isDoneCounting) -> {
-                        if (isDoneCounting) {
-                            QuietToast.makeText(this, numberOfMatches + " hasil ditemukan", QuietToast.LENGTH_SHORT).show();
-                        }
-                    });
-                    webView.findAllAsync(q);
-                })
-                .setNeutralButton("Berikutnya", (dialog, which) -> webView.findNext(true))
-                .setNegativeButton("Tutup", null)
-                .show();
+        ensurePageToolsController();
+        pageToolsController.showFindInPage(webView);
     }
 
     private void shareCurrentPage() {
-        String url = getEffectiveCurrentUrl();
-        if (url == null || url.length() == 0) {
-            QuietToast.makeText(this, "Belum ada halaman untuk dibagikan", QuietToast.LENGTH_SHORT).show();
-            return;
-        }
-        Intent send = new Intent(Intent.ACTION_SEND);
-        send.setType("text/plain");
-        send.putExtra(Intent.EXTRA_TEXT, url);
-        startActivity(Intent.createChooser(send, "Bagikan halaman"));
+        ensurePageToolsController();
+        pageToolsController.sharePage(getEffectiveCurrentUrl());
     }
 
     private void copyCurrentLink() {
-        String url = getEffectiveCurrentUrl();
-        if (url == null || url.length() == 0) {
-            QuietToast.makeText(this, "Belum ada link untuk disalin", QuietToast.LENGTH_SHORT).show();
-            return;
-        }
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        if (clipboard != null) {
-            clipboard.setPrimaryClip(ClipData.newPlainText("Yield Browser URL", url));
-            QuietToast.makeText(this, "Link disalin", QuietToast.LENGTH_SHORT).show();
-        }
+        ensurePageToolsController();
+        pageToolsController.copyLink(getEffectiveCurrentUrl());
     }
 
     private void showPageInfoDialog() {
-        String url = getEffectiveCurrentUrl();
-        String title = webView != null ? webView.getTitle() : "Yield Browser";
-        if (url == null) url = "Home";
-        new AlertDialog.Builder(this)
-                .setTitle("Info halaman")
-                .setMessage("Judul:\\n" + (title == null ? "-" : title) + "\\n\\nURL:\\n" + url)
-                .setPositiveButton("Salin link", (dialog, which) -> copyCurrentLink())
-                .setNegativeButton("Tutup", null)
-                .show();
+        ensurePageToolsController();
+        pageToolsController.showPageInfo(webView, getEffectiveCurrentUrl());
     }
 
     private void toggleFullscreenMode() {
-        boolean fullscreen = topBarView != null && topBarView.getVisibility() == View.VISIBLE;
-        if (fullscreen) {
-            if (topBarView != null) topBarView.setVisibility(View.GONE);
-            if (bottomNavView != null) bottomNavView.setVisibility(View.GONE);
-            getWindow().getDecorView().setSystemUiVisibility(
-                    View.SYSTEM_UI_FLAG_FULLSCREEN |
-                            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-                            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
-                            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
-                            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
-                            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            );
-            QuietToast.makeText(this, "Mode layar penuh aktif. Tekan Back untuk keluar.", QuietToast.LENGTH_LONG).show();
-        } else {
-            exitFullscreenMode();
-        }
+        ensurePageToolsController();
+        pageToolsController.toggleFullscreen(topBarView, bottomNavView);
     }
 
     private void exitFullscreenMode() {
-        if (topBarView != null) topBarView.setVisibility(View.VISIBLE);
-        if (bottomNavView != null) bottomNavView.setVisibility(View.VISIBLE);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+        ensurePageToolsController();
+        pageToolsController.exitFullscreen(topBarView, bottomNavView);
     }
 
     private void saveCurrentPageOffline() {
-        if (webView == null || webView.getVisibility() != View.VISIBLE) {
-            QuietToast.makeText(this, "Buka halaman dulu untuk disimpan", QuietToast.LENGTH_SHORT).show();
-            return;
-        }
-        try {
-            File dir = new File(getExternalFilesDir(null), "OfflinePages");
-            if (!dir.exists()) dir.mkdirs();
-            String safeName = "page_" + System.currentTimeMillis() + ".mht";
-            File out = new File(dir, safeName);
-            webView.saveWebArchive(out.getAbsolutePath());
-            QuietToast.makeText(this, "Halaman disimpan: " + out.getName(), QuietToast.LENGTH_LONG).show();
-        } catch (Exception e) {
-            QuietToast.makeText(this, "Gagal menyimpan halaman: " + e.getMessage(), QuietToast.LENGTH_SHORT).show();
-        }
+        ensurePageToolsController();
+        pageToolsController.savePageOffline(webView);
     }
 
     private boolean shouldRecordHistoryUrl(String url) {
@@ -3242,144 +3171,30 @@ public class MainActivity extends Activity
         });
     }
 
-    private void showTextZoomDialog(Dialog parentDialog) {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(18), dp(18), dp(18), dp(18));
-        panel.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(24), dp(1), Color.parseColor("#3A3D45")));
-
-        TextView title = new TextView(this);
-        title.setText("Ukuran teks");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(22);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        panel.addView(title);
-
-        TextView desc = new TextView(this);
-        desc.setText("Geser untuk mengatur ukuran teks halaman web.");
-        desc.setTextColor(COLOR_SUBTEXT);
-        desc.setTextSize(13);
-        desc.setPadding(0, dp(8), 0, dp(14));
-        panel.addView(desc);
-
-        TextView percent = new TextView(this);
-        percent.setText(textZoom + "%");
-        percent.setTextColor(COLOR_ACCENT);
-        percent.setTextSize(30);
-        percent.setTypeface(Typeface.DEFAULT_BOLD);
-        percent.setGravity(Gravity.CENTER);
-        panel.addView(percent, new LinearLayout.LayoutParams(-1, -2));
-
-        SeekBar slider = new SeekBar(this);
-        slider.setMax(80); // 70% sampai 150%
-        int current = textZoom;
-        if (current < 70) current = 70;
-        if (current > 150) current = 150;
-        slider.setProgress(current - 70);
-        LinearLayout.LayoutParams sliderParams = new LinearLayout.LayoutParams(-1, dp(52));
-        sliderParams.setMargins(0, dp(10), 0, dp(8));
-        panel.addView(slider, sliderParams);
-
-        LinearLayout labels = new LinearLayout(this);
-        labels.setOrientation(LinearLayout.HORIZONTAL);
-        labels.setGravity(Gravity.CENTER_VERTICAL);
-
-        TextView small = new TextView(this);
-        small.setText("70%");
-        small.setTextColor(COLOR_SUBTEXT);
-        small.setTextSize(12);
-        labels.addView(small, new LinearLayout.LayoutParams(0, -2, 1));
-
-        TextView normal = new TextView(this);
-        normal.setText("100%");
-        normal.setTextColor(COLOR_SUBTEXT);
-        normal.setTextSize(12);
-        normal.setGravity(Gravity.CENTER);
-        labels.addView(normal, new LinearLayout.LayoutParams(0, -2, 1));
-
-        TextView big = new TextView(this);
-        big.setText("150%");
-        big.setTextColor(COLOR_SUBTEXT);
-        big.setTextSize(12);
-        big.setGravity(Gravity.RIGHT);
-        labels.addView(big, new LinearLayout.LayoutParams(0, -2, 1));
-        panel.addView(labels);
-
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams buttonRowParams = new LinearLayout.LayoutParams(-1, dp(52));
-        buttonRowParams.setMargins(0, dp(18), 0, 0);
-
-        TextView reset = new TextView(this);
-        reset.setText("Reset");
-        reset.setTextColor(Color.WHITE);
-        reset.setGravity(Gravity.CENTER);
-        reset.setTextSize(15);
-        reset.setTypeface(Typeface.DEFAULT_BOLD);
-        reset.setBackground(roundRect(Color.parseColor("#2A2E36"), dp(18), dp(1), COLOR_BORDER));
-        buttons.addView(reset, new LinearLayout.LayoutParams(0, dp(46), 1));
-
-        TextView save = new TextView(this);
-        save.setText("Simpan");
-        save.setTextColor(Color.parseColor("#111111"));
-        save.setGravity(Gravity.CENTER);
-        save.setTextSize(15);
-        save.setTypeface(Typeface.DEFAULT_BOLD);
-        save.setBackground(roundRect(COLOR_ACCENT, dp(18), 0, Color.TRANSPARENT));
-        LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(0, dp(46), 1);
-        saveParams.setMargins(dp(10), 0, 0, 0);
-        buttons.addView(save, saveParams);
-        panel.addView(buttons, buttonRowParams);
-
-        final int[] selectedZoom = new int[]{current};
-
-        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                selectedZoom[0] = progress + 70;
-                percent.setText(selectedZoom[0] + "%");
-            }
-
-            @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {
-            }
-
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
-            }
-        });
-
-        reset.setOnClickListener(v -> {
-            selectedZoom[0] = 100;
-            slider.setProgress(30);
-            percent.setText("100%");
-        });
-
-        save.setOnClickListener(v -> {
-            textZoom = selectedZoom[0];
-            applyBrowserSettings();
-            saveSettings();
-            QuietToast.makeText(this, "Ukuran teks: " + textZoom + "%", QuietToast.LENGTH_SHORT).show();
-            dialog.dismiss();
-            parentDialog.dismiss();
-            showSettingsPanel();
-        });
-
-        dialog.setContentView(panel);
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.gravity = Gravity.BOTTOM;
-            lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            window.setAttributes(lp);
+    private void ensureBrowserUtilityDialogsController() {
+        if (browserUtilityDialogsController == null) {
+            browserUtilityDialogsController = new BrowserUtilityDialogsController(this);
         }
-        dialog.show();
+    }
+
+    private void showTextZoomDialog(Dialog parentDialog) {
+        ensureBrowserUtilityDialogsController();
+        browserUtilityDialogsController.showTextZoom(
+                parentDialog,
+                textZoom,
+                new BrowserUtilityDialogsController.TextZoomHandler() {
+                    @Override
+                    public void saveZoom(int zoom) {
+                        textZoom = zoom;
+                        applyBrowserSettings();
+                        saveSettings();
+                    }
+
+                    @Override
+                    public void reopenSettings() {
+                        showSettingsPanel();
+                    }
+                });
     }
 
     private String getDownloadLocationText() {
@@ -3390,141 +3205,40 @@ public class MainActivity extends Activity
     }
 
     private void showDownloadFolderDialog(Dialog parentDialog) {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        ensureBrowserUtilityDialogsController();
+        browserUtilityDialogsController.showDownloadFolder(
+                parentDialog,
+                downloadSubfolder,
+                getDownloadLocationText(),
+                new BrowserUtilityDialogsController.DownloadFolderHandler() {
+                    @Override
+                    public void saveSubfolder(String subfolder) {
+                        downloadSubfolder = subfolder;
+                        saveSettings();
+                    }
 
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(22), dp(20), dp(22), dp(16));
-        box.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(22), dp(1), COLOR_BORDER));
+                    @Override
+                    public void choosePhoneFolder(String subfolder) {
+                        downloadSubfolder = subfolder;
+                        saveSettings();
+                        chooseExternalDownloadFolder();
+                    }
 
-        TextView title = new TextView(this);
-        title.setText("Folder unduhan");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(22);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        box.addView(title);
+                    @Override
+                    public void resetDefault(String subfolder) {
+                        downloadSubfolder = subfolder;
+                        selectedDownloadTreeUri = "";
+                        saveSettings();
+                    }
 
-        TextView info = new TextView(this);
-        info.setText("Default hasil download masuk ke folder Download/Yield Browser. Folder app tetap dipakai sebagai staging agar download 2 koneksi tetap stabil.");
-        info.setTextColor(COLOR_SUBTEXT);
-        info.setTextSize(14);
-        info.setLineSpacing(0, 1.08f);
-        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(-1, -2);
-        infoLp.setMargins(0, dp(8), 0, dp(14));
-        box.addView(info, infoLp);
-
-        EditText input = new EditText(this);
-        input.setText(downloadSubfolder);
-        input.setSingleLine(true);
-        input.setHint("Nama subfolder staging");
-        input.setHintTextColor(Color.parseColor("#8D929C"));
-        input.setTextColor(Color.WHITE);
-        input.setTextSize(17);
-        input.setSelectAllOnFocus(false);
-        try {
-            input.setBackgroundTintList(ColorStateList.valueOf(COLOR_ACCENT));
-        } catch (Exception ignored) {}
-        box.addView(input, new LinearLayout.LayoutParams(-1, -2));
-
-        TextView current = new TextView(this);
-        current.setText(getDownloadLocationText());
-        current.setTextColor(COLOR_SUBTEXT);
-        current.setTextSize(12);
-        current.setLineSpacing(0, 1.05f);
-        LinearLayout.LayoutParams curLp = new LinearLayout.LayoutParams(-1, -2);
-        curLp.setMargins(0, dp(12), 0, dp(10));
-        box.addView(current, curLp);
-
-        TextView choose = darkDialogActionButton("PILIH FOLDER HP");
-        choose.setOnClickListener(v -> {
-            String value = input.getText().toString().trim();
-            if (value.length() == 0) value = "Download";
-            value = value.replace("/", "-").replace("\\", "-");
-            downloadSubfolder = value;
-            saveSettings();
-            dialog.dismiss();
-            if (parentDialog != null) parentDialog.dismiss();
-            chooseExternalDownloadFolder();
-        });
-        box.addView(choose, new LinearLayout.LayoutParams(-1, dp(46)));
-
-        TextView reset = darkDialogActionButton("RESET DEFAULT\nDOWNLOAD/YIELD BROWSER");
-        reset.setTextSize(12);
-        reset.setSingleLine(false);
-        reset.setMaxLines(2);
-        reset.setLineSpacing(0, 0.92f);
-        reset.setOnClickListener(v -> {
-            String value = input.getText().toString().trim();
-            if (value.length() == 0) value = "Download";
-            value = value.replace("/", "-").replace("\\", "-");
-            downloadSubfolder = value;
-            selectedDownloadTreeUri = "";
-            saveSettings();
-            QuietToast.makeText(this, "Default: Download/Yield Browser", QuietToast.LENGTH_SHORT).show();
-            dialog.dismiss();
-            if (parentDialog != null) {
-                parentDialog.dismiss();
-                showDownloadSettingsPanel();
-            }
-        });
-        box.addView(reset, new LinearLayout.LayoutParams(-1, dp(62)));
-
-        LinearLayout bottom = new LinearLayout(this);
-        bottom.setGravity(Gravity.END);
-        bottom.setPadding(0, dp(8), 0, 0);
-
-        TextView cancel = dialogTextButton("BATAL");
-        cancel.setOnClickListener(v -> dialog.dismiss());
-        bottom.addView(cancel);
-
-        TextView save = dialogTextButton("SIMPAN");
-        save.setOnClickListener(v -> {
-            String value = input.getText().toString().trim();
-            if (value.length() == 0) value = "Download";
-            value = value.replace("/", "-").replace("\\", "-");
-            downloadSubfolder = value;
-            saveSettings();
-            QuietToast.makeText(this, "Subfolder staging disimpan", QuietToast.LENGTH_SHORT).show();
-            dialog.dismiss();
-            if (parentDialog != null) {
-                parentDialog.dismiss();
-                showDownloadSettingsPanel();
-            }
-        });
-        bottom.addView(save);
-
-        box.addView(bottom);
-
-        dialog.setContentView(box);
-        dialog.show();
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.88f);
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            window.setAttributes(lp);
-        }
+                    @Override
+                    public void reopenDownloadSettings() {
+                        showDownloadSettingsPanel();
+                    }
+                });
     }
 
-    private TextView darkDialogActionButton(String text) {
-        TextView btn = new TextView(this);
-        btn.setText(text);
-        btn.setTextColor(Color.WHITE);
-        btn.setTextSize(13);
-        btn.setTypeface(Typeface.DEFAULT_BOLD);
-        btn.setGravity(Gravity.CENTER);
-        btn.setSingleLine(false);
-        btn.setMaxLines(2);
-        btn.setLineSpacing(0, 0.95f);
-        btn.setPadding(dp(12), dp(8), dp(12), dp(8));
-        btn.setBackground(roundRect(Color.parseColor("#343740"), dp(14), dp(1), COLOR_BORDER));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(46));
-        lp.setMargins(0, dp(6), 0, 0);
-        btn.setLayoutParams(lp);
-        return btn;
-    }
+
 
     private void chooseExternalDownloadFolder() {
         try {
