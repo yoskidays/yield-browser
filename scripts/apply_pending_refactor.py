@@ -143,7 +143,6 @@ for signature in [
     "    private void renderDownloadControlsIfNeeded() {",
     "    private View downloadToolRow() {",
     "    private View downloadQueueControlRow() {",
-    "    private TextView downloadToolButton(String text) {",
     "    private ArrayList<DownloadItem> getFilteredDownloadItems() {",
     "    private DownloadUiItem buildDownloadUiItem(DownloadItem item) {",
     "    private int getDownloadQueuePosition(DownloadItem target) {",
