@@ -31,6 +31,10 @@ public class ShieldPageScriptTest {
                 "onTrustedDownloadGesture(String(location.href||''))"));
         assertTrue(script.contains(
                 "onTrustedDownloadOpen(abs(u),String(location.href||''))"));
+        assertTrue(script.contains("function openTrustedDownloadClick"));
+        assertTrue(script.contains("e.type!=='click'&&e.type!=='auxclick'"));
+        assertTrue(script.contains(
+                "if(u&&openTrustedDownloadClick(e,e.target,u))return"));
         assertTrue(script.contains("return{closed:false,focus:function(){},close:function(){}}"));
         assertTrue(script.contains("return{closed:true,focus:function(){},close:function(){}}"));
         assertTrue(script.contains("function fakeRewardAd"));
