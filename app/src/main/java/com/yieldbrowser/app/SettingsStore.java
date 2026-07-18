@@ -19,7 +19,7 @@ final class SettingsStore {
         // Utility class.
     }
 
-    static void load(MainActivity a, SharedPreferences p) {
+    static void load(YieldActivityState a, SharedPreferences p) {
         a.speedMode = p.getBoolean("speedMode", false);
         a.safeMode = p.getBoolean("safeMode", true);
         a.nightMode = p.getBoolean("nightMode", true);
@@ -130,7 +130,7 @@ final class SettingsStore {
         }
         }
 
-    static void save(MainActivity a, SharedPreferences p) {
+    static void save(YieldActivityState a, SharedPreferences p) {
         p.edit()
                 .putBoolean("speedMode", a.speedMode)
                 .putBoolean("safeMode", a.safeMode)
