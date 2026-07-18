@@ -104,35 +104,7 @@ final class DownloadUrlPolicy {
     }
 
     static boolean isTrustedDownloadHostForAllow(String host) {
-        if (host == null) return false;
-        String h = host.toLowerCase(Locale.US);
-        return h.equals("drive.usercontent.google.com")
-                || h.equals("drive.google.com")
-                || h.equals("docs.google.com")
-                || h.endsWith(".googleusercontent.com")
-                || h.equals("github.com")
-                || h.endsWith(".github.com")
-                || h.equals("objects.githubusercontent.com")
-                || h.equals("raw.githubusercontent.com")
-                || h.endsWith(".githubusercontent.com")
-                || h.equals("sourceforge.net")
-                || h.endsWith(".sourceforge.net")
-                || h.equals("mediafire.com")
-                || h.endsWith(".mediafire.com")
-                || h.equals("dropbox.com")
-                || h.endsWith(".dropbox.com")
-                || h.equals("dropboxusercontent.com")
-                || h.endsWith(".dropboxusercontent.com")
-                || h.equals("onedrive.live.com")
-                || h.equals("1drv.ms")
-                || h.equals("mega.nz")
-                || h.endsWith(".mega.nz")
-                || h.equals("pixeldrain.com")
-                || h.endsWith(".pixeldrain.com")
-                || h.equals("gofile.io")
-                || h.endsWith(".gofile.io")
-                || h.equals("archive.org")
-                || h.endsWith(".archive.org");
+        return ShieldUrlRules.isTrustedDownloadHost(host);
     }
 
     static boolean isSuspiciousAdHostForDownloadAllow(String host) {

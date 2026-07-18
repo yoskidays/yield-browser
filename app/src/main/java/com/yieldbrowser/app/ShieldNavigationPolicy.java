@@ -146,8 +146,7 @@ final class ShieldNavigationPolicy {
         if (targetHost.isEmpty() || sourceHost.isEmpty()) return false;
         if (ShieldUrlRules.sameSite(targetHost, sourceHost)) return true;
 
-        return ShieldUrlRules.DOWNLOAD_TARGET_HINT
-                .matcher(ShieldUrlRules.decodedLower(targetUrl)).find();
+        return ShieldUrlRules.isTrustedDownloadHost(targetHost);
     }
 
     private static boolean isCleanDownloadTarget(String targetUrl) {
