@@ -2123,253 +2123,54 @@ content.addView(space(dp(36)));
     private void showTabsPanel() {
         TabInfo current = getCurrentTab();
         boolean defaultPrivate = BrowserSpacePolicy.isPrivateSpace(
-                dedicatedPrivateProfile, current != null && current.privateTab, Build.VERSION.SDK_INT);
+                dedicatedPrivateProfile,
+                current != null && current.privateTab,
+                Build.VERSION.SDK_INT);
         showTabsPanelForSpace(defaultPrivate);
     }
 
     private void showTabsPanelForSpace(boolean privateSpace) {
-        // On modern Android each profile lives in its own process and task. Selecting the other
-        // segment brings that space forward; it never converts a live tab between profiles.
         if (BrowserSpacePolicy.mustOpenOtherProcess(
                 privateSpace, dedicatedPrivateProfile, Build.VERSION.SDK_INT)) {
             if (privateSpace) launchDedicatedPrivateProfile(true);
             else launchNormalProfile(true, false);
             return;
         }
-
         saveCurrentTabState();
-
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(18), dp(18), dp(14));
-        root.setBackgroundColor(COLOR_BG);
-
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-
-        LinearLayout heading = new LinearLayout(this);
-        heading.setOrientation(LinearLayout.VERTICAL);
-        TextView title = new TextView(this);
-        title.setText(privateSpace ? "Tab Privat" : "Tab Umum");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(26);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        heading.addView(title);
-        TextView count = new TextView(this);
-        int visibleCount = countTabsForSpace(privateSpace);
-        count.setText(visibleCount + " tab terbuka");
-        count.setTextColor(COLOR_SUBTEXT);
-        count.setTextSize(12);
-        heading.addView(count);
-        header.addView(heading, new LinearLayout.LayoutParams(0, dp(58), 1));
-
-        TextView plus = new TextView(this);
-        plus.setText("+");
-        plus.setContentDescription(privateSpace ? "Buka tab privat baru" : "Buka tab umum baru");
-        plus.setTextColor(privateSpace ? Color.WHITE : Color.parseColor("#111111"));
-        plus.setTextSize(28);
-        plus.setTypeface(Typeface.DEFAULT_BOLD);
-        plus.setGravity(Gravity.CENTER);
-        plus.setBackground(roundRect(privateSpace ? Color.parseColor("#6D28D9") : COLOR_ACCENT,
-                dp(18), 0, Color.TRANSPARENT));
-        plus.setOnClickListener(v -> {
-            dialog.dismiss();
-            if (privateSpace) {
-                if (dedicatedPrivateProfile) newTabInCurrentProfile();
-                else newPrivateTab();
-            } else {
-                if (dedicatedPrivateProfile) launchNormalProfile(false, true);
-                else newTabInCurrentProfile();
+        new TabsPanelController(this, tabs, getCurrentTab(), new TabsPanelController.Host() {
+            @Override
+            public void selectSpace(boolean selectedPrivateSpace) {
+                showTabsPanelForSpace(selectedPrivateSpace);
             }
-        });
-        header.addView(plus, new LinearLayout.LayoutParams(dp(48), dp(42)));
 
-        TextView close = new TextView(this);
-        close.setText("×");
-        close.setTextColor(Color.parseColor("#D7DAE0"));
-        close.setTextSize(34);
-        close.setGravity(Gravity.CENTER);
-        close.setOnClickListener(v -> dialog.dismiss());
-        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(dp(44), dp(44));
-        closeParams.setMargins(dp(8), 0, 0, 0);
-        header.addView(close, closeParams);
-        root.addView(header);
+            @Override
+            public void createTab(boolean selectedPrivateSpace) {
+                if (selectedPrivateSpace) {
+                    if (dedicatedPrivateProfile) newTabInCurrentProfile();
+                    else newPrivateTab();
+                } else if (dedicatedPrivateProfile) {
+                    launchNormalProfile(false, true);
+                } else {
+                    newTabInCurrentProfile();
+                }
+            }
 
-        LinearLayout selector = new LinearLayout(this);
-        selector.setOrientation(LinearLayout.HORIZONTAL);
-        selector.setPadding(dp(4), dp(4), dp(4), dp(4));
-        selector.setBackground(roundRect(Color.parseColor("#17191F"), dp(20), dp(1), COLOR_BORDER));
-        TextView normalChip = profileSpaceChip("Umum", !privateSpace, false);
-        TextView privateChip = profileSpaceChip("Privat", privateSpace, true);
-        normalChip.setOnClickListener(v -> {
-            if (!privateSpace) return;
-            dialog.dismiss();
-            showTabsPanelForSpace(false);
-        });
-        privateChip.setOnClickListener(v -> {
-            if (privateSpace) return;
-            dialog.dismiss();
-            showTabsPanelForSpace(true);
-        });
-        selector.addView(normalChip, new LinearLayout.LayoutParams(0, dp(42), 1));
-        LinearLayout.LayoutParams privateChipParams = new LinearLayout.LayoutParams(0, dp(42), 1);
-        privateChipParams.setMargins(dp(6), 0, 0, 0);
-        selector.addView(privateChip, privateChipParams);
-        LinearLayout.LayoutParams selectorParams = new LinearLayout.LayoutParams(-1, dp(50));
-        selectorParams.setMargins(0, dp(8), 0, dp(12));
-        root.addView(selector, selectorParams);
+            @Override
+            public void selectTab(TabInfo tab) {
+                switchToTab(tab);
+            }
 
-        TextView hint = new TextView(this);
-        hint.setText(privateSpace
-                ? "Tab privat memakai profil terisolasi dan tidak disimpan ke sesi umum."
-                : "Tab umum menyimpan sesi agar dapat dipulihkan saat aplikasi dibuka kembali.");
-        hint.setTextColor(COLOR_SUBTEXT);
-        hint.setTextSize(13);
-        hint.setPadding(dp(2), 0, dp(2), dp(12));
-        root.addView(hint);
+            @Override
+            public void closeTab(TabInfo tab, boolean selectedPrivateSpace) {
+                MainActivity.this.closeTab(tab);
+            }
 
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(list);
-
-        int displayNumber = 0;
-        for (TabInfo tab : tabs) {
-            if (tab == null || tab.closed || tab.privateTab != privateSpace) continue;
-            displayNumber++;
-            list.addView(tabRow(tab, displayNumber, dialog, privateSpace));
-        }
-
-        if (displayNumber == 0) {
-            LinearLayout empty = new LinearLayout(this);
-            empty.setOrientation(LinearLayout.VERTICAL);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(dp(20), dp(48), dp(20), dp(48));
-            ImageView icon = new ImageView(this);
-            icon.setImageResource(privateSpace ? R.drawable.ic_private : R.drawable.ic_tabs);
-            icon.setColorFilter(privateSpace ? Color.parseColor("#C4A7FF") : COLOR_ACCENT);
-            empty.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
-            TextView emptyTitle = new TextView(this);
-            emptyTitle.setText(privateSpace ? "Belum ada tab privat" : "Belum ada tab umum");
-            emptyTitle.setTextColor(COLOR_TEXT);
-            emptyTitle.setTextSize(17);
-            emptyTitle.setTypeface(Typeface.DEFAULT_BOLD);
-            emptyTitle.setGravity(Gravity.CENTER);
-            LinearLayout.LayoutParams et = new LinearLayout.LayoutParams(-1, -2);
-            et.setMargins(0, dp(14), 0, dp(6));
-            empty.addView(emptyTitle, et);
-            TextView emptyHint = new TextView(this);
-            emptyHint.setText("Tekan + untuk membuka tab baru di ruang ini.");
-            emptyHint.setTextColor(COLOR_SUBTEXT);
-            emptyHint.setTextSize(13);
-            emptyHint.setGravity(Gravity.CENTER);
-            empty.addView(emptyHint);
-            list.addView(empty);
-        }
-
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-
-        dialog.setContentView(root);
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.gravity = Gravity.CENTER;
-            lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-            lp.height = WindowManager.LayoutParams.MATCH_PARENT;
-            window.setAttributes(lp);
-        }
-        dialog.show();
+            @Override
+            public boolean isActivityFinishing() {
+                return isFinishing();
+            }
+        }).show(privateSpace);
     }
-
-    private int countTabsForSpace(boolean privateSpace) {
-        int count = 0;
-        for (TabInfo tab : tabs) {
-            if (tab != null && !tab.closed && tab.privateTab == privateSpace) count++;
-        }
-        return count;
-    }
-
-
-    private TextView profileSpaceChip(String label, boolean selected, boolean privateSpace) {
-        return SettingsUi.profileSpaceChip(this, label, selected, privateSpace);
-    }
-
-
-    private View tabRow(TabInfo tab, int displayNumber, Dialog dialog, boolean privateSpace) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(12), dp(10), dp(12));
-        boolean active = tab == getCurrentTab();
-        int activeColor = privateSpace ? Color.parseColor("#8B5CF6") : COLOR_ACCENT;
-        row.setBackground(roundRect(active ? Color.parseColor("#20232A") : Color.parseColor("#15171D"),
-                dp(18), dp(1), active ? activeColor : COLOR_BORDER));
-
-        TextView badge = new TextView(this);
-        badge.setText(tab.adTab ? "Ad" : (privateSpace ? "P" : String.valueOf(displayNumber)));
-        badge.setTextColor(privateSpace ? Color.WHITE : Color.parseColor("#111111"));
-        badge.setTextSize(13);
-        badge.setTypeface(Typeface.DEFAULT_BOLD);
-        badge.setGravity(Gravity.CENTER);
-        badge.setBackground(roundRect(privateSpace ? Color.parseColor("#6D28D9") : COLOR_ACCENT,
-                dp(14), 0, Color.TRANSPARENT));
-        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(dp(36), dp(36));
-        badgeParams.setMargins(0, 0, dp(12), 0);
-        row.addView(badge, badgeParams);
-
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-
-        TextView title = new TextView(this);
-        String tabTitle = tab.title == null || tab.title.length() == 0
-                ? (privateSpace ? "Tab privat" : "Tab baru") : tab.title;
-        title.setText(tabTitle);
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(15);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setSingleLine(true);
-        title.setEllipsize(TextUtils.TruncateAt.END);
-        texts.addView(title);
-
-        TextView url = new TextView(this);
-        String urlText = tab.url == null || tab.url.length() == 0 ? "Halaman awal" : tab.url;
-        url.setText(privateSpace ? "Privat • " + urlText : urlText);
-        url.setTextColor(COLOR_SUBTEXT);
-        url.setTextSize(12);
-        url.setSingleLine(true);
-        url.setEllipsize(TextUtils.TruncateAt.END);
-        texts.addView(url);
-
-        row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
-
-        TextView close = new TextView(this);
-        close.setText("×");
-        close.setContentDescription("Tutup tab");
-        close.setTextColor(Color.WHITE);
-        close.setTextSize(26);
-        close.setGravity(Gravity.CENTER);
-        close.setOnClickListener(v -> {
-            closeTab(tab);
-            if (!isFinishing()) switchDialogSmooth(dialog, () -> showTabsPanelForSpace(privateSpace));
-        });
-        row.addView(close, new LinearLayout.LayoutParams(dp(42), dp(42)));
-
-        row.setOnClickListener(v -> {
-            dialog.dismiss();
-            switchToTab(tab);
-        });
-
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.setMargins(0, 0, 0, dp(10));
-        row.setLayoutParams(params);
-        return row;
-    }
-
 
     private void showQuickMenu() {
         QuickMenuController.State state = new QuickMenuController.State(
