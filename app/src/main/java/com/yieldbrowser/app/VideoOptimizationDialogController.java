@@ -148,6 +148,10 @@ final class VideoOptimizationDialogController {
         return state != null && !state.floatingPlayer;
     }
 
+    static boolean toggledFloatingPlayer(boolean currentFloatingPlayer) {
+        return !currentFloatingPlayer;
+    }
+
     private View toggle(String title,
                         String description,
                         boolean enabled,
