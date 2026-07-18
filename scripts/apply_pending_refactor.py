@@ -30,9 +30,7 @@ wrapper = """    private void showDownloadSettingsPanel() {
 
             @Override
             public String queueSummary() {
-                return "Maks aktif: " + downloadMaxActive
-                        + " • aktif: " + countActiveDownloads()
-                        + " • antri: " + countQueuedDownloads();
+                return getDownloadQueueSummary();
             }
 
             @Override
@@ -118,10 +116,21 @@ wrapper = """    private void showDownloadSettingsPanel() {
                 }
             }
         }).showMain();
+    }
+
+    private String getDownloadQueueSummary() {
+        return "Maks aktif: " + downloadMaxActive
+                + " • aktif: " + countActiveDownloads()
+                + " • antri: " + countQueuedDownloads();
     }"""
 text = replace_between(
         text,
         "private void showDownloadSettingsPanel() {",
-        "    private void showVideoControlsIfAllowed() {",
+        "    private void showDownloadQueueSettingsDialog() {",
         wrapper)
+text = replace_between(
+        text,
+        "    private void showAdvancedDownloadFeaturesDialog(Dialog parentDialog) {",
+        "    private void showVideoControlsIfAllowed() {",
+        "")
 PATH.write_text(text)
