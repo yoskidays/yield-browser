@@ -11,76 +11,70 @@ policy = POLICY.read_text()
 download_policy = DOWNLOAD_POLICY.read_text()
 script = SCRIPT.read_text()
 
-known_ad_anchor = '''    static final Pattern KNOWN_AD_HOST = Pattern.compile(
-            "(?:^|\\.)(?:doubleclick\\.net|googlesyndication\\.com|googleadservices\\.com|adservice\\.google\\.[a-z.]+|onclickads\\.net|clickadu\\.com|popads\\.net|popcash\\.net|propellerads\\.com|adsterra\\.com|hilltopads\\.net|exoclick\\.com|trafficjunky\\.net|juicyads\\.com|admaven\\.com|realsrv\\.com|taboola\\.com|outbrain\\.com|mgid\\.com|revcontent\\.com|hotterydiseur\\.[a-z.]+|sewarsremeets\\.[a-z.]+|invest-tracing\\.[a-z.]+)$",
-            Pattern.CASE_INSENSITIVE);
-
-    static final Pattern CHEAP_AD_TLD'''
-trusted_pattern = '''    static final Pattern KNOWN_AD_HOST = Pattern.compile(
-            "(?:^|\\.)(?:doubleclick\\.net|googlesyndication\\.com|googleadservices\\.com|adservice\\.google\\.[a-z.]+|onclickads\\.net|clickadu\\.com|popads\\.net|popcash\\.net|propellerads\\.com|adsterra\\.com|hilltopads\\.net|exoclick\\.com|trafficjunky\\.net|juicyads\\.com|admaven\\.com|realsrv\\.com|taboola\\.com|outbrain\\.com|mgid\\.com|revcontent\\.com|hotterydiseur\\.[a-z.]+|sewarsremeets\\.[a-z.]+|invest-tracing\\.[a-z.]+)$",
-            Pattern.CASE_INSENSITIVE);
-
-    static final Pattern TRUSTED_DOWNLOAD_HOST = Pattern.compile(
+cheap_pattern_marker = "    static final Pattern CHEAP_AD_TLD = Pattern.compile("
+trusted_pattern = r'''    static final Pattern TRUSTED_DOWNLOAD_HOST = Pattern.compile(
             "(?:^|\\.)(?:drive\\.usercontent\\.google\\.com|drive\\.google\\.com|docs\\.google\\.com|googleusercontent\\.com|github\\.com|githubusercontent\\.com|sourceforge\\.net|mediafire\\.com|dropbox\\.com|dropboxusercontent\\.com|onedrive\\.live\\.com|1drv\\.ms|mega\\.nz|pixeldrain\\.com|gofile\\.io|archive\\.org)$",
             Pattern.CASE_INSENSITIVE);
 
-    static final Pattern CHEAP_AD_TLD'''
-if rules.count(known_ad_anchor) != 1:
-    raise SystemExit("Unexpected KNOWN_AD_HOST anchor count")
-rules = rules.replace(known_ad_anchor, trusted_pattern, 1)
+'''
+if "TRUSTED_DOWNLOAD_HOST" in rules:
+    raise SystemExit("Trusted download host pattern already exists")
+if rules.count(cheap_pattern_marker) != 1:
+    raise SystemExit("Unexpected CHEAP_AD_TLD marker count")
+rules = rules.replace(cheap_pattern_marker, trusted_pattern + cheap_pattern_marker, 1)
 
-method_anchor = '''    static boolean isKnownAdHost(String host) {
-        return host != null && KNOWN_AD_HOST.matcher(host).find();
-    }
-
-    static boolean isCheapAdHost'''
-method_replacement = '''    static boolean isKnownAdHost(String host) {
-        return host != null && KNOWN_AD_HOST.matcher(host).find();
-    }
-
-    static boolean isTrustedDownloadHost(String host) {
+cheap_method_marker = "    static boolean isCheapAdHost(String host) {"
+trusted_method = '''    static boolean isTrustedDownloadHost(String host) {
         return host != null && TRUSTED_DOWNLOAD_HOST.matcher(host).find();
     }
 
-    static boolean isCheapAdHost'''
-if rules.count(method_anchor) != 1:
-    raise SystemExit("Unexpected trusted-host method anchor count")
-rules = rules.replace(method_anchor, method_replacement, 1)
+'''
+if rules.count(cheap_method_marker) != 1:
+    raise SystemExit("Unexpected isCheapAdHost marker count")
+rules = rules.replace(cheap_method_marker, trusted_method + cheap_method_marker, 1)
 
 safe_anchor = '''        return ShieldUrlRules.DOWNLOAD_TARGET_HINT
                 .matcher(ShieldUrlRules.decodedLower(targetUrl)).find();'''
-safe_replacement = '''        return ShieldUrlRules.isTrustedDownloadHost(targetHost);'''
 if policy.count(safe_anchor) != 1:
     raise SystemExit("Unexpected safe-download cross-site anchor count")
-policy = policy.replace(safe_anchor, safe_replacement, 1)
+policy = policy.replace(
+        safe_anchor,
+        "        return ShieldUrlRules.isTrustedDownloadHost(targetHost);",
+        1)
 
-allow_start = download_policy.index("    static boolean isTrustedDownloadHostForAllow(String host) {")
-allow_end = download_policy.index("\n    static boolean isSuspiciousAdHostForDownloadAllow", allow_start)
-allow_replacement = '''    static boolean isTrustedDownloadHostForAllow(String host) {
+allow_start_marker = "    static boolean isTrustedDownloadHostForAllow(String host) {"
+allow_end_marker = "\n    static boolean isSuspiciousAdHostForDownloadAllow"
+allow_start = download_policy.find(allow_start_marker)
+allow_end = download_policy.find(allow_end_marker, allow_start)
+if allow_start < 0 or allow_end < 0:
+    raise SystemExit("Trusted download allow method boundary missing")
+download_policy = (
+        download_policy[:allow_start]
+        + '''    static boolean isTrustedDownloadHostForAllow(String host) {
         return ShieldUrlRules.isTrustedDownloadHost(host);
     }
 '''
-download_policy = download_policy[:allow_start] + allow_replacement + download_policy[allow_end:]
+        + download_policy[allow_end:])
 
-js_ad_host = '''                + "function adHost(h){return /(?:^|\\\\.)(?:doubleclick\\\\.net|googlesyndication\\\\.com|googleadservices\\\\.com|adservice\\\\.google\\\\.[a-z.]+|onclickads\\\\.net|clickadu\\\\.com|popads\\\\.net|popcash\\\\.net|propellerads\\\\.com|adsterra\\\\.com|hilltopads\\\\.net|exoclick\\\\.com|trafficjunky\\\\.net|juicyads\\\\.com|admaven\\\\.com|realsrv\\\\.com|taboola\\\\.com|outbrain\\\\.com|mgid\\\\.com|revcontent\\\\.com|hotterydiseur\\\\.[a-z.]+|sewarsremeets\\\\.[a-z.]+|invest-tracing\\\\.[a-z.]+)$/i.test(h||'');}"
-                + "function cheap(h)'''
-js_trusted = '''                + "function adHost(h){return /(?:^|\\\\.)(?:doubleclick\\\\.net|googlesyndication\\\\.com|googleadservices\\\\.com|adservice\\\\.google\\\\.[a-z.]+|onclickads\\\\.net|clickadu\\\\.com|popads\\\\.net|popcash\\\\.net|propellerads\\\\.com|adsterra\\\\.com|hilltopads\\\\.net|exoclick\\\\.com|trafficjunky\\\\.net|juicyads\\\\.com|admaven\\\\.com|realsrv\\\\.com|taboola\\\\.com|outbrain\\\\.com|mgid\\\\.com|revcontent\\\\.com|hotterydiseur\\\\.[a-z.]+|sewarsremeets\\\\.[a-z.]+|invest-tracing\\\\.[a-z.]+)$/i.test(h||'');}"
-                + "function trustedDownloadHost(h){return /(?:^|\\\\.)(?:drive\\\\.usercontent\\\\.google\\\\.com|drive\\\\.google\\\\.com|docs\\\\.google\\\\.com|googleusercontent\\\\.com|github\\\\.com|githubusercontent\\\\.com|sourceforge\\\\.net|mediafire\\\\.com|dropbox\\\\.com|dropboxusercontent\\\\.com|onedrive\\\\.live\\\\.com|1drv\\\\.ms|mega\\\\.nz|pixeldrain\\\\.com|gofile\\\\.io|archive\\\\.org)$/i.test(h||'');}"
-                + "function cheap(h)'''
-if script.count(js_ad_host) != 1:
-    raise SystemExit("Unexpected JS adHost anchor count")
-script = script.replace(js_ad_host, js_trusted, 1)
+js_cheap_marker = '                + "function cheap(h){return /'
+trusted_js = r'''                + "function trustedDownloadHost(h){return /(?:^|\\.)(?:drive\\.usercontent\\.google\\.com|drive\\.google\\.com|docs\\.google\\.com|googleusercontent\\.com|github\\.com|githubusercontent\\.com|sourceforge\\.net|mediafire\\.com|dropbox\\.com|dropboxusercontent\\.com|onedrive\\.live\\.com|1drv\\.ms|mega\\.nz|pixeldrain\\.com|gofile\\.io|archive\\.org)$/i.test(h||'');}"
+'''
+if script.count(js_cheap_marker) != 1:
+    raise SystemExit("Unexpected JS cheap-host marker count")
+script = script.replace(js_cheap_marker, trusted_js + js_cheap_marker, 1)
 
-js_safe_old = '''return downloadControl(node)&&downloadTarget(a);'''
-js_safe_new = '''return downloadControl(node)&&trustedDownloadHost(h);'''
+js_safe_old = "return downloadControl(node)&&downloadTarget(a);"
+js_safe_new = "return downloadControl(node)&&trustedDownloadHost(h);"
 if script.count(js_safe_old) != 1:
     raise SystemExit("Unexpected JS safeDownloadNav anchor count")
 script = script.replace(js_safe_old, js_safe_new, 1)
 
 if "DOWNLOAD_TARGET_HINT\n                .matcher" in policy:
     raise SystemExit("Generic download-looking host allowance remains")
-if "trustedDownloadHost(h)" not in script:
-    raise SystemExit("Document-start trusted host boundary missing")
+if rules.count("isTrustedDownloadHost(String host)") != 1:
+    raise SystemExit("Native trusted-host policy missing")
+if script.count("function trustedDownloadHost(h)") != 1:
+    raise SystemExit("Document-start trusted-host policy missing")
 if len(MAIN.read_text().splitlines()) > 3000:
     raise SystemExit("MainActivity target regressed")
 
