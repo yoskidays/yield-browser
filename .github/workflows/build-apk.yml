@@ -70,23 +70,23 @@ jobs:
             app/build/reports/tests/
           if-no-files-found: ignore
 
-      - name: Commit validated MainActivity refactor
+      - name: Commit validated generated refactor
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && hashFiles('scripts/apply_pending_refactor.py') != '' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/src/main/java/com/yieldbrowser/app/MainActivity.java
+          git add app/src/main/java/com/yieldbrowser/app/*.java
           if ! git diff --cached --quiet; then
-            git commit -m "Apply validated MainActivity refactor"
+            git commit -m "Apply validated generated refactor"
             git push origin HEAD:${{ github.event.pull_request.head.ref }}
           fi
 
-      - name: Upload generated MainActivity
+      - name: Upload generated Java sources
         if: ${{ hashFiles('scripts/apply_pending_refactor.py') != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: Guarded-refactor-MainActivity
-          path: app/src/main/java/com/yieldbrowser/app/MainActivity.java
+          name: Guarded-refactor-Java-sources
+          path: app/src/main/java/com/yieldbrowser/app/*.java
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
