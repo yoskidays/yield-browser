@@ -46,7 +46,7 @@ for m in pat.finditer(text, body_start, body_end):
         else: break
     header=text[sig_start:brace]
     sl=text.count('\n',0,sig_start)+1
-    methods.append(dict(name=m.group(1),start=start,sig_start=sig_start,end=end,header=header,sl=sl,text=text[start:end]))
+    methods.append(dict(name=m.group(1),start=start,sig_start=sig_start,end=end,header=header,sl=sl,text=text[start:end],top_override='@Override' in text[start:sig_start]))
 methods.sort(key=lambda x:x['sig_start'])
 for idx,m in enumerate(methods):
     if idx and m['start']<methods[idx-1]['end']:
@@ -83,7 +83,7 @@ for m in methods:
     if is_static(m):
         root_static.append(widen_method(m['text']).replace('MainActivity.this','YieldActivityState.this'))
     else:
-        if '@Override' not in m['text']:
+        if not m['top_override']:
             decls.append(abstract_decl(m))
         s=widen_method(m['text'])
         if 2500 <= m['sl'] < 6300:
