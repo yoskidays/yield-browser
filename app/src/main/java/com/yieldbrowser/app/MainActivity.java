@@ -2670,75 +2670,115 @@ content.addView(space(dp(36)));
         });
     }
 
-private void showDownloadSettingsPanel() {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+    private void showDownloadSettingsPanel() {
+        new DownloadSettingsController(this, new DownloadSettingsController.Host() {
+            @Override
+            public DownloadSettingsController.State state() {
+                return new DownloadSettingsController.State(
+                        getDownloadLocationText(),
+                        downloadQueueEnabled,
+                        downloadMaxActive,
+                        downloadDynamic4Connections,
+                        downloadAutoRetry,
+                        downloadHlsEnabled,
+                        downloadPlayWhileDownloadingEnabled,
+                        downloadSpeedLimitKBps);
+            }
 
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(16), dp(16), dp(16), dp(18));
-        panel.setBackground(roundRect(Color.parseColor("#2B2D33"), dp(24), dp(1), Color.parseColor("#3A3D45")));
+            @Override
+            public String queueSummary() {
+                return getDownloadQueueSummary();
+            }
 
-        TextView title = new TextView(this);
-        title.setText("Pengaturan Unduhan");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(22);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        panel.addView(title);
-
-        TextView path = new TextView(this);
-        path.setText(getDownloadLocationText());
-        path.setTextColor(COLOR_SUBTEXT);
-        path.setTextSize(13);
-        path.setPadding(0, dp(8), 0, dp(12));
-        panel.addView(path);
-
-        panel.addView(actionRow(R.drawable.ic_download_modern, "Buka riwayat unduhan", "Lihat file, progress, open, hapus riwayat/file.", v -> {
-            switchDialogSmooth(dialog, () -> showDownloadManager());
-        }));
-        panel.addView(actionRow(R.drawable.ic_folder, "Lokasi / folder unduhan", "Default: Download/Yield Browser, atau pilih folder HP.", v -> {
-            showDownloadFolderDialog(dialog);
-        }));
-        panel.addView(actionRow(R.drawable.ic_clear, "Bersihkan riwayat selesai", "Hanya menghapus riwayat, file tetap aman.", v -> {
-            synchronized (downloadItems) {
-                for (int i = downloadItems.size() - 1; i >= 0; i--) {
-                    if (!"running".equals(downloadItems.get(i).status)) {
-                        downloadItems.remove(i);
-                    }
+            @Override
+            public void handle(DownloadSettingsController.Action action,
+                               int value,
+                               Dialog ownerDialog) {
+                switch (action) {
+                    case OPEN_MANAGER:
+                        showDownloadManager();
+                        break;
+                    case CHOOSE_FOLDER:
+                        showDownloadFolderDialog(ownerDialog);
+                        break;
+                    case CLEAR_COMPLETED:
+                        synchronized (downloadItems) {
+                            for (int i = downloadItems.size() - 1; i >= 0; i--) {
+                                if (!"running".equals(downloadItems.get(i).status)) {
+                                    downloadItems.remove(i);
+                                }
+                            }
+                        }
+                        saveDownloadHistory();
+                        QuietToast.makeText(MainActivity.this,
+                                "Riwayat unduhan selesai dibersihkan",
+                                QuietToast.LENGTH_SHORT).show();
+                        break;
+                    case TOGGLE_QUEUE:
+                        downloadQueueEnabled = !downloadQueueEnabled;
+                        downloadQueuePaused = false;
+                        saveSettings();
+                        pumpDownloadQueue();
+                        refreshDownloadPanel();
+                        break;
+                    case SET_MAX_ACTIVE:
+                        downloadMaxActive = value;
+                        downloadQueueEnabled = true;
+                        downloadQueuePaused = false;
+                        saveSettings();
+                        pumpDownloadQueue();
+                        refreshDownloadPanel();
+                        QuietToast.makeText(MainActivity.this,
+                                "Maksimal download aktif: " + value,
+                                QuietToast.LENGTH_SHORT).show();
+                        break;
+                    case PAUSE_ALL:
+                        pauseAllDownloads();
+                        break;
+                    case RESUME_ALL:
+                        resumeAllDownloads();
+                        break;
+                    case SORT_QUEUE:
+                        activeDownloadSort = "Antrian";
+                        renderDownloadList();
+                        QuietToast.makeText(MainActivity.this,
+                                "Tampilan diurutkan berdasarkan antrian",
+                                QuietToast.LENGTH_SHORT).show();
+                        break;
+                    case TOGGLE_DYNAMIC_CONNECTIONS:
+                        downloadDynamic4Connections = !downloadDynamic4Connections;
+                        saveSettings();
+                        break;
+                    case TOGGLE_AUTO_RETRY:
+                        downloadAutoRetry = !downloadAutoRetry;
+                        saveSettings();
+                        break;
+                    case TOGGLE_HLS:
+                        downloadHlsEnabled = !downloadHlsEnabled;
+                        saveSettings();
+                        break;
+                    case TOGGLE_PLAY_WHILE_DOWNLOADING:
+                        downloadPlayWhileDownloadingEnabled =
+                                !downloadPlayWhileDownloadingEnabled;
+                        saveSettings();
+                        break;
+                    case SET_SPEED_LIMIT:
+                        downloadSpeedLimitKBps = value;
+                        saveSettings();
+                        QuietToast.makeText(MainActivity.this,
+                                "Speed limiter: "
+                                        + DownloadSettingsController.speedLabel(value),
+                                QuietToast.LENGTH_SHORT).show();
+                        break;
                 }
             }
-            saveDownloadHistory();
-            QuietToast.makeText(this, "Riwayat unduhan selesai dibersihkan", QuietToast.LENGTH_SHORT).show();
-            switchDialogSmooth(dialog, () -> showDownloadSettingsPanel());
-        }));
-
-        panel.addView(actionRow(R.drawable.ic_settings, "Yield Fast Download", getAdvancedDownloadSummary(), v -> {
-            showAdvancedDownloadFeaturesDialog(dialog);
-        }));
-
-        panel.addView(actionRow(R.drawable.ic_settings, "Download Queue: " + (downloadQueueEnabled ? "ON" : "OFF"), getDownloadQueueSummary(), v -> {
-            showDownloadQueueSettingsDialog();
-        }));
-        dialog.setContentView(panel);
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.gravity = Gravity.BOTTOM;
-            lp.width = WindowManager.LayoutParams.MATCH_PARENT;
-            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
-            window.setAttributes(lp);
-        }
-        dialog.show();
-    }
-
-    private String getAdvancedDownloadSummary() {
-        String limit = downloadSpeedLimitKBps > 0 ? (downloadSpeedLimitKBps + " KB/s") : "tanpa limit";
-        return "Dynamic 2/4 koneksi, retry, HLS/m3u8, speed limiter: " + limit;
+        }).showMain();
     }
 
     private String getDownloadQueueSummary() {
-        return "Maks aktif: " + downloadMaxActive + " • aktif: " + countActiveDownloads() + " • antri: " + countQueuedDownloads();
+        return "Maks aktif: " + downloadMaxActive
+                + " • aktif: " + countActiveDownloads()
+                + " • antri: " + countQueuedDownloads();
     }
 
     private void showDownloadQueueSettingsDialog() {
@@ -2899,126 +2939,7 @@ private void showDownloadSettingsPanel() {
         chip.setTextColor(selected ? Color.parseColor("#111111") : Color.WHITE);
         chip.setBackground(roundRect(selected ? COLOR_ACCENT : Color.parseColor("#20232A"), dp(18), dp(1), selected ? COLOR_ACCENT : COLOR_BORDER));
     }
-    private void showAdvancedDownloadFeaturesDialog(Dialog parentDialog) {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(false);
-        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        scroll.setBackground(roundRect(Color.parseColor("#26292F"), dp(24), dp(1), COLOR_BORDER));
-
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(20), dp(18), dp(20), dp(14));
-        scroll.addView(box, new ScrollView.LayoutParams(-1, -2));
-
-        TextView title = new TextView(this);
-        title.setText("Yield Fast Download");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(22);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setIncludeFontPadding(false);
-        box.addView(title);
-
-        TextView info = new TextView(this);
-        info.setText("Safe Brave-Class Layer v3: memilih Safe 1, Stable 2, Balanced 3, atau Turbo 4 koneksi sesuai host, file, dan prediksi bandwidth.");
-        info.setTextColor(COLOR_SUBTEXT);
-        info.setTextSize(13);
-        info.setLineSpacing(0, 1.05f);
-        LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(-1, -2);
-        infoLp.setMargins(0, dp(8), 0, dp(12));
-        box.addView(info, infoLp);
-
-        box.addView(advancedSwitchRow("Smart Turbo Download", "Auto pilih Safe 1, Stable 2, Balanced 3, atau Turbo 4 koneksi. Ada fallback aman jika server mulai throttle.", downloadDynamic4Connections, v -> {
-            downloadDynamic4Connections = !downloadDynamic4Connections;
-            saveSettings();
-        }));
-
-        box.addView(advancedSwitchRow("Retry otomatis", "Jika koneksi putus, Yield mencoba ulang sampai 3x dan lanjut dari progres terakhir.", downloadAutoRetry, v -> {
-            downloadAutoRetry = !downloadAutoRetry;
-            saveSettings();
-        }));
-
-        box.addView(advancedSwitchRow("Download HLS/m3u8", "Playlist m3u8 akan dideteksi dan segmen video digabung ke file TS.", downloadHlsEnabled, v -> {
-            downloadHlsEnabled = !downloadHlsEnabled;
-            saveSettings();
-        }));
-
-        box.addView(advancedSwitchRow("Putar sambil mengunduh", "Video progresif dapat ditonton dari bagian yang sudah tersedia. Download tetap berjalan di latar belakang.", downloadPlayWhileDownloadingEnabled, v -> {
-            downloadPlayWhileDownloadingEnabled = !downloadPlayWhileDownloadingEnabled;
-            saveSettings();
-        }));
-
-        box.addView(advancedInfoRow("Player internal + HTTP Range lokal"));
-        box.addView(advancedInfoRow("Smart resume + hard pause"));
-        box.addView(advancedInfoRow("Bandwidth prediction"));
-        box.addView(advancedInfoRow("Per-file optimization"));
-        box.addView(advancedInfoRow("Host-aware stable mode"));
-
-        TextView limiter = darkDialogActionButton("SPEED LIMITER: " + (downloadSpeedLimitKBps > 0 ? downloadSpeedLimitKBps + " KB/s" : "OFF"));
-        limiter.setOnClickListener(v -> showSpeedLimiterDialog(dialog, parentDialog));
-        LinearLayout.LayoutParams limiterLp = new LinearLayout.LayoutParams(-1, dp(46));
-        limiterLp.setMargins(0, dp(2), 0, 0);
-        box.addView(limiter, limiterLp);
-
-        LinearLayout bottom = new LinearLayout(this);
-        bottom.setGravity(Gravity.END);
-        bottom.setPadding(0, dp(8), 0, 0);
-
-        TextView close = dialogTextButton("TUTUP");
-        close.setOnClickListener(v -> {
-            dialog.dismiss();
-            if (parentDialog != null) {
-                parentDialog.dismiss();
-                showDownloadSettingsPanel();
-            }
-        });
-        bottom.addView(close);
-        box.addView(bottom);
-
-        dialog.setContentView(scroll);
-        dialog.show();
-        if (dialog.getWindow() != null) {
-            Window window = dialog.getWindow();
-            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-            WindowManager.LayoutParams lp = window.getAttributes();
-            lp.width = (int) (getResources().getDisplayMetrics().widthPixels * 0.9f);
-            lp.height = (int) (getResources().getDisplayMetrics().heightPixels * 0.78f);
-            window.setAttributes(lp);
-        }
-    }
-
-
-    private View advancedSwitchRow(String title, String desc, boolean enabled, View.OnClickListener listener) {
-        return SettingsUi.advancedSwitchRow(this, title, desc, enabled, listener);
-    }
-
-
-    private View advancedInfoRow(String title) {
-        return SettingsUi.advancedInfoRow(this, title);
-    }
-
-
-    private void showSpeedLimiterDialog(Dialog advancedDialog, Dialog parentDialog) {
-        String[] labels = new String[]{"OFF", "256 KB/s", "512 KB/s", "1024 KB/s", "2048 KB/s"};
-        int[] values = new int[]{0, 256, 512, 1024, 2048};
-        int checked = 0;
-        for (int i = 0; i < values.length; i++) if (values[i] == downloadSpeedLimitKBps) checked = i;
-
-        new AlertDialog.Builder(this)
-                .setTitle("Speed limiter")
-                .setSingleChoiceItems(labels, checked, (d, which) -> {
-                    downloadSpeedLimitKBps = values[which];
-                    saveSettings();
-                    QuietToast.makeText(this, "Speed limiter: " + labels[which], QuietToast.LENGTH_SHORT).show();
-                    d.dismiss();
-                    if (advancedDialog != null) advancedDialog.dismiss();
-                    showAdvancedDownloadFeaturesDialog(parentDialog);
-                })
-                .setNegativeButton("Batal", null)
-                .show();
-    }
 
     private void showVideoControlsIfAllowed() {
         if (!videoControlsEnabled || videoControlsManualHidden || webView == null || webView.getVisibility() != View.VISIBLE) {
