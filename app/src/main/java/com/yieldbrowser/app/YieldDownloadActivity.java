@@ -175,10 +175,14 @@ void restoreVideoControlsFromFullscreenOverlay() {
                     saveSettings();
                     break;
                 case MINIMIZE_NORMAL:
-                    videoFloatingPlayer = false;
+                    videoFloatingPlayer =
+                            VideoOptimizationDialogController.toggledFloatingPlayer(
+                                    videoFloatingPlayer);
                     saveSettings();
                     QuietToast.makeText(this,
-                            "Minimize normal aktif",
+                            videoFloatingPlayer
+                                    ? "Floating player aktif"
+                                    : "Minimize normal aktif",
                             QuietToast.LENGTH_SHORT).show();
                     break;
                 case BACKGROUND_PLAY:
