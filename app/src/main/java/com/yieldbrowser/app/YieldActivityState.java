@@ -159,6 +159,7 @@ abstract class YieldActivityState extends Activity
     PageToolsController pageToolsController;
     BrowserUtilityDialogsController browserUtilityDialogsController;
     final Handler mainHandler = new Handler(Looper.getMainLooper());
+    final LifecycleCallbackGate lifecycleCallbackGate = new LifecycleCallbackGate();
     final AtomicBoolean downloadUiRefreshPosted = new AtomicBoolean(false);
 
     // ===== History Engine V2 =====
