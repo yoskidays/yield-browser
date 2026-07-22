@@ -81,7 +81,9 @@ final class TabsPanelController {
         int displayNumber = 0;
         if (tabs != null) {
             for (TabInfo tab : tabs) {
-                if (tab == null || tab.closed || tab.privateTab != privateSpace) continue;
+                // Quarantine/ad tabs are implementation details. They must never appear as user
+                // tabs while waiting for their short silent auto-close window.
+                if (tab == null || tab.closed || tab.adTab || tab.privateTab != privateSpace) continue;
                 displayNumber++;
                 list.addView(buildTabRow(tab, displayNumber, dialog, privateSpace));
             }
@@ -106,7 +108,7 @@ final class TabsPanelController {
         int count = 0;
         if (tabs == null) return 0;
         for (TabInfo tab : tabs) {
-            if (tab != null && !tab.closed && tab.privateTab == privateSpace) count++;
+            if (tab != null && !tab.closed && !tab.adTab && tab.privateTab == privateSpace) count++;
         }
         return count;
     }
@@ -237,7 +239,7 @@ final class TabsPanelController {
                 dp(18), dp(1), active ? activeColor : COLOR_BORDER));
 
         TextView badge = new TextView(activity);
-        badge.setText(tab.adTab ? "Ad" : (privateSpace ? "P" : String.valueOf(displayNumber)));
+        badge.setText(privateSpace ? "P" : String.valueOf(displayNumber));
         badge.setTextColor(privateSpace ? Color.WHITE : Color.parseColor("#111111"));
         badge.setTextSize(13);
         badge.setTypeface(Typeface.DEFAULT_BOLD);
