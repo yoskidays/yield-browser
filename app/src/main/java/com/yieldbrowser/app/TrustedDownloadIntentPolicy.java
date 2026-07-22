@@ -54,19 +54,36 @@ final class TrustedDownloadIntentPolicy {
             if (host == null || host.length() == 0) return false;
 
             boolean trustedHost = trustedHostPredicate.test(host);
-            boolean marker = downloadMarkerPredicate.test(lower)
-                    || downloadMarkerPredicate.test(decoded);
-            boolean file = directFilePredicate.test(lower)
-                    || directFilePredicate.test(decoded);
             boolean hardAdToken = hardAdTokenPredicate.test(lower)
                     || hardAdTokenPredicate.test(decoded);
             boolean suspiciousHost = suspiciousHostPredicate.test(host);
-            boolean downloadSignal = marker || file;
+            if (hardAdToken || suspiciousHost) return false;
 
-            return downloadSignal
-                    && (trustedHost || (!suspiciousHost && !hardAdToken));
+            // Only inspect the actual destination path for generic download signals. Ad redirects
+            // often hide a real file URL inside their query string; treating that query as the
+            // destination previously promoted the advertising page into a normal download tab.
+            String pathOnly = stripQueryAndFragment(lower);
+            String decodedPathOnly = stripQueryAndFragment(decoded);
+            boolean marker = downloadMarkerPredicate.test(pathOnly)
+                    || downloadMarkerPredicate.test(decodedPathOnly);
+            boolean file = directFilePredicate.test(pathOnly)
+                    || directFilePredicate.test(decodedPathOnly);
+
+            // Known download hosts are allowed from a verified user download gesture. Unknown
+            // hosts still work when their own path clearly represents a download or direct file.
+            return trustedHost || marker || file;
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private static String stripQueryAndFragment(String value) {
+        if (value == null) return "";
+        int end = value.length();
+        int query = value.indexOf('?');
+        int fragment = value.indexOf('#');
+        if (query >= 0 && query < end) end = query;
+        if (fragment >= 0 && fragment < end) end = fragment;
+        return value.substring(0, end);
     }
 }
