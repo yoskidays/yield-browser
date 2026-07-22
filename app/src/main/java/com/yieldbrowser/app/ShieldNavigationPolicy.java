@@ -128,9 +128,10 @@ final class ShieldNavigationPolicy {
     }
 
     static boolean isDownloadPage(String url) {
-        return ShieldUrlRules.isHttpOrHttps(url)
-                && !isSearchResultsPage(url)
-                && ShieldUrlRules.DOWNLOAD_PAGE_PATH
+        if (!ShieldUrlRules.isHttpOrHttps(url) || isSearchResultsPage(url)) return false;
+        String host = ShieldUrlRules.hostOf(url);
+        return ShieldUrlRules.isKnownDownloadListingHost(host)
+                || ShieldUrlRules.DOWNLOAD_PAGE_PATH
                 .matcher(ShieldUrlRules.pathOf(url)).find();
     }
 

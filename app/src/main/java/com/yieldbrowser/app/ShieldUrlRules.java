@@ -14,6 +14,10 @@ final class ShieldUrlRules {
             "(?:^|[/_-])(?:download(?:er|ing)?|unduh|get-file|file-download|download-file|episode-download|download-episode|download-drama)(?:[/_-]|$)",
             Pattern.CASE_INSENSITIVE);
 
+    static final Pattern DOWNLOAD_LISTING_HOST = Pattern.compile(
+            "(?:^|\\.)(?:dramaencode\\.net)$",
+            Pattern.CASE_INSENSITIVE);
+
     static final Pattern DOWNLOAD_TARGET_HINT = Pattern.compile(
             "(?:^|[/_.?&=\\-])(?:download|unduh|get-file|file|files|media|mirror|server|dl)(?:[/_.?&=\\-]|$)",
             Pattern.CASE_INSENSITIVE);
@@ -54,11 +58,11 @@ final class ShieldUrlRules {
             Pattern.CASE_INSENSITIVE);
 
     static final Pattern KNOWN_AD_HOST = Pattern.compile(
-            "(?:^|\\.)(?:doubleclick\\.net|googlesyndication\\.com|googleadservices\\.com|adservice\\.google\\.[a-z.]+|onclickads\\.net|clickadu\\.com|popads\\.net|popcash\\.net|propellerads\\.com|adsterra\\.com|hilltopads\\.net|exoclick\\.com|trafficjunky\\.net|juicyads\\.com|admaven\\.com|realsrv\\.com|taboola\\.com|outbrain\\.com|mgid\\.com|revcontent\\.com|hotterydiseur\\.[a-z.]+|sewarsremeets\\.[a-z.]+|invest-tracing\\.[a-z.]+)$",
+            "(?:^|\\.)(?:doubleclick\\.net|googlesyndication\\.com|googleadservices\\.com|adservice\\.google\\.[a-z.]+|onclickads\\.net|clickadu\\.com|popads\\.net|popcash\\.net|propellerads\\.com|adsterra\\.com|hilltopads\\.net|exoclick\\.com|trafficjunky\\.net|juicyads\\.com|admaven\\.com|realsrv\\.com|taboola\\.com|outbrain\\.com|mgid\\.com|revcontent\\.com|hotterydiseur\\.[a-z.]+|sewarsremeets\\.[a-z.]+|invest-tracing\\.[a-z.]+|moonlighttha[a-z0-9.-]*)$",
             Pattern.CASE_INSENSITIVE);
 
     static final Pattern TRUSTED_DOWNLOAD_HOST = Pattern.compile(
-            "(?:^|\\.)(?:drive\\.usercontent\\.google\\.com|drive\\.google\\.com|docs\\.google\\.com|googleusercontent\\.com|github\\.com|githubusercontent\\.com|sourceforge\\.net|mediafire\\.com|dropbox\\.com|dropboxusercontent\\.com|onedrive\\.live\\.com|1drv\\.ms|mega\\.nz|pixeldrain\\.com|gofile\\.io|archive\\.org)$",
+            "(?:^|\\.)(?:drive\\.usercontent\\.google\\.com|drive\\.google\\.com|docs\\.google\\.com|googleusercontent\\.com|github\\.com|githubusercontent\\.com|sourceforge\\.net|mediafire\\.com|dropbox\\.com|dropboxusercontent\\.com|onedrive\\.live\\.com|1drv\\.ms|mega\\.nz|pixeldrain\\.com|gofile\\.io|archive\\.org|uptobox\\.com|files\\.fm|mp4upload\\.com|safefileku\\.com|streamlare\\.com|hxfile\\.(?:co|to)|racaty\\.net|zippyshare\\.com|doodrive\\.com|letsupload\\.(?:io|cc)|solidfiles\\.com|filemoon\\.sx|upstream\\.to|vidguard\\.to|hexupload\\.net|send\\.cm|megaup\\.net|streamwish\\.to|streamtape\\.com|krakenfiles\\.com|terabox\\.com|teraboxapp\\.com)$",
             Pattern.CASE_INSENSITIVE);
 
     static final Pattern CHEAP_AD_TLD = Pattern.compile(
@@ -96,6 +100,10 @@ final class ShieldUrlRules {
 
     static boolean isKnownAdHost(String host) {
         return host != null && KNOWN_AD_HOST.matcher(host).find();
+    }
+
+    static boolean isKnownDownloadListingHost(String host) {
+        return host != null && DOWNLOAD_LISTING_HOST.matcher(host).find();
     }
 
     static boolean isTrustedDownloadHost(String host) {
