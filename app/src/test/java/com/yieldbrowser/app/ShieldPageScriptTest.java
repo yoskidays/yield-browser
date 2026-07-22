@@ -88,6 +88,19 @@ public class ShieldPageScriptTest {
     }
 
     @Test
+    public void protectsOploverzHomepageBeforeFirstInteraction() {
+        String script = ShieldPageScript.documentStart(true, true, true, true, true);
+        assertTrue(script.contains("function adHeavyPortal"));
+        assertTrue(script.contains("oploverz\\.[a-z0-9-]+"));
+        assertTrue(script.contains("function portalAllowedHost"));
+        assertTrue(script.contains("function portalPopupTimer"));
+        assertTrue(script.contains("nativeInterval=W.setInterval"));
+        assertTrue(script.contains("#overplay,.overplay"));
+        assertTrue(script.contains("[class*=overplay]"));
+        assertTrue(script.contains("overplay|sponsor"));
+    }
+
+    @Test
     public void runtimeConfigCanDisableProtectionWithoutReload() {
         String script = ShieldPageScript.runtimeConfig(false, false, false, false, false);
         assertTrue(script.contains("enabled:false"));
