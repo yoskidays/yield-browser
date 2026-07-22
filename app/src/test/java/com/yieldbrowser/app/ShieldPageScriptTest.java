@@ -49,13 +49,26 @@ public class ShieldPageScriptTest {
         String script = ShieldPageScript.documentStart(true, true, true, true, true);
         assertTrue(script.contains("function downloadSite"));
         assertTrue(script.contains("dramaencode\\.net"));
-        assertTrue(script.contains("uptobox\\.com"));
+        assertTrue(script.contains("uptobox\\.(?:com|net)"));
         assertTrue(script.contains("files\\.fm"));
-        assertTrue(script.contains("mp4upload\\.com"));
+        assertTrue(script.contains("mp4upload\\.(?:com|net)"));
+        assertTrue(script.contains("fastdown\\.io"));
+        assertTrue(script.contains("fast-down\\.com"));
         assertTrue(script.contains("moonlighttha"));
         assertTrue(script.contains("!downloadPage()&&!control&&!recent"));
         assertTrue(script.contains("downloadPage()||Date.now()<=(S.downloadClickUntil||0)"));
         assertTrue(script.contains("if(!downloadControl(node))return false"));
+    }
+
+    @Test
+    public void recoversDownloadTargetFromDataAttributesAndUnderAdOverlay() {
+        String script = ShieldPageScript.documentStart(true, true, true, true, true);
+        assertTrue(script.contains("var u=candidateUrl(e.target)"));
+        assertTrue(script.contains("function downloadAtPoint"));
+        assertTrue(script.contains("function recoverDownloadClick"));
+        assertTrue(script.contains("if(recoverDownloadClick(e,blocked))return"));
+        assertTrue(script.contains("[data-href],[data-url],[data-link]"));
+        assertTrue(script.contains("YieldAdBlockBridge.onTrustedDownloadGesture"));
     }
 
     @Test
