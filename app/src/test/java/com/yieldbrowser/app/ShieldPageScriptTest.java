@@ -45,6 +45,20 @@ public class ShieldPageScriptTest {
     }
 
     @Test
+    public void protectsDownloadListingClicksBeforePageAdHandlersRun() {
+        String script = ShieldPageScript.documentStart(true, true, true, true, true);
+        assertTrue(script.contains("function downloadSite"));
+        assertTrue(script.contains("dramaencode\\.net"));
+        assertTrue(script.contains("uptobox\\.com"));
+        assertTrue(script.contains("files\\.fm"));
+        assertTrue(script.contains("mp4upload\\.com"));
+        assertTrue(script.contains("moonlighttha"));
+        assertTrue(script.contains("!downloadPage()&&!control&&!recent"));
+        assertTrue(script.contains("downloadPage()||Date.now()<=(S.downloadClickUntil||0)"));
+        assertTrue(script.contains("if(!downloadControl(node))return false"));
+    }
+
+    @Test
     public void runtimeConfigCanDisableProtectionWithoutReload() {
         String script = ShieldPageScript.runtimeConfig(false, false, false, false, false);
         assertTrue(script.contains("enabled:false"));
