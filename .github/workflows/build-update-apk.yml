@@ -1,4 +1,4 @@
-name: Build Yield Browser Update APK
+name: Build Yield Browser TEST APK
 
 on:
   pull_request:
@@ -8,15 +8,13 @@ on:
     branches:
       - main
   workflow_dispatch:
-  schedule:
-    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
 
 jobs:
-  build-update-apk:
-    name: Test and build update APK
+  build-test-apk:
+    name: Test and build side-by-side APK
     runs-on: ubuntu-latest
 
     steps:
@@ -48,8 +46,8 @@ jobs:
         if: steps.signing-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          echo "Yield Browser update signing key is missing."
-          echo "Build stopped to prevent an APK with an incompatible certificate."
+          echo "Yield Browser signing key is missing."
+          echo "Build stopped instead of creating a new certificate."
           exit 1
 
       - name: Remove committed and cached build outputs
@@ -60,7 +58,7 @@ jobs:
       - name: Run clean unit tests
         run: gradle clean testDebugUnitTest --stacktrace --no-build-cache --rerun-tasks
 
-      - name: Build clean update APK
+      - name: Build clean test APK
         run: gradle assembleDebug --stacktrace --no-build-cache --rerun-tasks
 
       - name: Verify APK signing certificate
@@ -84,26 +82,25 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/YieldBrowser-v0.10.23-update.apk
-          keytool -printcert -jarfile dist/YieldBrowser-v0.10.23-update.apk \
+          cp app/build/outputs/apk/debug/app-debug.apk dist/YieldBrowser-v0.10.24-TEST.apk
+          keytool -printcert -jarfile dist/YieldBrowser-v0.10.24-TEST.apk \
             | grep -E "SHA256:|Owner:|Valid from:" > dist/signing-certificate.txt
-          sha256sum dist/YieldBrowser-v0.10.23-update.apk > dist/YieldBrowser-v0.10.23-update.apk.sha256
+          sha256sum dist/YieldBrowser-v0.10.24-TEST.apk > dist/YieldBrowser-v0.10.24-TEST.apk.sha256
           cat > dist/INSTALLATION.txt <<'EOF'
-          Yield Browser v0.10.23 Update
-          Package: com.yieldbrowser.install
-          Version code: 97
+          Yield Browser v0.10.24 TEST
+          Package: com.yieldbrowser.install.test
+          Version code: 98
 
-          Install the APK directly over the existing Yield Browser app.
-          Do not clear app data and do not uninstall the old app.
-
-          Android preserves bookmarks, history, tabs, downloads metadata,
-          and settings when the package name and signing certificate match.
+          This is a separate test application named Yield TEST.
+          It can be installed beside the main Yield Browser application.
+          It does not replace, uninstall, clear, or modify the main app data.
+          Test https://oploverz.am/ from a fresh tab and confirm no startup ad appears.
           EOF
 
-      - name: Upload update APK
+      - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: YieldBrowser-v0.10.23-update
+          name: YieldBrowser-v0.10.24-TEST
           path: dist/*
           if-no-files-found: error
           retention-days: 30
