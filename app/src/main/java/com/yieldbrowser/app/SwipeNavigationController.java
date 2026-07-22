@@ -109,36 +109,113 @@ final class SwipeNavigationController {
     private boolean handleWebViewLongPress(WebView candidate) {
         if (!(activity instanceof YieldWebRuntimeActivity) || candidate == null) return false;
         YieldWebRuntimeActivity host = (YieldWebRuntimeActivity) activity;
+        String pageUrl = candidate.getUrl();
 
-        // Keep the fast native HitTestResult path for ordinary anchors.
-        if (host.handleLongPressedLink(candidate)) return true;
+        // Resolve from ACTION_DOWN first. This path can look through transparent advertising
+        // overlays and avoids treating the overlay anchor as the user's intended link.
+        if (candidate == lastTouchedWebView
+                && cachedLongPressLink.length() > 0
+                && System.currentTimeMillis() - lastWebTouchAt
+                <= LONG_PRESS_LINK_CACHE_MAX_AGE_MS) {
+            if (shouldBlockLongPressTarget(host, cachedLongPressLink, pageUrl)) {
+                QuietToast.makeText(activity, "Link iklan diblokir",
+                        QuietToast.LENGTH_SHORT).show();
+                return true;
+            }
 
-        // Ad-heavy pages often wrap links in spans, images, or transparent layers.
-        // Use the DOM anchor cached from ACTION_DOWN without weakening the ad shield.
-        if (candidate != lastTouchedWebView
-                || cachedLongPressLink.length() == 0
-                || System.currentTimeMillis() - lastWebTouchAt
-                > LONG_PRESS_LINK_CACHE_MAX_AGE_MS) {
-            return false;
+            host.showLongPressedLinkMenu(
+                    candidate, cachedLongPressLink, null, pageUrl);
+            return true;
         }
 
-        host.showLongPressedLinkMenu(
-                candidate, cachedLongPressLink, null, candidate.getUrl());
-        return true;
+        // On shielded/ad-heavy pages, consume an unresolved long press. Returning false here
+        // lets some sites convert ACTION_UP into a click on a hidden advertising layer.
+        if (host.adBlock && isShieldedLongPressPage(host, pageUrl)) {
+            return true;
+        }
+
+        // Keep the native HitTestResult path as a fallback for ordinary sites.
+        return host.handleLongPressedLink(candidate);
+    }
+
+    private static boolean shouldBlockLongPressTarget(YieldWebRuntimeActivity host,
+                                                      String targetUrl,
+                                                      String pageUrl) {
+        if (host == null || targetUrl == null || targetUrl.length() == 0) return true;
+
+        boolean unsafe = host.isUnsafeUrl(targetUrl);
+        if (host.isTrustedDownloadIntentUrl(targetUrl)) {
+            return shouldBlockResolvedLongPressLink(
+                    host.safeMode, unsafe, host.adBlock,
+                    true, false, false);
+        }
+
+        boolean highConfidenceAd = host.isKnownPopupHost(targetUrl)
+                || host.isLikelyAdClickUrl(targetUrl)
+                || host.isAdUrl(targetUrl)
+                || host.isSuspiciousPopupNavigation(targetUrl, pageUrl);
+        boolean shieldBlocked = host.shouldShieldBlockMainFrame(
+                targetUrl, pageUrl, true, highConfidenceAd);
+        if (isShieldedLongPressPage(host, pageUrl)) {
+            shieldBlocked = shieldBlocked
+                    || host.isCompatibilityAdNavigation(targetUrl, pageUrl, true);
+        }
+
+        return shouldBlockResolvedLongPressLink(
+                host.safeMode, unsafe, host.adBlock,
+                false, highConfidenceAd, shieldBlocked);
+    }
+
+    static boolean shouldBlockResolvedLongPressLink(boolean safeMode,
+                                                     boolean unsafe,
+                                                     boolean adBlock,
+                                                     boolean trustedDownload,
+                                                     boolean highConfidenceAd,
+                                                     boolean shieldBlocked) {
+        if (safeMode && unsafe) return true;
+        if (trustedDownload) return false;
+        return adBlock && (highConfidenceAd || shieldBlocked);
+    }
+
+    private static boolean isShieldedLongPressPage(YieldWebRuntimeActivity host,
+                                                    String pageUrl) {
+        if (host == null) return false;
+        return host.isShieldReaderOrCompatibilityContext(pageUrl)
+                || host.isStrictSiteCompatibilityUrl(pageUrl)
+                || host.isSiteCompatibilityModeActiveForUrl(pageUrl)
+                || host.isReloadLoopGuardActiveForUrl(pageUrl);
     }
 
     static String buildLinkLookupScript(float cssX, float cssY) {
         return "(function(){try{"
-                + "var n=document.elementFromPoint(" + Float.toString(cssX) + ","
-                + Float.toString(cssY) + ");"
-                + "var guard=0;"
+                + "var list=document.elementsFromPoint?document.elementsFromPoint("
+                + Float.toString(cssX) + "," + Float.toString(cssY) + ")"
+                + ":[document.elementFromPoint(" + Float.toString(cssX) + ","
+                + Float.toString(cssY) + ")];"
+                + "var seen=[];"
+                + "for(var i=0;i<list.length;i++){"
+                + "var n=list[i],guard=0;"
                 + "while(n&&guard++<16){"
                 + "if(n.nodeType===1){"
-                + "if(n.tagName==='A'&&n.href)return n.href;"
-                + "if(n.closest){var a=n.closest('a[href]');if(a&&a.href)return a.href;}"
+                + "var a=n.tagName==='A'&&n.href?n:(n.closest?n.closest('a[href]'):null);"
+                + "if(a&&a.href&&seen.indexOf(a)<0){"
+                + "seen.push(a);"
+                + "var s=window.getComputedStyle?getComputedStyle(a):null;"
+                + "var r=a.getBoundingClientRect?a.getBoundingClientRect():null;"
+                + "var area=r?Math.max(0,r.width)*Math.max(0,r.height):0;"
+                + "var viewport=Math.max(1,innerWidth*innerHeight);"
+                + "var text=((a.innerText||a.getAttribute('aria-label')||'')+'').trim();"
+                + "var media=!!(a.querySelector&&a.querySelector('img,video,picture,svg'));"
+                + "var pos=s?s.position:'';"
+                + "var opacity=s?parseFloat(s.opacity||'1'):1;"
+                + "var overlay=(pos==='fixed'||pos==='absolute')&&area>viewport*0.35"
+                + "&&text.length===0&&!media;"
+                + "if(!overlay&&opacity>=0.08&&(!s||s.pointerEvents!=='none'))return a.href;"
                 + "}"
-                + "var r=n.getRootNode?n.getRootNode():null;"
-                + "n=n.parentElement||(r&&r.host?r.host:null);"
+                + "}"
+                + "var root=n.getRootNode?n.getRootNode():null;"
+                + "n=n.parentElement||(root&&root.host?root.host:null);"
+                + "}"
                 + "}"
                 + "}catch(e){}return '';})()";
     }
