@@ -48,6 +48,14 @@ android {
         debug {
             debuggable true
         }
+        deviceTest {
+            initWith debug
+            applicationIdSuffix '.test'
+            versionNameSuffix '-device-test'
+            debuggable true
+            matchingFallbacks = ['debug']
+            resValue 'string', 'launcher_name', 'Yield Test'
+        }
         release {
             minifyEnabled false
             shrinkResources false
