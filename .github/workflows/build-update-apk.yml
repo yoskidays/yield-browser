@@ -84,14 +84,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/YieldBrowser-v0.10.22-update.apk
-          keytool -printcert -jarfile dist/YieldBrowser-v0.10.22-update.apk \
+          cp app/build/outputs/apk/debug/app-debug.apk dist/YieldBrowser-v0.10.23-update.apk
+          keytool -printcert -jarfile dist/YieldBrowser-v0.10.23-update.apk \
             | grep -E "SHA256:|Owner:|Valid from:" > dist/signing-certificate.txt
-          sha256sum dist/YieldBrowser-v0.10.22-update.apk > dist/YieldBrowser-v0.10.22-update.apk.sha256
+          sha256sum dist/YieldBrowser-v0.10.23-update.apk > dist/YieldBrowser-v0.10.23-update.apk.sha256
           cat > dist/INSTALLATION.txt <<'EOF'
-          Yield Browser v0.10.22 Update
+          Yield Browser v0.10.23 Update
           Package: com.yieldbrowser.install
-          Version code: 96
+          Version code: 97
 
           Install the APK directly over the existing Yield Browser app.
           Do not clear app data and do not uninstall the old app.
@@ -103,7 +103,7 @@ jobs:
       - name: Upload update APK
         uses: actions/upload-artifact@v4
         with:
-          name: YieldBrowser-v0.10.22-update
+          name: YieldBrowser-v0.10.23-update
           path: dist/*
           if-no-files-found: error
           retention-days: 30
