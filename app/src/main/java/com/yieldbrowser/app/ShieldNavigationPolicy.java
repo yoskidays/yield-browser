@@ -64,6 +64,15 @@ final class ShieldNavigationPolicy {
                     && ShieldUrlRules.isRelayPath(resourceUrl);
         }
 
+        // Oploverz loads its first-view popup code from changing third-party hosts. Restrict only
+        // script-like requests on that portal and keep known support providers available, so images,
+        // stylesheets, fonts, video assets and ordinary external links are not globally affected.
+        if (ShieldUrlRules.isAdHeavyPortalHost(pageHost)
+                && !ShieldUrlRules.isAllowedPortalThirdPartyHost(resourceHost)
+                && ShieldUrlRules.isScriptLikeResource(resourceUrl)) {
+            return true;
+        }
+
         if (directAsset) {
             return ShieldUrlRules.isKnownAdHost(resourceHost)
                     || ShieldUrlRules.hasHardAdToken(resourceUrl);
@@ -197,6 +206,7 @@ final class ShieldNavigationPolicy {
 
         String host = ShieldUrlRules.hostOf(url);
         if (host.isEmpty()) return false;
+        if (ShieldUrlRules.isAdHeavyPortalHost(host)) return true;
         if (ShieldUrlRules.TRUSTED_VIDEO_HOST.matcher(host).find()) return false;
         if (isDownloadPage(url) || isReaderOrContentPage(url)) return true;
 
