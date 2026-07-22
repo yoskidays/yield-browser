@@ -29,11 +29,42 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
+      - name: Restore persistent APK signing key
+        id: signing-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: yield-browser-update-signing-v1
+
+      - name: Stop if signing key is unavailable
+        if: steps.signing-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "Yield Browser update signing key is missing."
+          echo "Build stopped to prevent an incompatible APK."
+          exit 1
+
+      - name: Remove committed and cached build outputs
+        run: rm -rf app/build build
+
       - name: Run unit tests
-        run: gradle testDebugUnitTest --stacktrace
+        run: gradle clean testDebugUnitTest --stacktrace --no-build-cache --rerun-tasks
 
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace --no-build-cache --rerun-tasks
+
+      - name: Verify APK signing certificate
+        shell: bash
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          KEY_SHA256=$(keytool -list -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            | sed -n 's/.*SHA256: //p' | head -n 1 | tr -d '\r')
+          APK_SHA256=$(keytool -printcert -jarfile "$APK" \
+            | sed -n 's/.*SHA256: //p' | head -n 1 | tr -d '\r')
+          test -n "$KEY_SHA256"
+          test "$KEY_SHA256" = "$APK_SHA256"
 
       - name: Upload stage 1 APK
         uses: actions/upload-artifact@v4
