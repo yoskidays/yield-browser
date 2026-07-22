@@ -30,51 +30,58 @@ public class TrustedDownloadIntentPolicyTest {
     }
 
     @Test
-    public void encodedDownloadMarkerIsRecognized() {
-        assertTrue(TrustedDownloadIntentPolicy.isTrusted(
-                "https://example.com/?action=%64ownload", TrustedDownloadIntentPolicyTest::isHttp,
-                url -> "example.com", host -> false,
-                value -> value.contains("download"), value -> false,
+    public void queryEmbeddedDownloadTargetDoesNotPromoteAdPage() {
+        assertFalse(TrustedDownloadIntentPolicy.isTrusted(
+                "https://mpofunkelas.com/register?next=https%3A%2F%2Fmediafire.com%2Ffile%2Fmovie.mp4",
+                TrustedDownloadIntentPolicyTest::isHttp,
+                url -> "mpofunkelas.com", host -> false,
+                value -> value.contains("/file/"), value -> value.contains(".mp4"),
                 value -> false, host -> false));
     }
 
     @Test
-    public void trustedHostAllowsSignalEvenWithAdIndicators() {
+    public void trustedDownloadHostAllowsVerifiedDestinationWithoutMarker() {
         assertTrue(TrustedDownloadIntentPolicy.isTrusted(
-                "https://downloads.example/file.zip?adclick=1", TrustedDownloadIntentPolicyTest::isHttp,
-                url -> "downloads.example", host -> true,
-                value -> false, value -> value.contains(".zip"),
-                value -> value.contains("adclick"), host -> true));
-    }
-
-    @Test
-    public void cleanUntrustedHostAllowsDownloadSignal() {
-        assertTrue(TrustedDownloadIntentPolicy.isTrusted(
-                "https://files.example/archive.pdf", TrustedDownloadIntentPolicyTest::isHttp,
-                url -> "files.example", host -> false,
-                value -> false, value -> value.contains(".pdf"),
+                "https://files.fm/u/abc123", TrustedDownloadIntentPolicyTest::isHttp,
+                url -> "files.fm", host -> true,
+                value -> false, value -> false,
                 value -> false, host -> false));
     }
 
     @Test
-    public void suspiciousHostOrHardAdTokenBlocksUntrustedHost() {
+    public void hardAdTokenOrSuspiciousHostAlwaysRejects() {
+        assertFalse(TrustedDownloadIntentPolicy.isTrusted(
+                "https://mediafire.com/file/archive.zip?adclick=1",
+                TrustedDownloadIntentPolicyTest::isHttp,
+                url -> "mediafire.com", host -> true,
+                value -> value.contains("/file/"), value -> value.contains(".zip"),
+                value -> value.contains("adclick"), host -> false));
         assertFalse(TrustedDownloadIntentPolicy.isTrusted(
                 "https://ads.example/archive.pdf", TrustedDownloadIntentPolicyTest::isHttp,
                 url -> "ads.example", host -> false,
                 value -> false, value -> value.contains(".pdf"),
                 value -> false, host -> true));
-        assertFalse(TrustedDownloadIntentPolicy.isTrusted(
-                "https://files.example/archive.pdf?adclick=1", TrustedDownloadIntentPolicyTest::isHttp,
+    }
+
+    @Test
+    public void cleanUntrustedHostAllowsPathDownloadSignal() {
+        assertTrue(TrustedDownloadIntentPolicy.isTrusted(
+                "https://files.example/archive.pdf?token=abc", TrustedDownloadIntentPolicyTest::isHttp,
                 url -> "files.example", host -> false,
                 value -> false, value -> value.contains(".pdf"),
-                value -> value.contains("adclick"), host -> false));
+                value -> false, host -> false));
+        assertTrue(TrustedDownloadIntentPolicy.isTrusted(
+                "https://files.example/download/item", TrustedDownloadIntentPolicyTest::isHttp,
+                url -> "files.example", host -> false,
+                value -> value.contains("/download"), value -> false,
+                value -> false, host -> false));
     }
 
     @Test
     public void missingSignalEmptyHostOrDependencyFailureRejects() {
         assertFalse(TrustedDownloadIntentPolicy.isTrusted(
                 "https://example.com/page", TrustedDownloadIntentPolicyTest::isHttp,
-                url -> "example.com", host -> true,
+                url -> "example.com", host -> false,
                 value -> false, value -> false, value -> false, host -> false));
         assertFalse(TrustedDownloadIntentPolicy.isTrusted(
                 "https://example.com/file.zip", TrustedDownloadIntentPolicyTest::isHttp,
