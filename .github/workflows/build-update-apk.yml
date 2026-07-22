@@ -57,22 +57,42 @@ jobs:
             -keysize 2048 \
             -validity 10000
 
-      - name: Run unit tests
-        run: gradle testDebugUnitTest --stacktrace
+      - name: Remove committed and cached build outputs
+        shell: bash
+        run: |
+          rm -rf app/build build dist
 
-      - name: Build update APK
-        run: gradle assembleDebug --stacktrace
+      - name: Run clean unit tests
+        run: gradle clean testDebugUnitTest --stacktrace --no-build-cache --rerun-tasks
+
+      - name: Build clean update APK
+        run: gradle assembleDebug --stacktrace --no-build-cache --rerun-tasks
+
+      - name: Verify APK signing certificate
+        shell: bash
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          KEY_SHA256=$(keytool -list -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey \
+            | sed -n 's/.*SHA256: //p' | head -n 1 | tr -d '\r')
+          APK_SHA256=$(keytool -printcert -jarfile "$APK" \
+            | sed -n 's/.*SHA256: //p' | head -n 1 | tr -d '\r')
+          echo "Signing key SHA256: $KEY_SHA256"
+          echo "APK signer SHA256:  $APK_SHA256"
+          test -n "$KEY_SHA256"
+          test "$KEY_SHA256" = "$APK_SHA256"
 
       - name: Prepare distributable files
         shell: bash
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/YieldBrowser-v0.10.18-update.apk
-          keytool -list -v \
-            -keystore "$HOME/.android/debug.keystore" \
-            -storepass android \
-            -alias androiddebugkey \
+          keytool -printcert -jarfile dist/YieldBrowser-v0.10.18-update.apk \
             | grep -E "SHA256:|Owner:|Valid from:" > dist/signing-certificate.txt
+          sha256sum dist/YieldBrowser-v0.10.18-update.apk > dist/YieldBrowser-v0.10.18-update.apk.sha256
           cat > dist/INSTALLATION.txt <<'EOF'
           Yield Browser v0.10.18 Update
           Package: com.yieldbrowser.install
