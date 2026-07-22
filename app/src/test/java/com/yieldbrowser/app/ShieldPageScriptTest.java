@@ -58,6 +58,10 @@ public class ShieldPageScriptTest {
         assertTrue(script.contains("!downloadPage()&&!control&&!recent"));
         assertTrue(script.contains("downloadPage()||Date.now()<=(S.downloadClickUntil||0)"));
         assertTrue(script.contains("if(!downloadControl(node))return false"));
+        assertTrue(script.contains("function shieldDownloadPress"));
+        assertTrue(script.contains("function stopEventOnly"));
+        assertTrue(script.contains("listenWindow('click',clickGuard,false)"));
+        assertTrue(script.contains("listenWindow(t,shieldDownloadPress,true)"));
     }
 
     @Test
@@ -69,6 +73,18 @@ public class ShieldPageScriptTest {
         assertTrue(script.contains("if(recoverDownloadClick(e,blocked))return"));
         assertTrue(script.contains("[data-href],[data-url],[data-link]"));
         assertTrue(script.contains("YieldAdBlockBridge.onTrustedDownloadGesture"));
+    }
+
+    @Test
+    public void repairsFullPageAdsWhenSourceTabBecomesVisibleAgain() {
+        String script = ShieldPageScript.documentStart(true, true, true, true, true);
+        assertTrue(script.contains("function downloadTakeoverText"));
+        assertTrue(script.contains("thirdPartyTakeover"));
+        assertTrue(script.contains("iframe,object,embed"));
+        assertTrue(script.contains("visibilitychange"));
+        assertTrue(script.contains("pageshow"));
+        assertTrue(script.contains("setTimeout(clean,180)"));
+        assertTrue(script.contains("lucky\\s*77"));
     }
 
     @Test
