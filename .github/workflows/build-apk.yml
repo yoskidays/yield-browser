@@ -82,11 +82,11 @@ jobs:
             echo "Stable signing secrets are not configured. Building debug APK only."
           fi
 
-      - name: Build Debug APK
+      - name: Build Debug and Side-by-Side Test APKs
         shell: bash
         run: |
           set -o pipefail
-          gradle assembleDebug --stacktrace 2>&1 | tee apk-build.log
+          gradle assembleDebug assembleDeviceTest --stacktrace 2>&1 | tee apk-build.log
 
       - name: Build Stable Release and Migration APKs
         if: ${{ env.YIELD_RELEASE_SIGNING_READY == 'true' }}
@@ -141,6 +141,12 @@ jobs:
         with:
           name: YieldBrowser-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload Side-by-Side Device Test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: YieldBrowser-device-test-apk
+          path: app/build/outputs/apk/deviceTest/*.apk
 
       - name: Upload Stable Release APK
         if: ${{ env.YIELD_RELEASE_SIGNING_READY == 'true' }}
