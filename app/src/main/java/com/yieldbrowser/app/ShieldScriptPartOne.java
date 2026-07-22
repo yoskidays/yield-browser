@@ -21,6 +21,8 @@ final class ShieldScriptPartOne {
                 + "function downloadPage(){if(searchPage())return false;return downloadPath(location.pathname||'');}"
                 + "function reader(){if(searchPage())return false;if(downloadPage())return false;var p=location.pathname||'';if(contentPath(p))return true;try{return D.querySelectorAll('img[data-src],img[data-lazy-src],img[data-original],picture source[data-srcset]').length>=3;}catch(e){return false;}}"
                 + "function isolated(){if(searchPage())return false;var h=host(location.href),p=location.pathname||'';return reader()||downloadPage()||(!trustedVideoHost(h)&&videoPath(p));}"
+                + "function popupRiskPath(p){return /(?:^|[\\/_-])(?:drama|drakor|subtitle|sub(?:title)?-?indo|series|season|episode|watch|movie|film|stream|player|embed|play)(?:[\\/_-]|$)/i.test(p||'');}"
+                + "function popupRiskPage(){if(searchPage())return false;var h=host(location.href),p=path(location.href);return isolated()||popupRiskPath(p)||/(?:^|\\.)(?:dramaencode\\.net)$/i.test(h||'');}"
                 + "function relay(u){var p=path(u);return /(?:^|\\/)(?:r|go|out|away|jump|visit|redirect|redir|click|link|external|open|track|tracking|offer|offers|promo|ads?|interstitial)(?:\\/|$)/i.test(p);}"
                 + "function redirParam(u){return /[?&](?:url|u|to|target|dest|destination|redirect|redirect_url|redirect_uri|redir|r|go|out|link|click|next|continue|return|return_to|return_url|navigate_url)=/i.test(dec(u));}"
                 + "function hardToken(u){return /(?:adclick|ad_click|adurl|clickunder|onclickads|popunder|popupads|interstitial|affiliate|aff_sub|af_click|click_id|campaign_id|tracking_id|utm_medium=affiliates|deep_and_deferred|navigate_url|reactpath)/i.test(dec(u));}"

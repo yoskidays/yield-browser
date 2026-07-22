@@ -2,6 +2,16 @@ plugins {
     id 'com.android.application'
 }
 
+def releaseStorePath = System.getenv('YIELD_KEYSTORE_PATH')
+def releaseStorePassword = System.getenv('YIELD_KEYSTORE_PASSWORD')
+def releaseKeyAlias = System.getenv('YIELD_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('YIELD_KEY_PASSWORD')
+def releaseSigningReady = releaseStorePath != null && !releaseStorePath.trim().isEmpty()
+        && releaseStorePassword != null && !releaseStorePassword.trim().isEmpty()
+        && releaseKeyAlias != null && !releaseKeyAlias.trim().isEmpty()
+        && releaseKeyPassword != null && !releaseKeyPassword.trim().isEmpty()
+        && file(releaseStorePath).exists()
+
 android {
     namespace 'com.yieldbrowser.app'
     compileSdk 35
@@ -10,8 +20,19 @@ android {
         applicationId 'com.yieldbrowser.install'
         minSdk 23
         targetSdk 35
-        versionCode 91
-        versionName '0.10.17'
+        versionCode 92
+        versionName '0.10.18'
+    }
+
+    signingConfigs {
+        release {
+            if (releaseSigningReady) {
+                storeFile file(releaseStorePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
 
     compileOptions {
@@ -27,9 +48,29 @@ android {
         debug {
             debuggable true
         }
+        deviceTest {
+            initWith debug
+            applicationIdSuffix '.test'
+            versionNameSuffix '-device-test'
+            debuggable true
+            matchingFallbacks = ['debug']
+            resValue 'string', 'launcher_name', 'Yield Test'
+        }
         release {
             minifyEnabled false
             shrinkResources false
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
+        }
+        migration {
+            initWith release
+            debuggable true
+            versionNameSuffix '-migration'
+            matchingFallbacks = ['release']
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 

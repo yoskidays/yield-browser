@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    name: Test and Build Debug APK
+    name: Test and Build APK
     runs-on: ubuntu-latest
 
     steps:
@@ -24,10 +24,14 @@ jobs:
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          show-progress: false
 
       - name: Apply pending guarded refactor
         if: ${{ hashFiles('scripts/apply_pending_refactor.py') != '' }}
-        run: python3 scripts/apply_pending_refactor.py
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/apply_pending_refactor.py 2>&1 | tee patch.log
 
       - name: Verify generated patch formatting
         if: ${{ hashFiles('scripts/apply_pending_refactor.py') != '' }}
@@ -53,11 +57,53 @@ jobs:
           set -o pipefail
           gradle testDebugUnitTest --stacktrace 2>&1 | tee unit-test.log
 
-      - name: Build Debug APK
+      - name: Prepare stable release signing
+        shell: bash
+        env:
+          YIELD_KEYSTORE_BASE64_SECRET: ${{ secrets.YIELD_KEYSTORE_BASE64 }}
+          YIELD_KEYSTORE_PASSWORD_SECRET: ${{ secrets.YIELD_KEYSTORE_PASSWORD }}
+          YIELD_KEY_ALIAS_SECRET: ${{ secrets.YIELD_KEY_ALIAS }}
+          YIELD_KEY_PASSWORD_SECRET: ${{ secrets.YIELD_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$YIELD_KEYSTORE_BASE64_SECRET" \
+                && -n "$YIELD_KEYSTORE_PASSWORD_SECRET" \
+                && -n "$YIELD_KEY_ALIAS_SECRET" \
+                && -n "$YIELD_KEY_PASSWORD_SECRET" ]]; then
+            KEYSTORE_PATH="$RUNNER_TEMP/yield-release.jks"
+            printf '%s' "$YIELD_KEYSTORE_BASE64_SECRET" | base64 --decode > "$KEYSTORE_PATH"
+            test -s "$KEYSTORE_PATH"
+            echo "YIELD_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+            echo "YIELD_KEYSTORE_PASSWORD=$YIELD_KEYSTORE_PASSWORD_SECRET" >> "$GITHUB_ENV"
+            echo "YIELD_KEY_ALIAS=$YIELD_KEY_ALIAS_SECRET" >> "$GITHUB_ENV"
+            echo "YIELD_KEY_PASSWORD=$YIELD_KEY_PASSWORD_SECRET" >> "$GITHUB_ENV"
+            echo "YIELD_RELEASE_SIGNING_READY=true" >> "$GITHUB_ENV"
+          else
+            echo "YIELD_RELEASE_SIGNING_READY=false" >> "$GITHUB_ENV"
+            echo "Stable signing secrets are not configured. Building debug APK only."
+          fi
+
+      - name: Build Debug and Side-by-Side Test APKs
         shell: bash
         run: |
           set -o pipefail
-          gradle assembleDebug --stacktrace 2>&1 | tee apk-build.log
+          gradle assembleDebug assembleDeviceTest --stacktrace 2>&1 | tee apk-build.log
+
+      - name: Build Stable Release and Migration APKs
+        if: ${{ env.YIELD_RELEASE_SIGNING_READY == 'true' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle assembleRelease assembleMigration --stacktrace 2>&1 | tee release-build.log
+
+      - name: Verify Stable Release signature
+        if: ${{ env.YIELD_RELEASE_SIGNING_READY == 'true' }}
+        shell: bash
+        run: |
+          APK_PATH="$(find app/build/outputs/apk/release -name '*.apk' -type f | head -n 1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          test -n "$APK_PATH"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK_PATH"
 
       - name: Upload Gradle failure logs
         if: failure()
@@ -65,8 +111,10 @@ jobs:
         with:
           name: Gradle-failure-logs
           path: |
+            patch.log
             unit-test.log
             apk-build.log
+            release-build.log
             app/build/reports/tests/
           if-no-files-found: ignore
 
@@ -77,7 +125,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/src/main/java/com/yieldbrowser/app/*.java
           if ! git diff --cached --quiet; then
-            git commit -m "Apply validated generated refactor"
+            git commit -m "Apply validated Shield click-lock refactor"
             git push origin HEAD:${{ github.event.pull_request.head.ref }}
           fi
 
@@ -88,8 +136,28 @@ jobs:
           name: Guarded-refactor-Java-sources
           path: app/src/main/java/com/yieldbrowser/app/*.java
 
-      - name: Upload APK
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: YieldBrowser-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload Side-by-Side Device Test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: YieldBrowser-device-test-apk
+          path: app/build/outputs/apk/deviceTest/*.apk
+
+      - name: Upload Stable Release APK
+        if: ${{ env.YIELD_RELEASE_SIGNING_READY == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: YieldBrowser-stable-release-apk
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: Upload Bookmark Migration APK
+        if: ${{ env.YIELD_RELEASE_SIGNING_READY == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: YieldBrowser-bookmark-migration-apk
+          path: app/build/outputs/apk/migration/*.apk

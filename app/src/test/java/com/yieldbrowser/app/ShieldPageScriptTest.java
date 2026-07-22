@@ -40,6 +40,13 @@ public class ShieldPageScriptTest {
         assertTrue(script.contains("function fakeRewardAd"));
         assertTrue(script.contains("get\\s*paid"));
         assertTrue(script.contains("subscribe\\s*(?:&|and)?\\s*watch"));
+        assertTrue(script.contains("function popupRiskPage"));
+        assertTrue(script.contains("dramaencode"));
+        assertTrue(script.contains("clickIntentUntil"));
+        assertTrue(script.contains("function rememberClickIntent"));
+        assertTrue(script.contains("function conflictsClickIntent"));
+        assertTrue(script.contains("Location.prototype.assign"));
+        assertTrue(script.contains("Location.prototype.replace"));
         assertFalse(script.contains("Toast"));
         assertFalse(script.contains("blockedCount"));
     }
