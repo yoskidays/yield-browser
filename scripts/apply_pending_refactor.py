@@ -14,14 +14,14 @@ def write(relative_path: str, text: str) -> None:
 
 def replace_once(relative_path: str, old: str, new: str) -> bool:
     text = read(relative_path)
+    if old in text:
+        write(relative_path, text.replace(old, new, 1))
+        return True
     if new in text:
         return False
-    if old not in text:
-        raise RuntimeError(
-            f"Expected source fragment was not found in {relative_path}: {old[:100]!r}"
-        )
-    write(relative_path, text.replace(old, new, 1))
-    return True
+    raise RuntimeError(
+        f"Expected source fragment was not found in {relative_path}: {old[:100]!r}"
+    )
 
 
 def insert_before(relative_path: str, token: str, addition: str, identity: str) -> bool:
