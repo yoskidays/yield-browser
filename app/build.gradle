@@ -14,6 +14,16 @@ android {
         versionName '0.10.18'
     }
 
+    signingConfigs {
+        update {
+            def configuredStore = System.getenv('YIELD_UPDATE_KEYSTORE')
+            storeFile file(configuredStore ?: "${System.getProperty('user.home')}/.android/debug.keystore")
+            storePassword System.getenv('YIELD_UPDATE_STORE_PASSWORD') ?: 'android'
+            keyAlias System.getenv('YIELD_UPDATE_KEY_ALIAS') ?: 'androiddebugkey'
+            keyPassword System.getenv('YIELD_UPDATE_KEY_PASSWORD') ?: 'android'
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -26,10 +36,12 @@ android {
     buildTypes {
         debug {
             debuggable true
+            signingConfig signingConfigs.update
         }
         release {
             minifyEnabled false
             shrinkResources false
+            signingConfig signingConfigs.update
         }
     }
 
