@@ -7,6 +7,8 @@ import static org.junit.Assert.assertTrue;
 
 public class ShieldEngineV2Test {
     private static final String READER = "https://komiku.org/manga/full-time-awakening/";
+    private static final String DRAMA_PAGE =
+            "https://dramaencode.net/drama-korea-a-bus-proposal-subtitle-indonesia/";
 
     @Test
     public void blocksSameOriginRelayBeforeReaderLeavesMainTab() {
@@ -56,6 +58,7 @@ public class ShieldEngineV2Test {
         assertTrue(ShieldEngineV2.shouldBlockSubresource(
                 "https://doubleclick.net/tag.js", READER, true));
     }
+
     @Test
     public void allowsNextAndPreviousWhenSourceIsAlreadyAChapterPage() {
         String sourceChapter = "https://komiku.org/teisou-gyakuten-sekai-de-yuiitsu-no-otoko-kishi-no-ore-onna-kishi-gakuen-ni-nyuugaku-shitara-nazeka-chapter-6-1/";
@@ -117,7 +120,6 @@ public class ShieldEngineV2Test {
                 "https://www.qwant.com/?q=komiknesia",
                 "https://searx.example.org/search?q=komiknesia"
         };
-
         for (String searchPage : searchPages) {
             assertTrue(ShieldEngineV2.isSearchResultsPage(searchPage));
             assertFalse(ShieldEngineV2.isReaderOrContentPage(searchPage));
@@ -161,4 +163,21 @@ public class ShieldEngineV2Test {
                 "https://javtiful.com/id/video/61787/mdsr-0006-2", true));
     }
 
+    @Test
+    public void dramaPagesUsePopupIsolationBoundary() {
+        assertTrue(ShieldEngineV2.isPopupIsolationContentPage(DRAMA_PAGE));
+        assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://rotating-ad-domain.example/landing",
+                DRAMA_PAGE, false, true, false, false));
+        assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://dramaencode.net/episode-2-subtitle-indonesia/",
+                DRAMA_PAGE, true, true, false, false));
+    }
+
+    @Test
+    public void hardAdSignalsCannotBeWhitelistedByUserGesture() {
+        assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://onclickads.net/click_id=trusted-looking",
+                DRAMA_PAGE, true, true, true, false));
+    }
 }
