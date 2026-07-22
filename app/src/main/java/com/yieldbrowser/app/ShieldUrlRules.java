@@ -18,6 +18,14 @@ final class ShieldUrlRules {
             "(?:^|\\.)(?:dramaencode\\.net)$",
             Pattern.CASE_INSENSITIVE);
 
+    static final Pattern AD_HEAVY_PORTAL_HOST = Pattern.compile(
+            "(?:^|\\.)oploverz\\.[a-z0-9-]+$",
+            Pattern.CASE_INSENSITIVE);
+
+    static final Pattern PORTAL_ALLOWED_THIRD_PARTY_HOST = Pattern.compile(
+            "(?:^|\\.)(?:cloudflare\\.com|disqus\\.com|disquscdn\\.com|facebook\\.com|fbcdn\\.net|facebook\\.net|googleapis\\.com|gstatic\\.com)$",
+            Pattern.CASE_INSENSITIVE);
+
     static final Pattern DOWNLOAD_TARGET_HINT = Pattern.compile(
             "(?:^|[/_.?&=\\-])(?:download|unduh|get-file|file|files|media|mirror|server|dl)(?:[/_.?&=\\-]|$)",
             Pattern.CASE_INSENSITIVE);
@@ -73,6 +81,10 @@ final class ShieldUrlRules {
             ".*\\.(?:avif|bmp|gif|ico|jpe?g|png|svg|webp|woff2?|ttf|otf|mp4|m4v|mov|webm|mkv|m3u8|mpd|m4s|ts|mp3|aac|wav|ogg|pdf|zip|rar|7z)$",
             Pattern.CASE_INSENSITIVE);
 
+    private static final Pattern SCRIPT_LIKE_RESOURCE = Pattern.compile(
+            "(?:.*\\.js$|(?:^|/)(?:js|javascript|scripts?)(?:/|$)|(?:^|[/_-])(?:pop(?:up|under)?|ads?|advert|tag|loader)(?:[/_.-]|$))",
+            Pattern.CASE_INSENSITIVE);
+
     private ShieldUrlRules() {
     }
 
@@ -80,6 +92,12 @@ final class ShieldUrlRules {
         if (!isHttpOrHttps(url)) return false;
         String path = pathOf(url);
         return !path.isEmpty() && DIRECT_CONTENT_ASSET.matcher(path).matches();
+    }
+
+    static boolean isScriptLikeResource(String url) {
+        if (!isHttpOrHttps(url)) return false;
+        String path = pathOf(url);
+        return !path.isEmpty() && SCRIPT_LIKE_RESOURCE.matcher(path).find();
     }
 
     static boolean isRelayPath(String url) {
@@ -104,6 +122,14 @@ final class ShieldUrlRules {
 
     static boolean isKnownDownloadListingHost(String host) {
         return host != null && DOWNLOAD_LISTING_HOST.matcher(host).find();
+    }
+
+    static boolean isAdHeavyPortalHost(String host) {
+        return host != null && AD_HEAVY_PORTAL_HOST.matcher(host).find();
+    }
+
+    static boolean isAllowedPortalThirdPartyHost(String host) {
+        return host != null && PORTAL_ALLOWED_THIRD_PARTY_HOST.matcher(host).find();
     }
 
     static boolean isTrustedDownloadHost(String host) {
