@@ -84,12 +84,12 @@ jobs:
           set -o pipefail
           gradle assembleDebug --stacktrace 2>&1 | tee apk-build.log
 
-      - name: Build Stable Release APK
+      - name: Build Stable Release and Migration APKs
         if: ${{ env.YIELD_RELEASE_SIGNING_READY == 'true' }}
         shell: bash
         run: |
           set -o pipefail
-          gradle assembleRelease --stacktrace 2>&1 | tee release-build.log
+          gradle assembleRelease assembleMigration --stacktrace 2>&1 | tee release-build.log
 
       - name: Verify Stable Release signature
         if: ${{ env.YIELD_RELEASE_SIGNING_READY == 'true' }}
@@ -143,3 +143,10 @@ jobs:
         with:
           name: YieldBrowser-stable-release-apk
           path: app/build/outputs/apk/release/*.apk
+
+      - name: Upload Bookmark Migration APK
+        if: ${{ env.YIELD_RELEASE_SIGNING_READY == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: YieldBrowser-bookmark-migration-apk
+          path: app/build/outputs/apk/migration/*.apk
