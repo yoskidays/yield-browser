@@ -22,6 +22,14 @@ final class ShieldUrlRules {
             "(?:^|[/_-])(?:video|videos|watch|movie|movies|film|stream|player|embed|play)(?:[/_-]|$)",
             Pattern.CASE_INSENSITIVE);
 
+    static final Pattern POPUP_RISK_CONTENT_PATH = Pattern.compile(
+            "(?:^|[/_-])(?:drama|drakor|subtitle|sub(?:title)?-?indo|series|season|episode|watch|movie|film|stream|player|embed|play)(?:[/_-]|$)",
+            Pattern.CASE_INSENSITIVE);
+
+    static final Pattern POPUP_RISK_HOST = Pattern.compile(
+            "(?:^|\\.)(?:dramaencode\\.net)$",
+            Pattern.CASE_INSENSITIVE);
+
     static final Pattern TRUSTED_VIDEO_HOST = Pattern.compile(
             "(?:^|\\.)(?:youtube\\.[a-z.]+|youtu\\.be|googlevideo\\.com|ytimg\\.com|ggpht\\.com|vimeo\\.com|dailymotion\\.com)$",
             Pattern.CASE_INSENSITIVE);

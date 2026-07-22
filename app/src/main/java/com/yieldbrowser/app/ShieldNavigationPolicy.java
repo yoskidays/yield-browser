@@ -10,7 +10,6 @@ final class ShieldNavigationPolicy {
                                                    boolean compatibilityOrReaderContext,
                                                    boolean explicitlyTrusted,
                                                    boolean legacySuspicious) {
-        if (explicitlyTrusted) return false;
         if (!ShieldUrlRules.isHttpOrHttps(targetUrl)) {
             return ShieldUrlRules.isDangerousExternalScheme(targetUrl);
         }
@@ -32,6 +31,8 @@ final class ShieldNavigationPolicy {
                 || ShieldUrlRules.hasHardAdToken(targetUrl)
                 || legacySuspicious;
         if (hardSignal) return true;
+        // User gestures must never whitelist destinations with hard ad signals.
+        if (explicitlyTrusted) return false;
 
         if (isDownloadPage(sourceUrl)
                 && isSafeDownloadNavigation(targetUrl, sourceUrl, hasGesture)) {
@@ -197,10 +198,12 @@ final class ShieldNavigationPolicy {
         String host = ShieldUrlRules.hostOf(url);
         if (host.isEmpty()) return false;
         if (ShieldUrlRules.TRUSTED_VIDEO_HOST.matcher(host).find()) return false;
+        if (ShieldUrlRules.POPUP_RISK_HOST.matcher(host).find()) return true;
         if (isDownloadPage(url) || isReaderOrContentPage(url)) return true;
 
-        return ShieldUrlRules.POPUP_ISOLATED_VIDEO_PATH
-                .matcher(ShieldUrlRules.pathOf(url)).find();
+        String path = ShieldUrlRules.pathOf(url);
+        return ShieldUrlRules.POPUP_ISOLATED_VIDEO_PATH.matcher(path).find()
+                || ShieldUrlRules.POPUP_RISK_CONTENT_PATH.matcher(path).find();
     }
 
     static boolean shouldUseLegacyClickGuard(String pageUrl, boolean clickHijackEnabled) {
