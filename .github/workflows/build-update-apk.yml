@@ -8,6 +8,8 @@ on:
     branches:
       - main
   workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
@@ -42,20 +44,13 @@ jobs:
           path: ~/.android/debug.keystore
           key: yield-browser-update-signing-v1
 
-      - name: Create signing key on first build
+      - name: Stop if signing key is unavailable
         if: steps.signing-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          mkdir -p "$HOME/.android"
-          keytool -genkeypair -v \
-            -keystore "$HOME/.android/debug.keystore" \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -dname "CN=Yield Browser, O=FN Digital, C=ID" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000
+          echo "Yield Browser update signing key is missing."
+          echo "Build stopped to prevent an APK with an incompatible certificate."
+          exit 1
 
       - name: Remove committed and cached build outputs
         shell: bash
