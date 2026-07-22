@@ -15,6 +15,7 @@ import java.util.function.BooleanSupplier;
 /** Owns edge-swipe gesture state and applies the existing tab navigation policy. */
 final class SwipeNavigationController {
     private static final long LONG_PRESS_LINK_CACHE_MAX_AGE_MS = 2_000L;
+    private static final String SELECTABLE_TEXT_MARKER = "__YIELD_SELECT_TEXT__";
 
     private final Activity activity;
     private final View home;
@@ -32,6 +33,7 @@ final class SwipeNavigationController {
     private long lastWebTouchAt;
     private int linkResolveToken;
     private String cachedLongPressLink = "";
+    private boolean cachedLongPressSelectableText;
 
     SwipeNavigationController(Activity activity,
                               View home,
@@ -76,6 +78,7 @@ final class SwipeNavigationController {
         lastTouchedWebView = candidate;
         lastWebTouchAt = System.currentTimeMillis();
         cachedLongPressLink = "";
+        cachedLongPressSelectableText = false;
         final int resolveToken = ++linkResolveToken;
         final String pageUrl = candidate.getUrl();
 
@@ -97,12 +100,19 @@ final class SwipeNavigationController {
                         || value == null) {
                     return;
                 }
-                String href = decodeJavascriptString(value);
-                String resolved = LongPressLinkPolicy.resolveHttpUrl(href, pageUrl);
+                String result = decodeJavascriptString(value);
+                if (SELECTABLE_TEXT_MARKER.equals(result)) {
+                    cachedLongPressLink = "";
+                    cachedLongPressSelectableText = true;
+                    return;
+                }
+                String resolved = LongPressLinkPolicy.resolveHttpUrl(result, pageUrl);
                 cachedLongPressLink = resolved == null ? "" : resolved;
+                cachedLongPressSelectableText = false;
             });
         } catch (RuntimeException ignored) {
             cachedLongPressLink = "";
+            cachedLongPressSelectableText = false;
         }
     }
 
@@ -110,13 +120,13 @@ final class SwipeNavigationController {
         if (!(activity instanceof YieldWebRuntimeActivity) || candidate == null) return false;
         YieldWebRuntimeActivity host = (YieldWebRuntimeActivity) activity;
         String pageUrl = candidate.getUrl();
+        boolean recentTouch = candidate == lastTouchedWebView
+                && System.currentTimeMillis() - lastWebTouchAt
+                <= LONG_PRESS_LINK_CACHE_MAX_AGE_MS;
 
         // Resolve from ACTION_DOWN first. This path can look through transparent advertising
         // overlays and avoids treating the overlay anchor as the user's intended link.
-        if (candidate == lastTouchedWebView
-                && cachedLongPressLink.length() > 0
-                && System.currentTimeMillis() - lastWebTouchAt
-                <= LONG_PRESS_LINK_CACHE_MAX_AGE_MS) {
+        if (recentTouch && cachedLongPressLink.length() > 0) {
             if (shouldBlockLongPressTarget(host, cachedLongPressLink, pageUrl)) {
                 QuietToast.makeText(activity, "Link iklan diblokir",
                         QuietToast.LENGTH_SHORT).show();
@@ -128,8 +138,15 @@ final class SwipeNavigationController {
             return true;
         }
 
-        // On shielded/ad-heavy pages, consume an unresolved long press. Returning false here
-        // lets some sites convert ACTION_UP into a click on a hidden advertising layer.
+        // A long press on ordinary article text must remain owned by WebView so Android can show
+        // its native selection handles and Copy/Select all/Share action mode. Previously every
+        // unresolved long press on a shielded page was consumed, which disabled copying text.
+        if (recentTouch && cachedLongPressSelectableText) {
+            return false;
+        }
+
+        // On shielded/ad-heavy pages, only consume an unresolved non-text long press. This keeps
+        // the hidden-overlay protection without stealing native selection from actual text.
         if (host.adBlock && isShieldedLongPressPage(host, pageUrl)) {
             return true;
         }
@@ -187,11 +204,18 @@ final class SwipeNavigationController {
     }
 
     static String buildLinkLookupScript(float cssX, float cssY) {
+        String x = Float.toString(cssX);
+        String y = Float.toString(cssY);
         return "(function(){try{"
-                + "var list=document.elementsFromPoint?document.elementsFromPoint("
-                + Float.toString(cssX) + "," + Float.toString(cssY) + ")"
-                + ":[document.elementFromPoint(" + Float.toString(cssX) + ","
-                + Float.toString(cssY) + ")];"
+                + "var px=" + x + ",py=" + y + ",textHit=false;"
+                + "try{var cr=document.caretRangeFromPoint?document.caretRangeFromPoint(px,py):null;"
+                + "var tn=cr&&cr.startContainer,te=tn&&tn.nodeType===3?tn.parentElement:null;"
+                + "var interactive=te&&te.closest?te.closest('a[href],button,input,textarea,select,[role=button],[role=link],[onclick]'):null;"
+                + "var ts=te&&window.getComputedStyle?getComputedStyle(te):null;"
+                + "if(tn&&tn.nodeType===3&&String(tn.nodeValue||'').trim().length>0&&!interactive"
+                + "&&(!ts||(ts.userSelect!=='none'&&ts.webkitUserSelect!=='none')))textHit=true;}catch(caretError){}"
+                + "var list=document.elementsFromPoint?document.elementsFromPoint(px,py)"
+                + ":[document.elementFromPoint(px,py)];"
                 + "var seen=[];"
                 + "for(var i=0;i<list.length;i++){"
                 + "var n=list[i],guard=0;"
@@ -217,6 +241,7 @@ final class SwipeNavigationController {
                 + "n=n.parentElement||(root&&root.host?root.host:null);"
                 + "}"
                 + "}"
+                + "if(textHit)return '" + SELECTABLE_TEXT_MARKER + "';"
                 + "}catch(e){}return '';})()";
     }
 
@@ -280,50 +305,37 @@ final class SwipeNavigationController {
                 && Math.abs(dy) <= maxVertical;
     }
 
+    private void navigateForward(WebView targetWebView) {
+        WebView target = targetWebView != null ? targetWebView : currentWebView();
+        if (target != null && target.canGoForward()) target.goForward();
+    }
+
+    private void navigateBack(WebView targetWebView) {
+        WebView target = targetWebView != null ? targetWebView : currentWebView();
+        if (target != null && target.canGoBack()) {
+            target.goBack();
+            return;
+        }
+        WebView current = currentWebView();
+        if (target == current && current != null && current.getVisibility() == View.GONE) {
+            if (restoreHiddenPage != null) restoreHiddenPage.run();
+            return;
+        }
+        if (target == current && showHome != null) showHome.run();
+    }
+
     private WebView currentWebView() {
         if (activity instanceof YieldActivityState) {
-            WebView current = ((YieldActivityState) activity).webView;
-            if (current != null) return current;
+            return ((YieldActivityState) activity).webView;
         }
         return webView;
     }
 
-    private void navigateBack(WebView target) {
-        WebView active = target == null ? currentWebView() : target;
-        TabNavigationPolicy.BackAction action = TabNavigationPolicy.backAction(
-                home != null && home.getVisibility() == View.VISIBLE,
-                active != null && active.getVisibility() == View.VISIBLE,
-                active != null && active.canGoBack());
-        if (action == TabNavigationPolicy.BackAction.RESTORE_PAGE) {
-            run(restoreHiddenPage);
-        } else if (action == TabNavigationPolicy.BackAction.WEB_BACK) {
-            if (active != null) active.goBack();
-        } else {
-            run(showHome);
-        }
-    }
-
-    private void navigateForward(WebView target) {
-        WebView active = target == null ? currentWebView() : target;
-        TabNavigationPolicy.ForwardAction action = TabNavigationPolicy.forwardAction(
-                home != null && home.getVisibility() == View.VISIBLE,
-                active != null && active.getVisibility() == View.VISIBLE,
-                active != null && active.canGoForward());
-        if (action == TabNavigationPolicy.ForwardAction.WEB_FORWARD) {
-            if (active != null) active.goForward();
-        } else if (action == TabNavigationPolicy.ForwardAction.RESTORE_AND_FORWARD) {
-            run(restoreHiddenPage);
-            if (active != null) active.goForward();
-        } else if (action == TabNavigationPolicy.ForwardAction.RESTORE_PAGE) {
-            run(restoreHiddenPage);
-        }
-    }
-
-    private void run(Runnable action) {
-        if (action != null) action.run();
-    }
-
     private int dp(int value) {
-        return YieldUi.dp(activity, value);
+        if (activity == null || activity.getResources() == null
+                || activity.getResources().getDisplayMetrics() == null) {
+            return value;
+        }
+        return Math.round(value * activity.getResources().getDisplayMetrics().density);
     }
 }
