@@ -55,6 +55,15 @@ android {
                 signingConfig signingConfigs.release
             }
         }
+        migration {
+            initWith release
+            debuggable true
+            versionNameSuffix '-migration'
+            matchingFallbacks = ['release']
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
+        }
     }
 
     lint {
