@@ -1,5 +1,7 @@
 package com.yieldbrowser.app;
 
+import android.content.Context;
+import android.content.ContextWrapper;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebChromeClient;
@@ -124,8 +126,27 @@ final class TabWebViewLifecycle {
                 contentFrame.addView(candidate, insertIndex,
                         new FrameLayout.LayoutParams(-1, -1));
             }
+            bindBrowserGestures(candidate);
             if (navigationLoadingOverlay != null) navigationLoadingOverlay.bringToFront();
         } catch (Exception ignored) {
+        }
+    }
+
+    private static void bindBrowserGestures(WebView candidate) {
+        if (candidate == null) return;
+        Context context = candidate.getContext();
+        int guard = 0;
+        while (context != null && guard++ < 8) {
+            if (context instanceof YieldActivityState) {
+                SwipeNavigationController controller =
+                        ((YieldActivityState) context).swipeNavigationController;
+                if (controller != null) controller.bindWebView(candidate);
+                return;
+            }
+            if (!(context instanceof ContextWrapper)) return;
+            Context base = ((ContextWrapper) context).getBaseContext();
+            if (base == context) return;
+            context = base;
         }
     }
 
@@ -201,6 +222,8 @@ final class TabWebViewLifecycle {
             try { shieldRemover.remove(doomed); } catch (Exception ignored) {}
         }
         try { doomed.setTag(null); } catch (Exception ignored) {}
+        try { doomed.setOnTouchListener(null); } catch (Exception ignored) {}
+        try { doomed.setOnLongClickListener(null); } catch (Exception ignored) {}
         try { doomed.setDownloadListener(null); } catch (Exception ignored) {}
         try { doomed.removeJavascriptInterface("YieldVideoBridge"); } catch (Exception ignored) {}
         try { doomed.removeJavascriptInterface("YieldAdBlockBridge"); } catch (Exception ignored) {}
