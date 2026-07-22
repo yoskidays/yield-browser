@@ -30,6 +30,18 @@ public class ShieldDownloadListingPolicyTest {
                 "https://www.mp4upload.com/example",
                 DRAMAENCODE_PAGE,
                 true));
+        assertTrue(ShieldNavigationPolicy.isSafeDownloadNavigation(
+                "https://fastdown.io/example",
+                DRAMAENCODE_PAGE,
+                true));
+        assertTrue(ShieldNavigationPolicy.isSafeDownloadNavigation(
+                "https://racaty.io/example",
+                DRAMAENCODE_PAGE,
+                true));
+        assertTrue(ShieldNavigationPolicy.isSafeDownloadNavigation(
+                "https://mirrorace.org/example",
+                DRAMAENCODE_PAGE,
+                true));
         assertFalse(ShieldNavigationPolicy.isSafeDownloadNavigation(
                 "https://www.mediafire.com/file/example/video.mp4/file",
                 DRAMAENCODE_PAGE,
@@ -47,5 +59,17 @@ public class ShieldDownloadListingPolicyTest {
                 true,
                 false,
                 false));
+    }
+
+    @Test
+    public void neverTreatsCheapOrRedirectAdTargetsAsSafeDownloads() {
+        assertFalse(ShieldNavigationPolicy.isSafeDownloadNavigation(
+                "https://fake-download.click/file",
+                DRAMAENCODE_PAGE,
+                true));
+        assertFalse(ShieldNavigationPolicy.isSafeDownloadNavigation(
+                "https://example.com/redirect?url=https://files.fm/u/example",
+                DRAMAENCODE_PAGE,
+                true));
     }
 }
