@@ -7,11 +7,11 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.yieldbrowser.install'
+        applicationId 'com.yieldbrowser.install.test'
         minSdk 23
         targetSdk 35
-        versionCode 96
-        versionName '0.10.22'
+        versionCode 97
+        versionName '0.10.23-test'
     }
 
     signingConfigs {
