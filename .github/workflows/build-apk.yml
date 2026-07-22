@@ -24,10 +24,14 @@ jobs:
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          show-progress: false
 
       - name: Apply pending guarded refactor
         if: ${{ hashFiles('scripts/apply_pending_refactor.py') != '' }}
-        run: python3 scripts/apply_pending_refactor.py
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/apply_pending_refactor.py 2>&1 | tee patch.log
 
       - name: Verify generated patch formatting
         if: ${{ hashFiles('scripts/apply_pending_refactor.py') != '' }}
@@ -107,6 +111,7 @@ jobs:
         with:
           name: Gradle-failure-logs
           path: |
+            patch.log
             unit-test.log
             apk-build.log
             release-build.log
