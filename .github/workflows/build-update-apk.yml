@@ -82,25 +82,28 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/YieldBrowser-v0.10.24-TEST.apk
-          keytool -printcert -jarfile dist/YieldBrowser-v0.10.24-TEST.apk \
+          cp app/build/outputs/apk/debug/app-debug.apk dist/YieldBrowser-v0.10.25-TEST.apk
+          keytool -printcert -jarfile dist/YieldBrowser-v0.10.25-TEST.apk \
             | grep -E "SHA256:|Owner:|Valid from:" > dist/signing-certificate.txt
-          sha256sum dist/YieldBrowser-v0.10.24-TEST.apk > dist/YieldBrowser-v0.10.24-TEST.apk.sha256
+          sha256sum dist/YieldBrowser-v0.10.25-TEST.apk > dist/YieldBrowser-v0.10.25-TEST.apk.sha256
           cat > dist/INSTALLATION.txt <<'EOF'
-          Yield Browser v0.10.24 TEST
+          Yield Browser v0.10.25 TEST
           Package: com.yieldbrowser.install.test
-          Version code: 98
+          Version code: 99
 
           This is a separate test application named Yield TEST.
           It can be installed beside the main Yield Browser application.
           It does not replace, uninstall, clear, or modify the main app data.
-          Test https://oploverz.am/ from a fresh tab and confirm no startup ad appears.
+
+          Test https://oploverz.am/ from a fresh tab.
+          Confirm the startup ad no longer flashes before disappearing.
+          Confirm GD, VIKING, AKIRA, FILEDON and BUZZ links can be opened.
           EOF
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: YieldBrowser-v0.10.24-TEST
+          name: YieldBrowser-v0.10.25-TEST
           path: dist/*
           if-no-files-found: error
           retention-days: 30
