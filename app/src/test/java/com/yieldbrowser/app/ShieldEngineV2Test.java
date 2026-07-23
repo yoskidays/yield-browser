@@ -56,6 +56,7 @@ public class ShieldEngineV2Test {
         assertTrue(ShieldEngineV2.shouldBlockSubresource(
                 "https://doubleclick.net/tag.js", READER, true));
     }
+
     @Test
     public void allowsNextAndPreviousWhenSourceIsAlreadyAChapterPage() {
         String sourceChapter = "https://komiku.org/teisou-gyakuten-sekai-de-yuiitsu-no-otoko-kishi-no-ore-onna-kishi-gakuen-ni-nyuugaku-shitara-nazeka-chapter-6-1/";
@@ -161,4 +162,52 @@ public class ShieldEngineV2Test {
                 "https://javtiful.com/id/video/61787/mdsr-0006-2", true));
     }
 
+    @Test
+    public void oploverzHomepageUsesPopupIsolationBoundary() {
+        String home = "https://oploverz.am/";
+
+        assertTrue(ShieldEngineV2.isPopupIsolationContentPage(home));
+        assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://unknown-ad-landing.example/offer",
+                home, false, true, false, false));
+        assertFalse(ShieldEngineV2.shouldUseLegacyClickGuard(home, true));
+    }
+
+    @Test
+    public void oploverzBlocksUnknownThirdPartyScriptsButKeepsSafeSupportHosts() {
+        String home = "https://oploverz.am/";
+
+        assertTrue(ShieldEngineV2.shouldBlockSubresource(
+                "https://rotating-ad-network.example/assets/popup.js", home, false));
+        assertTrue(ShieldEngineV2.shouldBlockSubresource(
+                "https://rotating-ad-network.example/popunder/loader", home, false));
+        assertFalse(ShieldEngineV2.shouldBlockSubresource(
+                "https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js", home, false));
+        assertFalse(ShieldEngineV2.shouldBlockSubresource(
+                "https://oploverz.am/wp-content/themes/site/app.js", home, false));
+        assertFalse(ShieldEngineV2.shouldBlockSubresource(
+                "https://cdn.example.org/posters/anime.webp", home, false));
+    }
+
+    @Test
+    public void oploverzDownloadButtonsKeepCleanGestureLane() {
+        String episode = "https://oploverz.am/clevatess-episode-03-subtitle-indonesia/";
+        String fileDon = "https://filedon.co/f/episode-03-720p";
+        String rotatingCleanHost = "https://files.vikingcdn.example/download/episode-03";
+
+        assertTrue(ShieldEngineV2.isDownloadPage(episode));
+        assertTrue(ShieldEngineV2.isSafeDownloadNavigation(fileDon, episode, true));
+        assertTrue(ShieldEngineV2.isSafeDownloadNavigation(rotatingCleanHost, episode, true));
+        assertFalse(ShieldEngineV2.isSafeDownloadNavigation(fileDon, episode, false));
+        assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                fileDon, episode, true, true, false, false));
+        assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://oploverz.am/go/episode-03-file", episode,
+                true, true, false, false));
+        assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://onclickads.net/click_id=episode-03", episode,
+                true, true, false, false));
+        assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                fileDon, episode, false, true, false, false));
+    }
 }

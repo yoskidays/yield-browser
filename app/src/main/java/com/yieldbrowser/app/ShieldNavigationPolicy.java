@@ -23,6 +23,13 @@ final class ShieldNavigationPolicy {
         boolean sameSite = !sourceHost.isEmpty()
                 && ShieldUrlRules.sameSite(targetHost, sourceHost);
         if (sameSite) {
+            // Oploverz sometimes routes a visible GD/VIKING/AKIRA/FILEDON button through a
+            // first-party endpoint. A real user gesture must remain usable; automatic relay calls
+            // still have no gesture and continue through the high-confidence relay blocker.
+            if (ShieldUrlRules.isAdHeavyPortalHost(sourceHost)
+                    && hasGesture && !ShieldUrlRules.hasHardAdToken(targetUrl)) {
+                return false;
+            }
             if (isSafeSameSiteReaderNavigation(targetUrl, sourceUrl)) return false;
             return isHighConfidenceSameOriginRelay(
                     targetUrl, sourceUrl, compatibilityOrReaderContext);
@@ -35,6 +42,13 @@ final class ShieldNavigationPolicy {
 
         if (isDownloadPage(sourceUrl)
                 && isSafeDownloadNavigation(targetUrl, sourceUrl, hasGesture)) {
+            return false;
+        }
+
+        // Oploverz uses changing external file hosts. Allow only a clean destination produced by
+        // a real gesture; startup redirects have no gesture and remain inside popup isolation.
+        if (ShieldUrlRules.isAdHeavyPortalHost(sourceHost)
+                && hasGesture && isCleanDownloadTarget(targetUrl)) {
             return false;
         }
 
@@ -62,6 +76,15 @@ final class ShieldNavigationPolicy {
         if (ShieldUrlRules.sameSite(resourceHost, pageHost)) {
             return ShieldUrlRules.hasHardAdToken(resourceUrl)
                     && ShieldUrlRules.isRelayPath(resourceUrl);
+        }
+
+        // Oploverz loads its first-view popup code from changing third-party hosts. Restrict only
+        // script-like requests on that portal and keep known support providers available, so images,
+        // stylesheets, fonts, video assets and ordinary external links are not globally affected.
+        if (ShieldUrlRules.isAdHeavyPortalHost(pageHost)
+                && !ShieldUrlRules.isAllowedPortalThirdPartyHost(resourceHost)
+                && ShieldUrlRules.isScriptLikeResource(resourceUrl)) {
+            return true;
         }
 
         if (directAsset) {
@@ -130,7 +153,8 @@ final class ShieldNavigationPolicy {
     static boolean isDownloadPage(String url) {
         if (!ShieldUrlRules.isHttpOrHttps(url) || isSearchResultsPage(url)) return false;
         String host = ShieldUrlRules.hostOf(url);
-        return ShieldUrlRules.isKnownDownloadListingHost(host)
+        return ShieldUrlRules.isAdHeavyPortalHost(host)
+                || ShieldUrlRules.isKnownDownloadListingHost(host)
                 || ShieldUrlRules.DOWNLOAD_PAGE_PATH
                 .matcher(ShieldUrlRules.pathOf(url)).find();
     }
@@ -146,6 +170,7 @@ final class ShieldNavigationPolicy {
         String sourceHost = ShieldUrlRules.hostOf(sourceUrl);
         if (targetHost.isEmpty() || sourceHost.isEmpty()) return false;
         if (ShieldUrlRules.sameSite(targetHost, sourceHost)) return true;
+        if (ShieldUrlRules.isAdHeavyPortalHost(sourceHost)) return true;
 
         return ShieldUrlRules.isTrustedDownloadHost(targetHost);
     }
@@ -197,6 +222,7 @@ final class ShieldNavigationPolicy {
 
         String host = ShieldUrlRules.hostOf(url);
         if (host.isEmpty()) return false;
+        if (ShieldUrlRules.isAdHeavyPortalHost(host)) return true;
         if (ShieldUrlRules.TRUSTED_VIDEO_HOST.matcher(host).find()) return false;
         if (isDownloadPage(url) || isReaderOrContentPage(url)) return true;
 
