@@ -95,9 +95,23 @@ public class ShieldPageScriptTest {
         assertTrue(script.contains("function portalAllowedHost"));
         assertTrue(script.contains("function portalPopupTimer"));
         assertTrue(script.contains("nativeInterval=W.setInterval"));
+        assertTrue(script.contains("function installPortalPrepaintCss"));
+        assertTrue(script.contains("yield-oploverz-prepaint"));
         assertTrue(script.contains("#overplay,.overplay"));
-        assertTrue(script.contains("[class*=overplay]"));
+        assertTrue(script.contains("[id*=popup-ad]"));
+        assertTrue(script.contains("visibility:hidden!important"));
         assertTrue(script.contains("overplay|sponsor"));
+    }
+
+    @Test
+    public void keepsOploverzDownloadButtonsUsable() {
+        String script = ShieldPageScript.documentStart(true, true, true, true, true);
+        assertTrue(script.contains("gd|viking|akira|filedon|buzz"));
+        assertTrue(script.contains("table,tbody,tr,td"));
+        assertTrue(script.contains("filedon\\.co"));
+        assertTrue(script.contains("portalControl=adHeavyPortal()&&control"));
+        assertTrue(script.contains("if(portalControl)return true"));
+        assertTrue(script.contains("trustedDownloadHost(host(u))||adHeavyPortal()"));
     }
 
     @Test
