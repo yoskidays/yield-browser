@@ -188,4 +188,26 @@ public class ShieldEngineV2Test {
         assertFalse(ShieldEngineV2.shouldBlockSubresource(
                 "https://cdn.example.org/posters/anime.webp", home, false));
     }
+
+    @Test
+    public void oploverzDownloadButtonsKeepCleanGestureLane() {
+        String episode = "https://oploverz.am/clevatess-episode-03-subtitle-indonesia/";
+        String fileDon = "https://filedon.co/f/episode-03-720p";
+        String rotatingCleanHost = "https://files.vikingcdn.example/download/episode-03";
+
+        assertTrue(ShieldEngineV2.isDownloadPage(episode));
+        assertTrue(ShieldEngineV2.isSafeDownloadNavigation(fileDon, episode, true));
+        assertTrue(ShieldEngineV2.isSafeDownloadNavigation(rotatingCleanHost, episode, true));
+        assertFalse(ShieldEngineV2.isSafeDownloadNavigation(fileDon, episode, false));
+        assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                fileDon, episode, true, true, false, false));
+        assertFalse(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://oploverz.am/go/episode-03-file", episode,
+                true, true, false, false));
+        assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                "https://onclickads.net/click_id=episode-03", episode,
+                true, true, false, false));
+        assertTrue(ShieldEngineV2.shouldBlockMainFrameNavigation(
+                fileDon, episode, false, true, false, false));
+    }
 }
